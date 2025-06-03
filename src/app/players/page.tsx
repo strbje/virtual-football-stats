@@ -11,7 +11,11 @@ export default async function PlayersPage() {
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Список игроков</h1>
       <ul>
-        {(rows as any[]).map((player) => (
+        {(rows as const rows: any[] = [
+  { id: 1, name: "Игрок 1" },
+  { id: 2, name: "Игрок 2" }
+];
+).map((player) => (
           <li key={player.id}>{player.name}</li>
         ))}
       </ul>
