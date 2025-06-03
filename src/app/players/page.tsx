@@ -1,11 +1,11 @@
 import { getConnection } from "@/lib/db";
 
 export default async function PlayersPage() {
-  const connection = await getConnection();
+  //const connection = await getConnection();
 
   // Выполним простой тестовый запрос к таблице игроков
-  const [rows] = await connection.execute("SELECT id, name FROM players LIMIT 10");
-  await connection.end();
+  //const [rows] = await connection.execute("SELECT id, name FROM players LIMIT 10");
+  //await connection.end();
 
   return (
     <div className="p-4">
