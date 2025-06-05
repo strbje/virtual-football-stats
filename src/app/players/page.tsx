@@ -1,8 +1,11 @@
-import { getConnection } from "@/lib/db";
+export interface Player {
+  id: number;
+  name: string;
+}
 
 export default async function Page() {
   // Подключение к базе или моковые данные
-  const rows: any[] = [
+  const rows: Player[] = [
     { id: 1, name: "Игрок 1" },
     { id: 2, name: "Игрок 2" }
   ];

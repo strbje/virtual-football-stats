@@ -97,8 +97,8 @@ export default function HomePage() {
               { id: 1, name: "Александр Петров", team: "Динамо Москва", rating: 8.5 },
               { id: 2, name: "Иван Сидоров", team: "Спартак Москва", rating: 8.2 },
               { id: 3, name: "Михаил Козлов", team: "ЦСКА Москва", rating: 8.0 },
-            ].map((player) => (
-              <Link key={player.id} href={`/player/${player.id}`}>
+              ].map((player) => (
+              <Link key={player.id} href={`/players/${player.id}`}>
                 <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
                   <div className="flex items-center space-x-3">
                     <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
