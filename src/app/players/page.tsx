@@ -1,6 +1,8 @@
 import { getConnection } from "@/lib/db";
 
 export default async function Page() {
+  console.log("✅ Страница /players загружена");
+  
   const connection = await getConnection();
 
   const [rows] = await connection.execute(`
