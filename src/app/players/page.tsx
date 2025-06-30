@@ -21,6 +21,7 @@ export default async function Page() {
     LIMIT 50;
   `);
 
+  console.log(rows);
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Последние игроки (по матчам)</h1>
