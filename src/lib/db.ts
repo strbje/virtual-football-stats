@@ -2,10 +2,10 @@ import mysql from "mysql2/promise";
 
 export async function getConnection() {
   const connection = await mysql.createConnection({
-  host: "strofeheikonk.beget.app",
-  user: "cyberfootball",
+  host: "virendhl.beget.tech",
+  user: "virendhl_cyberf",
   password: "Acfdatabase2233!",
-  database: "cyberfootball",
+  database: "virendhl_cyberf",
   });
 
   return connection;
