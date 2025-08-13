@@ -1,4 +1,4 @@
-// src/app/players/page.tsx
+cat > src/app/players/page.tsx <<'TS'
 import { prisma } from '@/lib/db';
 
 type PlayerRow = {
@@ -51,3 +51,4 @@ export default async function Page() {
     </div>
   );
 }
+TS
