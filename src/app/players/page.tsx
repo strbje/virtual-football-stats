@@ -1,11 +1,19 @@
-import { getConnection } from "@/lib/db";
+// src/app/players/page.tsx
+import { prisma } from '@/lib/db';
+
+type PlayerRow = {
+  id: number;
+  name: string;
+  team_name: string;
+  tournament_name: string;
+  date_formatted: string;
+  round: number | null;
+};
 
 export default async function Page() {
-  console.log("✅ Страница /players загружена");
-  
-  const connection = await getConnection();
+  console.log('✅ Страница /players загружена');
 
-  const [rows] = await connection.execute(`
+  const rows = await prisma.$queryRaw<PlayerRow[]>`
     SELECT 
       u.id AS id,
       u.gamertag AS name,
@@ -20,21 +28,26 @@ export default async function Page() {
     INNER JOIN tournament t ON tm.tournament_id = t.id
     INNER JOIN teams c ON ums.team_id = c.id
     ORDER BY tm.timestamp DESC
-    LIMIT 50;
-  `);
+    LIMIT 50
+  `;
 
-  console.log(rows);
+  if (!Array.isArray(rows)) {
+    throw new Error('Unexpected DB result shape');
+  }
+
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Последние игроки (по матчам)</h1>
       <ul className="space-y-2">
-        {rows.map((player: any) => (
+        {rows.map((player) => (
           <li key={player.id} className="border-b pb-2">
             <strong>{player.name}</strong> — {player.team_name} — {player.tournament_name} — {player.date_formatted}
+            {typeof player.round === 'number' && (
+              <span className="ml-2 text-sm text-gray-500">Раунд: {player.round}</span>
+            )}
           </li>
         ))}
       </ul>
     </div>
   );
 }
-
