@@ -1,4 +1,4 @@
-cat > src/app/players/page.tsx <<'TS'
+export const dynamic = 'force-dynamic';
 import { prisma } from '@/lib/db';
 
 type PlayerRow = {
@@ -51,4 +51,4 @@ export default async function Page() {
     </div>
   );
 }
-TS
+
