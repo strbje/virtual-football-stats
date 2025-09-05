@@ -1,16 +1,18 @@
-// src/app/api/drafts/[id]/captains/route.ts
 import { NextResponse } from "next/server";
 import { readStore, writeStore } from "@/lib/store";
 import { randomUUID } from "crypto";
 
-export async function POST(req: Request, context: any) {
-  const { id } = context.params as { id: string };
+function getId(req: Request) {
+  const m = new URL(req.url).pathname.match(/\/api\/drafts\/([^/]+)/);
+  return m?.[1] ?? "";
+}
+
+export async function POST(req: Request) {
+  const id = getId(req);
+  if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
   const body = await req.json().catch(() => ({}));
-  const captainIds: string[] = Array.isArray(body.captainIds)
-    ? body.captainIds.map(String)
-    : [];
-
+  const captainIds: string[] = Array.isArray(body?.captainIds) ? body.captainIds.map(String) : [];
   if (captainIds.length < 2) {
     return NextResponse.json({ error: "captainIds array (>=2) required" }, { status: 400 });
   }
@@ -24,7 +26,7 @@ export async function POST(req: Request, context: any) {
     id: randomUUID(),
     name: `Team ${i + 1}`,
     captainId: cid,
-    draftOrder: i + 1,
+    draftOrder: i + 1, // можно и без этого поля, если не используешь
     players: [cid],
   }));
   sess.picks = [];
