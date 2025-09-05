@@ -4,11 +4,11 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { headers } from "next/headers";
 
-function getBaseUrl() {
-  const h = headers();
+// Абсолютный URL для серверных fetch (за прокси/PM2)
+async function getBaseUrl() {
+  const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? "http";
-  // Если в .env задан NEXT_PUBLIC_BASE_URL — используем его
   return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
 }
 
@@ -151,10 +151,11 @@ function ScheduleBtn({ id }: { id: string }) {
 export default async function DraftPage(props: any) {
   // В Next 15 params может быть Promise — ждём его при необходимости
   const maybe = props?.params;
+  // @ts-expect-error: params может быть promise
   const params = typeof maybe?.then === "function" ? await maybe : maybe;
   const id = String(params?.id || "");
 
-  const base = getBaseUrl();
+  const base = await getBaseUrl();
   const res = await fetch(`${base}/api/drafts/${id}`, { cache: "no-store" });
   if (!res.ok) {
     return (
