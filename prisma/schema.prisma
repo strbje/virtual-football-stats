@@ -18,7 +18,7 @@ model Player {
   platform           String
   contactTelegram    String?
   contactDiscord     String?
-  preferredRoles     String              // "GK;CB;LB;RB;CDM;CM;CAM;LW;RW;ST"
+  preferredRoles     String
   primaryRole        Role?
   availability       String?
   mic                Boolean  @default(true)
@@ -113,56 +113,4 @@ model Match {
   awayTeamId   String
   homeGoals    Int?
   awayGoals    Int?
-  status       MatchStatus @default(planned)
-  reportLink   String?
-  verification Int        @default(0)  // 0 none, 1 home ok, 2 both ok
-  createdAt    DateTime   @default(now())
-
-  session      DraftSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  homeTeam     Team         @relation("homeTeam", fields: [homeTeamId], references: [id])
-  awayTeam     Team         @relation("awayTeam", fields: [awayTeamId], references: [id])
-  lineups      Lineup[]
-
-  @@unique([sessionId, slot])
-}
-
-model Lineup {
-  matchId       String
-  teamId        String
-  playerId      String
-  rolePlayed    Role?
-  minutes       Int?
-  goals         Int?    @default(0)
-  assists       Int?    @default(0)
-  saves         Int?    @default(0)
-  shots         Int?    @default(0)
-  passes        Int?    @default(0)
-  interceptions Int?    @default(0)
-  tackles       Int?    @default(0)
-  dribbles      Int?    @default(0)
-  ratingCaptain Float?
-  ratingSystem  Float?
-  mom           Boolean  @default(false)
-  notes         String?
-
-  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  player        Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
-
-  @@id([matchId, teamId, playerId])
-}
-
-model ReputationEvent {
-  id        String   @id @default(uuid())
-  playerId  String
-  sessionId String?
-  date      DateTime @default(now())
-  type      String
-  points    Int
-  source    String   @default("system")
-  matchId   String?
-  comment   String?
-
-  player    Player         @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  session   DraftSession?  @relation(fields: [sessionId], references: [id])
-}
+  status       MatchStatus @defa
