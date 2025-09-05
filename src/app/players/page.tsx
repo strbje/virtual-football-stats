@@ -1,6 +1,7 @@
-export const dynamic = 'force-dynamic';
-const db = await getDb();
-if (!db) { /* показать заглушку / пропустить БД-логику */ };
+// src/app/players/page.tsx
+import { getDb } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
 
 type PlayerRow = {
   id: number;
@@ -12,10 +13,23 @@ type PlayerRow = {
 };
 
 export default async function Page() {
-  console.log('✅ Страница /players загружена');
+  const db = await getDb();
 
-  const rows = await prisma.$queryRaw<PlayerRow[]>`
-    SELECT 
+  // БД выключена/клиент не сгенерён → возвращаем заглушку
+  if (!db) {
+    return (
+      <div className="space-y-2">
+        <h1 className="text-2xl font-bold">Игроки</h1>
+        <p className="text-sm text-gray-500">
+          База данных временно отключена (SKIP_DB=1). Страница работает в режиме заглушки.
+        </p>
+      </div>
+    );
+  }
+
+  // Реальный запрос (MySQL), типизован через дженерик
+  const rows = await db.$queryRaw<PlayerRow[]>`
+    SELECT
       u.id AS id,
       u.gamertag AS name,
       c.team_name,
@@ -32,25 +46,19 @@ export default async function Page() {
     LIMIT 50
   `;
 
-  if (!Array.isArray(rows)) {
-    throw new Error('Unexpected DB result shape');
-  }
-
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Последние игроки (по матчам)</h1>
+    <div>
+      <h1 className="text-2xl font-bold mb-4">Игроки</h1>
       <ul className="space-y-2">
-        {rows.map((player) => (
-          <li key={player.id} className="border-b pb-2">
-            <strong>{player.name}</strong> — {player.team_name} — {player.tournament_name} — {player.date_formatted}
-            {typeof player.round === 'number' && (
-              <span className="ml-2 text-sm text-gray-500">Раунд: {player.round}</span>
-            )}
+        {rows.map((r) => (
+          <li key={r.id} className="bg-white rounded border p-3">
+            <div className="font-semibold">{r.name}</div>
+            <div className="text-sm text-gray-600">
+              Команда: {r.team_name} • Турнир: {r.tournament_name} • Раунд: {r.round ?? "—"} • {r.date_formatted}
+            </div>
           </li>
         ))}
       </ul>
     </div>
   );
 }
-
-
