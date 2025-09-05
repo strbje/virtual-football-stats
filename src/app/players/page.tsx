@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
-import { prisma } from '@/lib/db';
+const db = await getDb();
+if (!db) { /* показать заглушку / пропустить БД-логику */ };
 
 type PlayerRow = {
   id: number;
@@ -51,4 +52,5 @@ export default async function Page() {
     </div>
   );
 }
+
 
