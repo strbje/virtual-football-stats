@@ -27,16 +27,20 @@ export async function POST(req: Request) {
   const already = sess.teams.some(t => t.players.includes(playerId));
   if (already) return NextResponse.json({ error: "already picked" }, { status: 409 });
 
-  // snake-порядок
+  // snake-порядок по индексу массива (массив создан в порядке драфта)
   const teamCount = sess.teams.length;
   const picksDone = sess.picks.length;
   const round = Math.floor(picksDone / teamCount);
   const idxInRound = picksDone % teamCount;
   const forward = round % 2 === 0;
   const expectedOrder = forward ? idxInRound : (teamCount - 1 - idxInRound);
-  const expectedTeam = sess.teams.find(t => (t.draftOrder! - 1) === expectedOrder);
+  const expectedTeam = sess.teams[expectedOrder];
+
   if (!expectedTeam || expectedTeam.id !== teamId) {
-    return NextResponse.json({ error: "not your turn", expectedTeamId: expectedTeam?.id }, { status: 409 });
+    return NextResponse.json(
+      { error: "not your turn", expectedTeamId: expectedTeam?.id },
+      { status: 409 }
+    );
   }
 
   expectedTeam.players.push(playerId);
