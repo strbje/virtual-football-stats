@@ -8,8 +8,8 @@ export async function GET(_req: Request, context: any) {
   return NextResponse.json(sess);
 }
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const s = await readStore();
+export async function PATCH(req: Request, context: any) {
+  const { id } = context.params as { id: string };
   const sess = s.sessions.find(x => x.id === params.id);
   if (!sess) return NextResponse.json({ error: "not found" }, { status: 404 });
   const body = await req.json().catch(() => ({}));
