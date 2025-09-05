@@ -1,26 +1,14 @@
 // src/app/drafts/page.tsx
 export const dynamic = "force-dynamic";
-
 import Link from "next/link";
+import { headers } from "next/headers";
 
 // Крошечный клиентский виджет для создания драфта
-function NewDraftForm() {
-  "use client";
-  async function onSubmit(formData: FormData) {
-    const name = String(formData.get("name") || "").trim();
-    if (!name) return alert("Введите название");
-    const res = await fetch("/api/drafts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      alert(j?.error || "Ошибка");
-      return;
-    }
-    const { id } = await res.json();
-    location.href = `/drafts/${id}`;
+function getBaseUrl() {
+  const h = headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
   }
 
   return (
@@ -36,9 +24,9 @@ function NewDraftForm() {
 }
 
 export default async function DraftsPage() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/drafts`, { cache: "no-store" })
-    .catch(() => null);
-  const sessions: any[] = res?.ok ? await res!.json() : [];
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/api/drafts`, { cache: "no-store" });
+  const sessions: any[] = res.ok ? await res.json() : [];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
