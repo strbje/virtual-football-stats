@@ -1,7 +1,16 @@
 // src/app/drafts/[id]/page.tsx
 export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { headers } from "next/headers";
+
+function getBaseUrl() {
+  const h = headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  // Если в .env задан NEXT_PUBLIC_BASE_URL — используем его
+  return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -21,6 +30,7 @@ function RegisterForm({ id }: { id: string }) {
       .split(",")
       .map((r) => r.trim())
       .filter(Boolean);
+
     const res = await fetch(`/api/drafts/${id}/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -47,6 +57,7 @@ function CaptainsForm({ id, players }: { id: string; players: any[] }) {
   async function onSubmit(formData: FormData) {
     const selected = formData.getAll("captains").map(String);
     if (selected.length < 2) return alert("Выберите минимум двух капитанов");
+
     const res = await fetch(`/api/drafts/${id}/captains`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -63,7 +74,9 @@ function CaptainsForm({ id, players }: { id: string; players: any[] }) {
     <form action={onSubmit} className="space-y-2">
       <select name="captains" multiple className="border rounded p-2 w-full h-40">
         {players.map((p) => (
-          <option key={p.id} value={p.id}>{p.gamertag}</option>
+          <option key={p.id} value={p.id}>
+            {p.gamertag}
+          </option>
         ))}
       </select>
       <button className="bg-blue-600 text-white rounded px-3">Назначить капитанов</button>
@@ -71,7 +84,17 @@ function CaptainsForm({ id, players }: { id: string; players: any[] }) {
   );
 }
 
-function PickForm({ id, teams, players, pickedIds }: { id: string; teams: any[]; players: any[]; pickedIds: string[] }) {
+function PickForm({
+  id,
+  teams,
+  players,
+  pickedIds,
+}: {
+  id: string;
+  teams: any[];
+  players: any[];
+  pickedIds: string[];
+}) {
   "use client";
   async function onSubmit(formData: FormData) {
     const teamId = String(formData.get("teamId") || "");
@@ -91,10 +114,18 @@ function PickForm({ id, teams, players, pickedIds }: { id: string; teams: any[];
   return (
     <form action={onSubmit} className="flex gap-2 items-center">
       <select name="teamId" className="border rounded p-2">
-        {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        {teams.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
       </select>
       <select name="playerId" className="border rounded p-2 min-w-52">
-        {freePlayers.map((p) => <option key={p.id} value={p.id}>{p.gamertag}</option>)}
+        {freePlayers.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.gamertag}
+          </option>
+        ))}
       </select>
       <button className="bg-blue-600 text-white rounded px-3">Сделать пик</button>
     </form>
@@ -109,22 +140,29 @@ function ScheduleBtn({ id }: { id: string }) {
     if (!res.ok) return alert(j?.error || "Ошибка");
     location.reload();
   }
-  return <button onClick={click} className="bg-emerald-600 text-white rounded px-3 py-2">Сгенерировать расписание</button>;
+  return (
+    <button onClick={click} className="bg-emerald-600 text-white rounded px-3 py-2">
+      Сгенерировать расписание
+    </button>
+  );
 }
 /* ------------------------------------------------ */
 
 export default async function DraftPage(props: any) {
-  const params = (await props.params) ?? props.params;
+  // В Next 15 params может быть Promise — ждём его при необходимости
+  const maybe = props?.params;
+  const params = typeof maybe?.then === "function" ? await maybe : maybe;
   const id = String(params?.id || "");
+
   const base = getBaseUrl();
   const res = await fetch(`${base}/api/drafts/${id}`, { cache: "no-store" });
-
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/drafts/${id}`, { cache: "no-store" });
   if (!res.ok) {
     return (
       <div className="p-6">
         <div className="text-red-600">Драфт не найден</div>
-        <Link href="/drafts" className="text-blue-600 underline">← ко всем драфтам</Link>
+        <Link href="/drafts" className="text-blue-600 underline">
+          ← ко всем драфтам
+        </Link>
       </div>
     );
   }
@@ -134,14 +172,20 @@ export default async function DraftPage(props: any) {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <Link href="/drafts" className="text-blue-600 underline">← ко всем драфтам</Link>
+      <Link href="/drafts" className="text-blue-600 underline">
+        ← ко всем драфтам
+      </Link>
       <h1 className="text-2xl font-bold">{s.name}</h1>
       <div className="text-sm text-gray-500">Статус: {s.status}</div>
 
       <Section title="Регистрация игроков">
         <RegisterForm id={id} />
         <ul className="list-disc pl-5 text-sm">
-          {s.registered?.map((p: any) => <li key={p.id}>{p.gamertag} {p.roles?.length ? `(${p.roles.join(", ")})` : ""}</li>)}
+          {s.registered?.map((p: any) => (
+            <li key={p.id}>
+              {p.gamertag} {p.roles?.length ? `(${p.roles.join(", ")})` : ""}
+            </li>
+          ))}
         </ul>
       </Section>
 
@@ -169,7 +213,11 @@ export default async function DraftPage(props: any) {
             {s.picks?.map((pk: any, i: number) => {
               const t = s.teams.find((x: any) => x.id === pk.teamId);
               const p = s.registered.find((x: any) => x.id === pk.playerId);
-              return <li key={i}>{t?.name}: {p?.gamertag}</li>;
+              return (
+                <li key={i}>
+                  {t?.name}: {p?.gamertag}
+                </li>
+              );
             })}
           </ol>
         </Section>
@@ -181,7 +229,11 @@ export default async function DraftPage(props: any) {
           {s.schedule?.map((m: any, i: number) => {
             const h = s.teams.find((x: any) => x.id === m.homeId);
             const a = s.teams.find((x: any) => x.id === m.awayId);
-            return <li key={i}>Тур {m.round}: {h?.name} — {a?.name}</li>;
+            return (
+              <li key={i}>
+                Тур {m.round}: {h?.name} — {a?.name}
+              </li>
+            );
           })}
         </ol>
       </Section>
