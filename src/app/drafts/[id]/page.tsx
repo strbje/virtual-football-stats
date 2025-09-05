@@ -1,7 +1,7 @@
 // src/app/drafts/[id]/page.tsx
 export const dynamic = "force-dynamic";
-
 import Link from "next/link";
+import { headers } from "next/headers";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -114,9 +114,10 @@ function ScheduleBtn({ id }: { id: string }) {
 /* ------------------------------------------------ */
 
 export default async function DraftPage(props: any) {
-  // В Next 15 params может быть Promise — ждём его
   const params = (await props.params) ?? props.params;
   const id = String(params?.id || "");
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/api/drafts/${id}`, { cache: "no-store" });
 
   const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/drafts/${id}`, { cache: "no-store" });
   if (!res.ok) {
