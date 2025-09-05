@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { readStore, writeStore } from "@/lib/store";
 
-export async function POST(_req: Request, context: any) {
-  const { id } = context.params as { id: string };
-  const sess = s.sessions.find(x => x.id === params.id);
+function getId(req: Request) {
+  const m = new URL(req.url).pathname.match(/\/api\/drafts\/([^/]+)/);
+  return m?.[1] ?? "";
+}
+
+export async function POST(req: Request) {
+  const id = getId(req);
+  if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+
+  const s = await readStore();
+  const sess = s.sessions.find(x => x.id === id);
   if (!sess) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const teams = sess.teams.map(t => t.id);
