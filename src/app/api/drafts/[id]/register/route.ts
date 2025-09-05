@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { readStore, writeStore } from "@/lib/store";
 import { randomUUID } from "crypto";
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { gamertag, roles = [] } = await req.json().catch(() => ({}));
+export async function POST(req: Request, context: any) {
+  const { id } = context.params as { id: string };
   if (!gamertag) return NextResponse.json({ error: "gamertag required" }, { status: 400 });
 
   const s = await readStore();
