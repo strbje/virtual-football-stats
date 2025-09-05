@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { readStore, writeStore } from "@/lib/store";
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { teamId, playerId } = await req.json().catch(() => ({}));
+export async function POST(req: Request, context: any) {
+  const { id } = context.params as { id: string };
   if (!teamId || !playerId) return NextResponse.json({ error: "teamId and playerId required" }, { status: 400 });
 
   const s = await readStore();
