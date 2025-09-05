@@ -3,8 +3,6 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 
-type Params = { params: { id: string } };
-
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border rounded p-4 space-y-3">
@@ -14,7 +12,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-// ------- Клиентские мини-формы -------
+/* ---------- Клиентские мини-компоненты ---------- */
 function RegisterForm({ id }: { id: string }) {
   "use client";
   async function onSubmit(formData: FormData) {
@@ -113,10 +111,13 @@ function ScheduleBtn({ id }: { id: string }) {
   }
   return <button onClick={click} className="bg-emerald-600 text-white rounded px-3 py-2">Сгенерировать расписание</button>;
 }
-// --------------------------------------
+/* ------------------------------------------------ */
 
-export default async function DraftPage({ params }: Params) {
-  const { id } = params;
+export default async function DraftPage(props: any) {
+  // В Next 15 params может быть Promise — ждём его
+  const params = (await props.params) ?? props.params;
+  const id = String(params?.id || "");
+
   const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/drafts/${id}`, { cache: "no-store" });
   if (!res.ok) {
     return (
