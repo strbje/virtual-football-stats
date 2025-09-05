@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { readStore, writeStore } from "@/lib/store";
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
-  const s = await readStore();
+export async function POST(_req: Request, context: any) {
+  const { id } = context.params as { id: string };
   const sess = s.sessions.find(x => x.id === params.id);
   if (!sess) return NextResponse.json({ error: "not found" }, { status: 404 });
 
