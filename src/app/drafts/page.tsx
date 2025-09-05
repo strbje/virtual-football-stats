@@ -1,14 +1,41 @@
 // src/app/drafts/page.tsx
 export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { headers } from "next/headers";
 
-// Крошечный клиентский виджет для создания драфта
+// Абсолютный базовый URL для серверных fetch (работает за прокси/PM2)
 function getBaseUrl() {
   const h = headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? "http";
   return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
+}
+
+// Клиентская форма создания драфта
+function NewDraftForm() {
+  "use client";
+
+  async function onSubmit(formData: FormData) {
+    const name = String(formData.get("name") || "").trim();
+    if (!name) {
+      alert("Введите название драфта");
+      return;
+    }
+
+    const res = await fetch("/api/drafts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+
+    const j = await res.json().catch(() => ({} as any));
+    if (!res.ok) {
+      alert(j?.error || "Ошибка");
+      return;
+    }
+
+    location.href = `/drafts/${j.id}`;
   }
 
   return (
