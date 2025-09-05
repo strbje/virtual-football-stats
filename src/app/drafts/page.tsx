@@ -4,9 +4,9 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { headers } from "next/headers";
 
-// Абсолютный базовый URL для серверных fetch (работает за прокси/PM2)
-function getBaseUrl() {
-  const h = headers();
+// Абсолютный базовый URL для серверных fetch
+async function getBaseUrl() {
+  const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? "http";
   return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
@@ -22,19 +22,16 @@ function NewDraftForm() {
       alert("Введите название драфта");
       return;
     }
-
     const res = await fetch("/api/drafts", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
     });
-
     const j = await res.json().catch(() => ({} as any));
     if (!res.ok) {
       alert(j?.error || "Ошибка");
       return;
     }
-
     location.href = `/drafts/${j.id}`;
   }
 
@@ -51,7 +48,7 @@ function NewDraftForm() {
 }
 
 export default async function DraftsPage() {
-  const base = getBaseUrl();
+  const base = await getBaseUrl();
   const res = await fetch(`${base}/api/drafts`, { cache: "no-store" });
   const sessions: any[] = res.ok ? await res.json() : [];
 
