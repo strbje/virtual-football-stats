@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { headers } from "next/headers";
 
-// Абсолютный URL для серверных fetch (за прокси/PM2)
+// Абсолютный URL для серверных fetch
 async function getBaseUrl() {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
@@ -149,9 +149,8 @@ function ScheduleBtn({ id }: { id: string }) {
 /* ------------------------------------------------ */
 
 export default async function DraftPage(props: any) {
-  // В Next 15 params может быть Promise — ждём его при необходимости
-  const maybe = props?.params;
-  // @ts-expect-error: params может быть promise
+  // В Next 15 params иногда бывает Promise — ждём его при необходимости
+  const maybe = props?.params as any;
   const params = typeof maybe?.then === "function" ? await maybe : maybe;
   const id = String(params?.id || "");
 
