@@ -28,7 +28,7 @@ enum MatchStatus {
 }
 
 model Player {
-  id                 String   @id @default(uuid())
+  id                 String         @id @default(uuid())
   gamertag           String
   platform           String
   contactTelegram    String?
@@ -36,46 +36,59 @@ model Player {
   preferredRoles     String
   primaryRole        Role?
   availability       String?
-  mic                Boolean  @default(true)
-  isCaptainCandidate Boolean  @default(false)
-  ratingInit         Float    @default(0)
-  reputationInit     Int      @default(50)
-  createdAt          DateTime @default(now())
+  mic                Boolean        @default(true)
+  isCaptainCandidate Boolean        @default(false)
+  ratingInit         Float          @default(0)
+  reputationInit     Int            @default(50)
+  createdAt          DateTime       @default(now())
 
-  teamMembers        TeamMember[]
+  // relations
+  teamMembers        TeamMember[]   @relation("TeamMembership")
   draftPicks         DraftPick[]
   lineups            Lineup[]
   reputationEvents   ReputationEvent[]
+  captainedTeams     Team[]         @relation("TeamCaptain")
 }
 
 model DraftSession {
-  id            String   @id @default(uuid())
+  id            String            @id @default(uuid())
   name          String
-  status        String   @default("planned") // planned | live | finished
-  snake         Boolean  @default(true)
-  forceGkRound  Int      @default(3)
-  createdAt     DateTime @default(now())
+  status        String            @default("planned") // planned | live | finished
+  snake         Boolean           @default(true)
+  forceGkRound  Int               @default(3)
+  createdAt     DateTime          @default(now())
 
   teams         Team[]
   picks         DraftPick[]
   matches       Match[]
   turns         DraftTurn?
+  reputationEvents ReputationEvent[] @relation("SessionReputation")
 }
 
 model Team {
-  id           String   @id @default(uuid())
+  id           String        @id @default(uuid())
   sessionId    String?
   name         String
   color        String?
   captainId    String?
   draftOrder   Int?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime      @default(now())
 
   session      DraftSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  captain      Player?       @relation(fields: [captainId], references: [id])
-  members      TeamMember[]
+
+  // captain relation (Team ↔ Player) — даём имя связи
+  captain      Player?       @relation("TeamCaptain", fields: [captainId], references: [id])
+
+  // membership relation (Team ↔ Player через TeamMember) — даём имя связи
+  members      TeamMember[]  @relation("TeamMembership")
+
+  // matches
   homeMatches  Match[]       @relation("homeTeam")
   awayMatches  Match[]       @relation("awayTeam")
+
+  // other back-relations
+  draftPicks   DraftPick[]   @relation("TeamDraftPick")
+  lineups      Lineup[]      @relation("TeamLineup")
 
   @@unique([sessionId, name])
 }
@@ -84,26 +97,30 @@ model TeamMember {
   teamId       String
   playerId     String
   roleAtSignup Role?
-  joinedAt     DateTime @default(now())
-  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  player       Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  joinedAt     DateTime    @default(now())
+
+  team         Team        @relation("TeamMembership", fields: [teamId], references: [id], onDelete: Cascade)
+  player       Player      @relation("TeamMembership", fields: [playerId], references: [id], onDelete: Cascade)
 
   @@id([teamId, playerId])
 }
 
 model DraftPick {
-  id          String   @id @default(uuid())
+  id          String       @id @default(uuid())
   sessionId   String
   round       Int
   pickOverall Int
   teamId      String
   playerId    String
-  isAutopick  Boolean  @default(false)
+  isAutopick  Boolean      @default(false)
   comment     String?
-  madeAt      DateTime @default(now())
+  madeAt      DateTime     @default(now())
 
   session     DraftSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  team        Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  // named relation so Team has a clear back-relation
+  team        Team         @relation("TeamDraftPick", fields: [teamId], references: [id], onDelete: Cascade)
+
   player      Player       @relation(fields: [playerId], references: [id])
 
   @@unique([sessionId, pickOverall])
@@ -111,16 +128,16 @@ model DraftPick {
 }
 
 model DraftTurn {
-  sessionId    String   @id
-  currentRound Int      @default(1)
-  pickInRound  Int      @default(1)
+  sessionId    String       @id
+  currentRound Int          @default(1)
+  pickInRound  Int          @default(1)
   pickDeadline DateTime?
-  isReversed   Boolean  @default(false)
+  isReversed   Boolean      @default(false)
   session      DraftSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 model Match {
-  id           String   @id @default(uuid())
+  id           String       @id @default(uuid())
   sessionId    String
   round        Int
   slot         Int
@@ -128,10 +145,10 @@ model Match {
   awayTeamId   String
   homeGoals    Int?
   awayGoals    Int?
-  status       MatchStatus @default(planned)
+  status       MatchStatus  @default(planned)
   reportLink   String?
-  verification Int        @default(0)  // 0 none, 1 home ok, 2 both ok
-  createdAt    DateTime   @default(now())
+  verification Int          @default(0)  // 0 none, 1 home ok, 2 both ok
+  createdAt    DateTime     @default(now())
 
   session      DraftSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   homeTeam     Team         @relation("homeTeam", fields: [homeTeamId], references: [id])
@@ -147,37 +164,42 @@ model Lineup {
   playerId      String
   rolePlayed    Role?
   minutes       Int?
-  goals         Int?    @default(0)
-  assists       Int?    @default(0)
-  saves         Int?    @default(0)
-  shots         Int?    @default(0)
-  passes        Int?    @default(0)
-  interceptions Int?    @default(0)
-  tackles       Int?    @default(0)
-  dribbles      Int?    @default(0)
+  goals         Int?       @default(0)
+  assists       Int?       @default(0)
+  saves         Int?       @default(0)
+  shots         Int?       @default(0)
+  passes        Int?       @default(0)
+  interceptions Int?       @default(0)
+  tackles       Int?       @default(0)
+  dribbles      Int?       @default(0)
   ratingCaptain Float?
   ratingSystem  Float?
-  mom           Boolean  @default(false)
+  mom           Boolean    @default(false)
   notes         String?
 
-  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team          Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  player        Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  match         Match      @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  // named relation so Team has a clear back-relation
+  team          Team       @relation("TeamLineup", fields: [teamId], references: [id], onDelete: Cascade)
+
+  player        Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
 
   @@id([matchId, teamId, playerId])
 }
 
 model ReputationEvent {
-  id        String   @id @default(uuid())
+  id        String        @id @default(uuid())
   playerId  String
   sessionId String?
-  date      DateTime @default(now())
+  date      DateTime      @default(now())
   type      String
   points    Int
-  source    String   @default("system")
+  source    String        @default("system")
   matchId   String?
   comment   String?
 
-  player    Player         @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  session   DraftSession?  @relation(fields: [sessionId], references: [id])
+  player    Player        @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  // named relation so DraftSession has a back-relation
+  session   DraftSession? @relation("SessionReputation", fields: [sessionId], references: [id])
 }
