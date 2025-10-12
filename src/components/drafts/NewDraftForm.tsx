@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 
+type DraftResp = { id: string } | { error: string };
+
 export default function NewDraftForm() {
   const router = useRouter();
 
@@ -22,13 +24,10 @@ export default function NewDraftForm() {
       body: JSON.stringify({ name }),
     });
 
-    const body = (await res.json().catch(() => null)) as
-      | { id: string }
-      | { error: string }
-      | null;
+    const body = (await res.json().catch(() => null)) as DraftResp | null;
 
-    if (!res.ok || !body || "error" in body) {
-      alert(body?.error || "Ошибка");
+    if (!res.ok || !body || ("error" in body)) {
+      alert(body && "error" in body ? body.error : "Ошибка");
       return;
     }
 
