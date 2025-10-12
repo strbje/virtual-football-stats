@@ -7,7 +7,8 @@ import { headers } from "next/headers";
 import type { FormEvent } from "react";
 
 import type { DraftSession } from "@/lib/store";
-import { useRouter } from "next/navigation";
+import { RouterPush } from "@/components/drafts/RouterClient";
+import { RouterRefresh } from "@/components/drafts/RouterClient";
 
 // Абсолютный базовый URL для серверных fetch
 async function getBaseUrl() {
