@@ -1,3 +1,4 @@
+// src/app/players/page.tsx
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/db";
@@ -17,22 +18,27 @@ const PER_PAGE = 50;
 
 function toUnix(dateStr?: string | null) {
   if (!dateStr) return null;
-  // дата в формате YYYY-MM-DD -> unix (начало дня / конец дня)
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return null;
   return Math.floor(d.getTime() / 1000);
 }
 
-export default async function Page({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
-  const page = Math.max(1, Number(searchParams.page ?? 1));
-  const q = typeof searchParams.q === "string" ? searchParams.q.trim() : "";
-  const team = typeof searchParams.team === "string" ? searchParams.team.trim() : "";
-  const tournament = typeof searchParams.tournament === "string" ? searchParams.tournament.trim() : "";
-  const from = toUnix(typeof searchParams.from === "string" ? searchParams.from : undefined);
-  const to = toUnix(typeof searchParams.to === "string" ? searchParams.to : undefined);
+export default async function Page({
+  // В Next 15 searchParams — Promise
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = (await searchParams) ?? {};
+
+  const page = Math.max(1, Number(sp.page ?? 1));
+  const q = typeof sp.q === "string" ? sp.q.trim() : "";
+  const team = typeof sp.team === "string" ? sp.team.trim() : "";
+  const tournament = typeof sp.tournament === "string" ? sp.tournament.trim() : "";
+  const from = toUnix(typeof sp.from === "string" ? sp.from : undefined);
+  const to = toUnix(typeof sp.to === "string" ? sp.to : undefined);
   const offset = (page - 1) * PER_PAGE;
 
-  // Конструируем WHERE динамически (безопасно — через шаблон $queryRaw)
   const rows = await prisma.$queryRaw<PlayerRow[]>`
     SELECT 
       u.id AS id,
@@ -57,17 +63,15 @@ export default async function Page({ searchParams }: { searchParams: Record<stri
     LIMIT ${PER_PAGE} OFFSET ${offset}
   `;
 
-  // простая навигация по страницам
   const hasNext = rows.length === PER_PAGE;
   const hasPrev = page > 1;
 
-  // Соберём строку с текущими фильтрами, чтобы не терять их в пагинации
   const baseParams = new URLSearchParams();
   if (q) baseParams.set("q", q);
   if (team) baseParams.set("team", team);
   if (tournament) baseParams.set("tournament", tournament);
-  if (typeof searchParams.from === "string") baseParams.set("from", searchParams.from);
-  if (typeof searchParams.to === "string") baseParams.set("to", searchParams.to);
+  if (typeof sp.from === "string") baseParams.set("from", sp.from);
+  if (typeof sp.to === "string") baseParams.set("to", sp.to);
 
   const prevUrl = (() => {
     const p = new URLSearchParams(baseParams);
@@ -83,7 +87,7 @@ export default async function Page({ searchParams }: { searchParams: Record<stri
 
   return (
     <div className="p-4">
-      <h1 className="text-2xl font-bold mb-2">Последние игроки (по матчам)</h1>
+      <h1 className="text-2xl font-bold mb-2">Игроки</h1>
 
       <PlayersFilter />
 
@@ -100,12 +104,8 @@ export default async function Page({ searchParams }: { searchParams: Record<stri
       </ul>
 
       <div className="flex gap-2">
-        {hasPrev && (
-          <Link href={prevUrl} className="border rounded px-3 py-1">← Назад</Link>
-        )}
-        {hasNext && (
-          <Link href={nextUrl} className="border rounded px-3 py-1">Вперёд →</Link>
-        )}
+        {hasPrev && <Link href={prevUrl} className="border rounded px-3 py-1">← Назад</Link>}
+        {hasNext && <Link href={nextUrl} className="border rounded px-3 py-1">Вперёд →</Link>}
         <span className="text-sm text-gray-500 ml-auto">Стр. {page}</span>
       </div>
     </div>
