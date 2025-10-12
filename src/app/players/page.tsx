@@ -2,6 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import PlayersFilter from "@/components/players/PlayersFilter";
 import Link from "next/link";
 
@@ -54,11 +55,11 @@ export default async function Page({
     INNER JOIN tournament t ON tm.tournament_id = t.id
     INNER JOIN teams c ON ums.team_id = c.id
     WHERE 1=1
-      ${q ? prisma.sql`AND u.gamertag LIKE ${'%' + q + '%'}` : prisma.empty}
-      ${team ? prisma.sql`AND c.team_name LIKE ${'%' + team + '%'}` : prisma.empty}
-      ${tournament ? prisma.sql`AND t.name LIKE ${'%' + tournament + '%'}` : prisma.empty}
-      ${from ? prisma.sql`AND tm.timestamp >= ${from}` : prisma.empty}
-      ${to ? prisma.sql`AND tm.timestamp < ${to + 86400}` : prisma.empty}
+      ${q ? Prisma.sql`AND u.gamertag LIKE ${'%' + q + '%'}` : Prisma.empty}
+      ${team ? Prisma.sql`AND c.team_name LIKE ${'%' + team + '%'}` : Prisma.empty}
+      ${tournament ? Prisma.sql`AND t.name LIKE ${'%' + tournament + '%'}` : Prisma.empty}
+      ${from ? Prisma.sql`AND tm.timestamp >= ${from}` : Prisma.empty}
+      ${to ? Prisma.sql`AND tm.timestamp < ${to + 86400}` : Prisma.empty}
     ORDER BY tm.timestamp DESC
     LIMIT ${PER_PAGE} OFFSET ${offset}
   `;
@@ -111,3 +112,4 @@ export default async function Page({
     </div>
   );
 }
+
