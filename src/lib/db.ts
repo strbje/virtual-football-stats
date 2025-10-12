@@ -1,24 +1,18 @@
 // src/lib/db.ts
-import type { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
-// Единственная точка входа к БД.
-// Возвращает PrismaClient или null, если БД отключена/не сгенерена.
-let _db: PrismaClient | null | undefined;
+// Глобальный синглтон Prisma (чтобы не плодить подключения в dev)
+declare global {
+  // eslint-disable-next-line no-var
+  var prisma: PrismaClient | undefined;
+}
 
-export async function getDb(): Promise<PrismaClient | null> {
-  // Жёсткий флаг, чтобы полностью игнорировать БД
-  if (process.env.SKIP_DB === "1") return null;
+export const prisma: PrismaClient =
+  global.prisma ?? new PrismaClient({ log: process.env.NODE_ENV === "production" ? [] : ["error"] });
 
-  if (_db !== undefined) return _db;
+if (process.env.NODE_ENV !== "production") global.prisma = prisma;
 
-  try {
-    // ВАЖНО: динамический импорт, чтобы билд не падал, если клиента нет
-    const { PrismaClient } = await import("@prisma/client");
-    _db = new PrismaClient();
-    return _db;
-  } catch {
-    // Клиент не сгенерён или переменные БД не заданы — работаем без БД
-    _db = null;
-    return null;
-  }
+// (Опционально) совместимость со старым кодом — просто вернём синглтон
+export async function getDb(): Promise<PrismaClient> {
+  return prisma;
 }
