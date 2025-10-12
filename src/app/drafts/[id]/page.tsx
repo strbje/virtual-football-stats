@@ -4,7 +4,12 @@ export const dynamic = "force-dynamic";
 import type { FormEvent, ReactNode } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
-import { useRouter } from "next/navigation";
+import { RouterPush } from "@/components/drafts/RouterClient";
+import { RouterRefresh } from "@/components/drafts/RouterClient";
+
+// ...
+<RouterPush href={`/drafts/${id}`}>Открыть драфт</RouterPush>
+
 
 import type { DraftPlayer, DraftSession, DraftTeam } from "@/lib/store";
 
