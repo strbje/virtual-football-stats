@@ -4,6 +4,11 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { headers } from "next/headers";
 
+import type { FormEvent } from "react";
+
+import type { DraftSession } from "@/lib/store";
+import { useRouter } from "next/navigation";
+
 // Абсолютный базовый URL для серверных fetch
 async function getBaseUrl() {
   const h = await headers();
@@ -15,8 +20,12 @@ async function getBaseUrl() {
 // Клиентская форма создания драфта
 function NewDraftForm() {
   "use client";
+  const router = useRouter();
 
-  async function onSubmit(formData: FormData) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const formData = new FormData(event.currentTarget);
     const name = String(formData.get("name") || "").trim();
     if (!name) {
       alert("Введите название драфта");
@@ -27,16 +36,17 @@ function NewDraftForm() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
     });
-    const j = await res.json().catch(() => ({} as any));
-    if (!res.ok) {
-      alert(j?.error || "Ошибка");
+    const responseBody = (await res.json().catch(() => null)) as ({ id: string } | { error: string }) | null;
+    if (!res.ok || !responseBody || "error" in responseBody) {
+      alert(responseBody?.error || "Ошибка");
       return;
     }
-    location.href = `/drafts/${j.id}`;
+    event.currentTarget.reset();
+    router.push(`/drafts/${responseBody.id}`);
   }
 
   return (
-    <form action={onSubmit} className="flex gap-2 mb-6">
+    <form onSubmit={onSubmit} className="flex gap-2 mb-6">
       <input
         name="name"
         placeholder="Название драфта (на 1 день)"
@@ -50,7 +60,7 @@ function NewDraftForm() {
 export default async function DraftsPage() {
   const base = await getBaseUrl();
   const res = await fetch(`${base}/api/drafts`, { cache: "no-store" });
-  const sessions: any[] = res.ok ? await res.json() : [];
+  const sessions: DraftSession[] = res.ok ? ((await res.json()) as DraftSession[]) : [];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -62,16 +72,16 @@ export default async function DraftsPage() {
         {sessions.length === 0 && (
           <div className="text-gray-500">Пока нет сессий. Создайте первую.</div>
         )}
-        {sessions.map((s) => (
+        {sessions.map((session) => (
           <Link
-            key={s.id}
-            href={`/drafts/${s.id}`}
+            key={session.id}
+            href={`/drafts/${session.id}`}
             className="block p-4 rounded border hover:shadow"
           >
-            <div className="font-semibold">{s.name}</div>
-            <div className="text-sm text-gray-500">Статус: {s.status}</div>
+            <div className="font-semibold">{session.name}</div>
+            <div className="text-sm text-gray-500">Статус: {session.status}</div>
             <div className="text-sm text-gray-500">
-              Зарегистрировано: {s.registered?.length ?? 0}
+              Зарегистрировано: {session.registered.length}
             </div>
           </Link>
         ))}
