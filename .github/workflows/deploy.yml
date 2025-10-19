@@ -3,7 +3,6 @@ name: Deploy to VM
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
   deploy:
@@ -15,25 +14,36 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
           script: |
             set -euo pipefail
 
             cd ~/virtual-football-stats
 
-            # всегда подтягиваем чистое состояние из GitHub
-            git fetch origin
+            echo ">>> git fetch/reset"
+            git fetch origin main
             git reset --hard origin/main
 
-            # пишем .env из секретов
-            printf "DATABASE_URL=%s\nNODE_ENV=production\n" "${{ secrets.DATABASE_URL }}" > .env
+            echo ">>> write .env"
+            cat > .env <<'EOF'
+            NODE_ENV=production
+            PORT=3000
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            EOF
 
-            # зависимости + prisma client + сборка
-            npm ci --prefer-offline --no-audit --cache ~/.npm
-            npx prisma generate --schema=prisma/schema.prisma || true
+            echo ">>> install deps"
+            npm ci
+
+            echo ">>> prisma client (не падаем, если схемы нет)"
+            npx prisma generate || true
+
+            echo ">>> build"
             npm run build
 
-            # рестарт через pm2
-            pm2 startOrRestart ecosystem.config.js --update-env
+            echo ">>> pm2 restart"
+            pm2 delete virtual-football-stats || true
+            pm2 start ecosystem.config.js --update-env
             pm2 save
 
-            '
+            echo ">>> healthcheck"
+            [ -f .next/BUILD_ID ] && curl -sfI http://127.0.0.1:3000/ || (echo "NO BUILD" && exit 1)
