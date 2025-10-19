@@ -3,6 +3,7 @@ name: Deploy to VM
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -11,18 +12,28 @@ jobs:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VM_HOST }}      # 84.201.176.99
-          username: ${{ secrets.VM_USER }}  # strbje
-          key: ${{ secrets.VM_SSH_KEY }}    # приватный SSH-ключ
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            bash -lc '
-              cd ~/virtual-football-stats
+            set -euo pipefail
 
-              # записываем .env из секретов (не хранится в репо)
-              cat > .env <<EOF
-DATABASE_URL=${{ secrets.DATABASE_URL }}
-NODE_ENV=production
-EOF
+            cd ~/virtual-football-stats
 
-              bash scripts/deploy.sh
+            # всегда подтягиваем чистое состояние из GitHub
+            git fetch origin
+            git reset --hard origin/main
+
+            # пишем .env из секретов
+            printf "DATABASE_URL=%s\nNODE_ENV=production\n" "${{ secrets.DATABASE_URL }}" > .env
+
+            # зависимости + prisma client + сборка
+            npm ci --prefer-offline --no-audit --cache ~/.npm
+            npx prisma generate --schema=prisma/schema.prisma || true
+            npm run build
+
+            # рестарт через pm2
+            pm2 startOrRestart ecosystem.config.js --update-env
+            pm2 save
+
             '
