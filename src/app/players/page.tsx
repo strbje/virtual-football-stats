@@ -1,109 +1,278 @@
 export const dynamic = "force-dynamic";
 
-import { prisma } from "@/lib/db";
-import { Prisma } from "@prisma/client";
-import PlayersFilter from "@/components/players/PlayersFilter";
-import Link from "next/link";
+import { headers } from "next/headers";
+import type { DraftPlayer } from "@/lib/store"; // если есть общий тип, иначе убери
+import { getDb } from "@/lib/db";
 
-type PlayerRow = {
-  id: number; name: string; team_name: string;
-  tournament_name: string; date_formatted: string; round: number | null;
-};
-
-const PER_PAGE = 50;
-function toUnix(dateStr?: string | null) {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  return Number.isNaN(d.getTime()) ? null : Math.floor(d.getTime() / 1000);
+/** Утилита для baseUrl (как у тебя в других страницах) */
+async function getBaseUrl() {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
 }
 
-export default async function Page({
+type Search = {
+  q?: string;             // игрок
+  team?: string;          // команда
+  tournament?: string;    // турнир
+  role?: string;          // амплуа
+  period?: string;        // формат: 2025-08-01..2025-08-31
+  from?: string;          // legacy поддержка
+  to?: string;            // legacy поддержка
+};
+
+function parsePeriod(s?: string) {
+  if (!s) return { from: undefined, to: undefined };
+  const [a, b] = s.split("..");
+  const from = a?.trim() || undefined;
+  const to = b?.trim() || undefined;
+  return { from, to };
+}
+
+export default async function PlayersPage({
   searchParams,
-}: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
-  const sp = (await searchParams) ?? {};
-  const page = Math.max(1, Number(sp.page ?? 1));
-  const q = typeof sp.q === "string" ? sp.q.trim() : "";
-  const team = typeof sp.team === "string" ? sp.team.trim() : "";
-  const tournament = typeof sp.tournament === "string" ? sp.tournament.trim() : "";
-  const from = toUnix(typeof sp.from === "string" ? sp.from : undefined);
-  const to   = toUnix(typeof sp.to   === "string" ? sp.to   : undefined);
-  const offset = (page - 1) * PER_PAGE;
+}: {
+  searchParams: Search;
+}) {
+  const db = await getDb();
+  const base = await getBaseUrl();
 
-  let rows: PlayerRow[] = [];        // NEW
-  let dbError: string | null = null; // NEW
+  // --- собираем фильтры
+  const q = (searchParams.q ?? "").trim();
+  const team = (searchParams.team ?? "").trim();
+  const tournament = (searchParams.tournament ?? "").trim();
+  const role = (searchParams.role ?? "").trim();
 
-  try { // NEW
-    rows = await prisma.$queryRaw<PlayerRow[]>`
-      SELECT 
-        u.id AS id,
-        u.gamertag AS name,
-        c.team_name,
-        DATE_FORMAT(FROM_UNIXTIME(tm.timestamp), '%d.%m.%Y %H:%i:%s') AS date_formatted,
-        t.name AS tournament_name,
-        tm.round
-      FROM tbl_users_match_stats ums
-      INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      INNER JOIN skills_positions sp ON ums.skill_id = sp.id
-      INNER JOIN tbl_users u ON ums.user_id = u.id
-      INNER JOIN tournament t ON tm.tournament_id = t.id
-      INNER JOIN teams c ON ums.team_id = c.id
-      WHERE 1=1
-        ${q ? Prisma.sql`AND u.gamertag LIKE ${'%' + q + '%'}` : Prisma.empty}
-        ${team ? Prisma.sql`AND c.team_name LIKE ${'%' + team + '%'}` : Prisma.empty}
-        ${tournament ? Prisma.sql`AND t.name LIKE ${'%' + tournament + '%'}` : Prisma.empty}
-        ${from ? Prisma.sql`AND tm.timestamp >= ${from}` : Prisma.empty}
-        ${to ? Prisma.sql`AND tm.timestamp < ${to + 86400}` : Prisma.empty}
-      ORDER BY tm.timestamp DESC
-      LIMIT ${PER_PAGE} OFFSET ${offset}
-    `;
-  } catch (e) { // NEW
-    dbError = "База данных не подключена. Проверьте переменную DATABASE_URL (формат mysql://...).";
+  const { from: periodFrom, to: periodTo } = parsePeriod(searchParams.period);
+  const from = (periodFrom ?? searchParams.from ?? "").trim();
+  const to = (periodTo ?? searchParams.to ?? "").trim();
+
+  // список амплуа для дропдауна
+  let roles: string[] = [];
+  if (db) {
+    try {
+      // если в твоей схеме поле называется иначе (например, `role` / `position` / `amplua`)
+      // поменяй `position` на актуальное имя поля:
+      const rows = await db.$queryRaw<{ position: string }[]>(
+        // @ts-ignore
+        `SELECT DISTINCT position FROM users WHERE position IS NOT NULL AND position <> '' ORDER BY position`
+      );
+      roles = rows.map((r) => r.position);
+    } catch {
+      roles = [];
+    }
   }
 
-  const hasNext = rows.length === PER_PAGE;
-  const hasPrev = page > 1;
+  // данные игроков (плейсхолдер при отключенной БД)
+  let players:
+    | {
+        gamertag: string;
+        team_name: string | null;
+        tournament_name: string | null;
+        match_time: string | null;
+        round: number | null;
+        role: string | null;
+      }[]
+    | null = null;
 
-  const baseParams = new URLSearchParams();
-  if (q) baseParams.set("q", q);
-  if (team) baseParams.set("team", team);
-  if (tournament) baseParams.set("tournament", tournament);
-  if (typeof sp.from === "string") baseParams.set("from", sp.from);
-  if (typeof sp.to === "string") baseParams.set("to", sp.to);
+  if (!db) {
+    // режим заглушки
+    players = [];
+  } else {
+    // собираем WHERE безопасно
+    const where: string[] = [];
+    const params: any[] = [];
 
-  const prevUrl = (() => { const p = new URLSearchParams(baseParams); p.set("page", String(page - 1)); return `/players?${p}`; })();
-  const nextUrl = (() => { const p = new URLSearchParams(baseParams); p.set("page", String(page + 1)); return `/players?${p}`; })();
+    if (q) {
+      where.push(`u.gamertag LIKE ?`);
+      params.push(`%${q}%`);
+    }
+    if (team) {
+      where.push(`t.team_name LIKE ?`);
+      params.push(`%${team}%`);
+    }
+    if (tournament) {
+      where.push(`tr.name LIKE ?`);
+      params.push(`%${tournament}%`);
+    }
+    if (role) {
+      // имя поля роли должно совпадать с SELECT ниже
+      where.push(`u.position = ?`);
+      params.push(role);
+    }
+    if (from) {
+      where.push(`m.timestamp >= ?`);
+      params.push(from);
+    }
+    if (to) {
+      where.push(`m.timestamp <= ?`);
+      params.push(to);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    players = await db.$queryRaw<
+      {
+        gamertag: string;
+        team_name: string | null;
+        tournament_name: string | null;
+        match_time: string | null;
+        round: number | null;
+        role: string | null;
+      }[]
+    >(
+      // ВАЖНО: подставь реальные имена таблиц/полей
+      // users u, teams t, tournaments tr, matches m, user_match_stats ums (пример)
+      `
+      SELECT
+        u.gamertag,
+        t.team_name,
+        tr.name AS tournament_name,
+        m.timestamp AS match_time,
+        ums.round AS round,
+        u.position AS role
+      FROM user_match_stats ums
+      JOIN users u       ON ums.user_id = u.id
+      LEFT JOIN teams t  ON ums.team_id = t.id
+      LEFT JOIN matches m ON ums.match_id = m.id
+      LEFT JOIN tournaments tr ON m.tournament_id = tr.id
+      ${whereSql}
+      ORDER BY m.timestamp DESC, u.gamertag ASC
+      LIMIT 500
+      `,
+      ...params
+    );
+  }
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-2">Игроки</h1>
+    <div className="container mx-auto p-6 space-y-4">
+      <h1 className="text-2xl font-bold">Игроки</h1>
 
-      <PlayersFilter />
+      {/* Форма фильтров (клиентская; собирает только непустые поля) */}
+      <PlayersFilter
+        roles={roles}
+        initial={{
+          q,
+          team,
+          tournament,
+          role,
+          period: from || to ? `${from || ""}..${to || ""}` : "",
+        }}
+      />
 
-      {dbError && ( // NEW
-        <div className="mb-4 p-3 rounded bg-yellow-50 text-yellow-800">
-          {dbError}
-        </div>
-      )}
-
-      <ul className="space-y-2 mb-4">
-        {rows.map((player) => (
-          <li key={player.id} className="border-b pb-2">
-            <strong>{player.name}</strong> — {player.team_name} — {player.tournament_name} — {player.date_formatted}
-            {typeof player.round === "number" && (
-              <span className="ml-2 text-sm text-gray-500">Раунд: {player.round}</span>
-            )}
-          </li>
+      <div className="divide-y">
+        {(players ?? []).map((p, i) => (
+          <div key={`${p.gamertag}-${i}`} className="py-3">
+            <span className="font-semibold">{p.gamertag}</span>{" "}
+            — {p.team_name ?? "—"} — {p.tournament_name ?? "—"} —{" "}
+            {p.match_time ? new Date(p.match_time).toLocaleString("ru-RU") : "—"}
+            {p.round != null ? <span>  Раунд: {p.round}</span> : null}
+            {p.role ? <span>  • {p.role}</span> : null}
+          </div>
         ))}
-        {rows.length === 0 && !dbError && <li className="text-gray-500">Ничего не найдено</li>}
-      </ul>
-
-      {!dbError && ( // NEW
-        <div className="flex gap-2">
-          {hasPrev && <Link href={prevUrl} className="border rounded px-3 py-1">← Назад</Link>}
-          {hasNext && <Link href={nextUrl} className="border rounded px-3 py-1">Вперёд →</Link>}
-          <span className="text-sm text-gray-500 ml-auto">Стр. {page}</span>
-        </div>
-      )}
+        {(players ?? []).length === 0 && (
+          <div className="text-gray-500">Ничего не найдено.</div>
+        )}
+      </div>
     </div>
+  );
+}
+
+/** Клиентская форма фильтрации */
+function PlayersFilter({
+  roles,
+  initial,
+}: {
+  roles: string[];
+  initial: { q: string; team: string; tournament: string; role: string; period: string };
+}) {
+  "use client";
+
+  import { useRouter, usePathname } from "next/navigation";
+  import { FormEvent, useState } from "react";
+
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [q, setQ] = useState(initial.q);
+  const [team, setTeam] = useState(initial.team);
+  const [tournament, setTournament] = useState(initial.tournament);
+  const [role, setRole] = useState(initial.role);
+  const [period, setPeriod] = useState(initial.period); // формат 2025-08-01..2025-08-31
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const params = new URLSearchParams();
+
+    if (q.trim()) params.set("q", q.trim());
+    if (team.trim()) params.set("team", team.trim());
+    if (tournament.trim()) params.set("tournament", tournament.trim());
+    if (role.trim()) params.set("role", role.trim());
+    if (period.trim()) params.set("period", period.trim());
+
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }
+
+  function reset() {
+    setQ("");
+    setTeam("");
+    setTournament("");
+    setRole("");
+    setPeriod("");
+    router.replace(pathname); // чистим урл целиком
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap gap-2 items-center">
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Ник игрока"
+        className="border rounded px-3 py-2 w-64"
+      />
+      <input
+        value={team}
+        onChange={(e) => setTeam(e.target.value)}
+        placeholder="Команда"
+        className="border rounded px-3 py-2 w-56"
+      />
+      <input
+        value={tournament}
+        onChange={(e) => setTournament(e.target.value)}
+        placeholder="Турнир"
+        className="border rounded px-3 py-2 w-56"
+      />
+      <select
+        value={role}
+        onChange={(e) => setRole(e.target.value)}
+        className="border rounded px-3 py-2 w-52"
+      >
+        <option value="">Амплуа: любое</option>
+        {roles.map((r) => (
+          <option key={r} value={r}>
+            {r}
+          </option>
+        ))}
+      </select>
+
+      {/* Один инпут периода: YYYY-MM-DD..YYYY-MM-DD */}
+      <input
+        value={period}
+        onChange={(e) => setPeriod(e.target.value)}
+        placeholder="Период: YYYY-MM-DD..YYYY-MM-DD"
+        className="border rounded px-3 py-2 w-72"
+      />
+
+      <button className="bg-blue-600 text-white rounded px-4 py-2">Фильтр</button>
+      <button
+        type="button"
+        onClick={reset}
+        className="border rounded px-4 py-2"
+      >
+        Сброс
+      </button>
+    </form>
   );
 }
