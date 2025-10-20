@@ -1,59 +1,97 @@
-"use client";
+'use client';
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useMemo } from "react";
+import { useRouter, usePathname } from 'next/navigation';
+import { useState, FormEvent } from 'react';
 
-export default function PlayersFilter() {
+type Props = {
+  initial: {
+    q?: string;
+    team?: string;
+    tournament?: string;
+    from?: string; // YYYY-MM-DD
+    to?: string;   // YYYY-MM-DD
+    role?: string;
+  };
+  roles: string[]; // список амплуа
+};
+
+export default function FiltersClient({ initial, roles }: Props) {
   const router = useRouter();
-  const sp = useSearchParams();
+  const pathname = usePathname();
 
-  const defaultValues = useMemo(() => ({
-    q: sp.get("q") || "",
-    team: sp.get("team") || "",
-    tournament: sp.get("tournament") || "",
-    from: sp.get("from") || "",
-    to: sp.get("to") || ""
-  }), [sp]);
+  const [q, setQ] = useState(initial.q ?? '');
+  const [team, setTeam] = useState(initial.team ?? '');
+  const [tournament, setTournament] = useState(initial.tournament ?? '');
+  const [from, setFrom] = useState(initial.from ?? '');
+  const [to, setTo] = useState(initial.to ?? '');
+  const [role, setRole] = useState(initial.role ?? '');
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const q = String(fd.get("q") || "").trim();
-    const team = String(fd.get("team") || "").trim();
-    const tournament = String(fd.get("tournament") || "").trim();
-    const from = String(fd.get("from") || "").trim();
-    const to = String(fd.get("to") || "").trim();
+    const sp = new URLSearchParams();
 
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (team) params.set("team", team);
-    if (tournament) params.set("tournament", tournament);
-    if (from) params.set("from", from);
-    if (to) params.set("to", to);
+    if (q.trim()) sp.set('q', q.trim());
+    if (team.trim()) sp.set('team', team.trim());
+    if (tournament.trim()) sp.set('tournament', tournament.trim());
+    if (from) sp.set('from', from);
+    if (to) sp.set('to', to);
+    if (role) sp.set('role', role);
 
-    // сбрасываем страницу на 1 при изменении фильтров
-    params.set("page", "1");
+    router.replace(`${pathname}?${sp.toString()}`);
+  }
 
-    router.push(`/players?${params.toString()}`);
+  function onReset() {
+    router.replace(pathname);
   }
 
   return (
-    <form onSubmit={onSubmit} className="grid md:grid-cols-5 gap-2 mb-4">
-      <input name="q" defaultValue={defaultValues.q} placeholder="Ник игрока"
-             className="border rounded px-3 py-2" />
-      <input name="team" defaultValue={defaultValues.team} placeholder="Команда"
-             className="border rounded px-3 py-2" />
-      <input name="tournament" defaultValue={defaultValues.tournament} placeholder="Турнир"
-             className="border rounded px-3 py-2" />
-      <input type="date" name="from" defaultValue={defaultValues.from}
-             className="border rounded px-3 py-2" />
-      <input type="date" name="to" defaultValue={defaultValues.to}
-             className="border rounded px-3 py-2" />
-      <div className="md:col-span-5 flex gap-2">
-        <button className="bg-blue-600 text-white rounded px-4 py-2">Фильтр</button>
-        <button type="button" className="border rounded px-4 py-2"
-                onClick={() => router.push("/players")}>Сброс</button>
-      </div>
+    <form onSubmit={onSubmit} className="flex gap-3 flex-wrap mb-4">
+      <input
+        placeholder="Ник игрока"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        className="border px-3 py-2 rounded min-w-56"
+      />
+      <input
+        placeholder="Команда"
+        value={team}
+        onChange={(e) => setTeam(e.target.value)}
+        className="border px-3 py-2 rounded min-w-48"
+      />
+      <input
+        placeholder="Турнир"
+        value={tournament}
+        onChange={(e) => setTournament(e.target.value)}
+        className="border px-3 py-2 rounded min-w-48"
+      />
+
+      {/* Единый датапикер периодом можно позже, пока два поля from/to (YYYY-MM-DD) */}
+      <input
+        type="date"
+        value={from}
+        onChange={(e) => setFrom(e.target.value)}
+        className="border px-3 py-2 rounded"
+      />
+      <input
+        type="date"
+        value={to}
+        onChange={(e) => setTo(e.target.value)}
+        className="border px-3 py-2 rounded"
+      />
+
+      <select
+        value={role}
+        onChange={(e) => setRole(e.target.value)}
+        className="border px-3 py-2 rounded"
+      >
+        <option value="">Амплуа (все)</option>
+        {roles.map((r) => (
+          <option key={r} value={r}>{r}</option>
+        ))}
+      </select>
+
+      <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white">Фильтр</button>
+      <button type="button" onClick={onReset} className="px-4 py-2 rounded border">Сброс</button>
     </form>
   );
 }
