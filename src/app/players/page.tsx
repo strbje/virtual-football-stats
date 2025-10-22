@@ -7,6 +7,8 @@ import type { PrismaClient } from "@prisma/client";
 import { getDb } from "@/lib/db";
 import FiltersClient from "@/components/players/FiltersClient";
 
+type SearchParamsDict = Record<string, string | string[] | undefined>;
+
 type Search = {
   q?: string;
   team?: string;
@@ -166,15 +168,15 @@ export default async function PlayersPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const sp = (await (searchParams ?? Promise.resolve({}))) || {};
-  const s: Search = {
-    q: val(sp.q),
-    team: val(sp.team),
-    tournament: val(sp.tournament),
-    role: val(sp.role),
-    from: val(sp.from),
-    to: val(sp.to),
-  };
+  cconst sp: SearchParamsDict = searchParams ? await searchParams : {};
+const s: Search = {
+  q: val(sp.q),
+  team: val(sp.team),
+  tournament: val(sp.tournament),
+  role: val(sp.role),
+  from: val(sp.from),
+  to: val(sp.to),
+};
 
   const prisma = await getDb();
 
@@ -260,3 +262,4 @@ export default async function PlayersPage({
     </div>
   );
 }
+
