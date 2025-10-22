@@ -24,7 +24,7 @@ export default function FiltersClient({
   const pathname = usePathname();
   const current = useSearchParams();
 
-  // локальные значения полей
+  // локальные значения инпутов
   const [q, setQ] = useState(initial.q ?? "");
   const [team, setTeam] = useState(initial.team ?? "");
   const [tournament, setTournament] = useState(initial.tournament ?? "");
@@ -32,10 +32,11 @@ export default function FiltersClient({
   const [from, setFrom] = useState(initial.from ?? "");
   const [to, setTo] = useState(initial.to ?? "");
 
-  // соберём параметры аккуратно: без пустых значений
+  // собираем query без пустых значений
   const buildParams = useMemo(() => {
     return (next?: Partial<Initial>) => {
       const p = new URLSearchParams(current?.toString() ?? "");
+
       const entries: [keyof Initial, string][] = [
         ["q", next?.q ?? q],
         ["team", next?.team ?? team],
@@ -44,17 +45,21 @@ export default function FiltersClient({
         ["from", next?.from ?? from],
         ["to", next?.to ?? to],
       ];
+
       for (const [k, v] of entries) {
-        if (v && v.trim() !== "") p.set(k, v.trim());
+        const val = (v ?? "").trim();
+        if (val) p.set(k, val);
         else p.delete(k);
       }
-      // если диапазон дат «перевёрнут», свапаем
+
+      // если даты перепутаны — поменяем местами
       const f = p.get("from");
       const t = p.get("to");
       if (f && t && f > t) {
         p.set("from", t);
         p.set("to", f);
       }
+
       return p;
     };
   }, [current, q, team, tournament, role, from, to]);
@@ -62,6 +67,7 @@ export default function FiltersClient({
   function apply(params?: URLSearchParams) {
     const p = params ?? buildParams();
     const url = p.toString() ? `${pathname}?${p}` : pathname;
+    // без перезагрузки и без прыжка страницы
     router.push(url, { scroll: false });
   }
 
@@ -115,7 +121,7 @@ export default function FiltersClient({
         ))}
       </select>
 
-      {/* Единый фильтр периода: два поля даты, визуально объединены */}
+      {/* Единый фильтр периода: два date-поля как «с» и «до» */}
       <div className="flex gap-2">
         <input
           type="date"
@@ -134,17 +140,10 @@ export default function FiltersClient({
       </div>
 
       <div className="flex gap-2">
-        <button
-          type="submit"
-          className="bg-blue-600 text-white rounded px-4 py-2"
-        >
+        <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2">
           Показать
         </button>
-        <button
-          type="button"
-          className="border rounded px-4 py-2"
-          onClick={onReset}
-        >
+        <button type="button" className="border rounded px-4 py-2" onClick={onReset}>
           Сбросить
         </button>
       </div>
