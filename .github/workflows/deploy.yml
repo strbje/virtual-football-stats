@@ -16,34 +16,4 @@ jobs:
           key: ${{ secrets.VM_SSH_KEY }}
           port: 22
           script: |
-            set -euo pipefail
-
-            cd ~/virtual-football-stats
-
-            echo ">>> git fetch/reset"
-            git fetch origin main
-            git reset --hard origin/main
-
-            echo ">>> write .env"
-            cat > .env <<'EOF'
-            NODE_ENV=production
-            PORT=3000
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            EOF
-
-            echo ">>> install deps"
-            npm ci
-
-            echo ">>> prisma client (не падаем, если схемы нет)"
-            npx prisma generate || true
-
-            echo ">>> build"
-            npm run build
-
-            echo ">>> pm2 restart"
-            pm2 delete virtual-football-stats || true
-            pm2 start ecosystem.config.js --update-env
-            pm2 save
-
-            echo ">>> healthcheck"
-            [ -f .next/BUILD_ID ] && curl -sfI http://127.0.0.1:3000/ || (echo "NO BUILD" && exit 1)
+            bash ~/virtual-football-stats/scripts/deploy.sh
