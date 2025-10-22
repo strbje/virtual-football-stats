@@ -1,8 +1,8 @@
 // src/app/players/page.tsx
-import { getDb } from "@/lib/db";
 import FiltersClient from "@/components/players/FiltersClient";
+import { getDb } from "@/lib/db";
 
-// Если нужен принудительный рендер на сервере без кеша:
+// Если нужен принудительный рендер без кэша, раскомментируй:
 // export const dynamic = "force-dynamic";
 
 type Search = Record<string, string | string[] | undefined>;
@@ -15,6 +15,17 @@ type Row = {
   round: number | null;
   role?: string | null;
 };
+
+const FALLBACK_ROLES_RU = [
+  "Вратарь",
+  "Центральный защитник",
+  "Крайний защитник",
+  "Оборонительный полузащитник",
+  "Центральный полузащитник",
+  "Атакующий полузащитник",
+  "Фланговый атакующий",
+  "Нападающий",
+];
 
 function toStr(v: unknown) {
   return typeof v === "string" ? v : "";
@@ -30,49 +41,90 @@ function fmtDate(d: Date | string | null) {
 }
 
 export default async function PlayersPage({
-  // В NEXT 15 searchParams — это Promise
+  // В Next 15 searchParams — это Promise
   searchParams,
 }: {
   searchParams: Promise<Search>;
 }) {
   const prisma = await getDb();
-
   const sp = await searchParams;
-  const q = toStr(sp.q);
-  const team = toStr(sp.team);
-  const tournament = toStr(sp.tournament);
+
+  const q = toStr(sp.q); // игрок
+  const team = toStr(sp.team); // команда
+  const tournament = toStr(sp.tournament); // турнир
   const from = toStr(sp.from); // YYYY-MM-DD
   const to = toStr(sp.to); // YYYY-MM-DD
-  const role = toStr(sp.role);
+  const role = toStr(sp.role); // амплуа
 
-  // Мягкая заглушка, если БД отключена/недоступна
+  // База может быть отключена (SKIP_DB=1) — не падаем
   if (!prisma) {
     return (
       <main className="p-6">
         <h1 className="text-2xl font-semibold mb-4">Игроки</h1>
-        <FiltersClient initial={{ q, team, tournament, from, to, role }} roles={[]} />
-        <p className="text-sm opacity-70">
-          База данных недоступна (SKIP_DB=1 или не сгенерирован PrismaClient).
-        </p>
+        <FiltersClient initial={{ q, team, tournament, from, to, role }} roles={FALLBACK_ROLES_RU} />
+        <p className="text-sm opacity-70">База данных недоступна (SKIP_DB=1 или PrismaClient не сгенерирован).</p>
       </main>
     );
   }
 
-  // 1) Список амплуа для выпадашки
+  // ---- 1) Список амплуа ----------------------------------------------------
+  // Пытаемся вытащить амплуа из БД. Идём по стратегиям — первая удачная победила.
   let roles: string[] = [];
-  try {
-    const rolesRows = await prisma.$queryRaw<{ role: string }[]>`
-      SELECT DISTINCT role
-      FROM users
-      WHERE role IS NOT NULL AND role <> ''
-      ORDER BY role
-    `;
-    roles = rolesRows.map((r) => r.role);
-  } catch {
-    roles = [];
+
+  async function tryGetRoles(): Promise<string[] | null> {
+    // Стратегия A: отдельная таблица "positions" (или аналог) с колонкой "name"
+    try {
+      const rows = await prisma.$queryRaw<{ name: string }[]>`
+        SELECT DISTINCT name
+        FROM positions
+        WHERE name IS NOT NULL AND name <> ''
+        ORDER BY name
+      `;
+      if (rows.length) return rows.map((r) => r.name);
+    } catch {}
+
+    // Стратегия B: колонка позиции прямо в статистике матчей (user_match_stats.position / position_name)
+    try {
+      const rows = await prisma.$queryRaw<{ position: string }[]>`
+        SELECT DISTINCT position
+        FROM user_match_stats
+        WHERE position IS NOT NULL AND position <> ''
+        ORDER BY position
+      `;
+      if (rows.length) return rows.map((r) => r.position);
+    } catch {}
+
+    try {
+      const rows = await prisma.$queryRaw<{ position_name: string }[]>`
+        SELECT DISTINCT position_name
+        FROM user_match_stats
+        WHERE position_name IS NOT NULL AND position_name <> ''
+        ORDER BY position_name
+      `;
+      if (rows.length) return rows.map((r) => r.position_name);
+    } catch {}
+
+    // Стратегия C: роль хранится в users.role
+    try {
+      const rows = await prisma.$queryRaw<{ role: string }[]>`
+        SELECT DISTINCT role
+        FROM users
+        WHERE role IS NOT NULL AND role <> ''
+        ORDER BY role
+      `;
+      if (rows.length) return rows.map((r) => r.role);
+    } catch {}
+
+    return null;
   }
 
-  // 2) Данные игроков — динамически собираем WHERE и параметры
+  try {
+    roles = (await tryGetRoles()) ?? FALLBACK_ROLES_RU;
+  } catch {
+    roles = FALLBACK_ROLES_RU;
+  }
+
+  // ---- 2) Данные игроков ----------------------------------------------------
   const where: string[] = [];
   const params: unknown[] = [];
 
@@ -89,34 +141,33 @@ export default async function PlayersPage({
     params.push(`%${tournament}%`);
   }
   if (from) {
-    // начало дня включительно
     where.push(`tm.timestamp >= ?`);
-    params.push(new Date(`${from}T00:00:00Z`));
+    params.push(new Date(`${from}T00:00:00.000Z`));
   }
   if (to) {
-    // конец дня включительно
     where.push(`tm.timestamp <= ?`);
     params.push(new Date(`${to}T23:59:59.999Z`));
   }
   if (role) {
-    where.push(`u.role = ?`);
+    // Пытаемся фильтровать по возможным местам хранения роли
+    where.push(`COALESCE(ums.position, ums.position_name, u.role) = ?`);
     params.push(role);
   }
 
-  // Подстрой названия таблиц/полей под свою схему при необходимости.
+  // ВАЖНО: подгони имена таблиц/полей под свою схему при необходимости.
   const baseSql = `
     SELECT
-      u.gamertag                AS gamertag,
-      c.team_name               AS team_name,
-      t.name                    AS tournament_name,
-      tm.timestamp              AS match_time,
-      tm.round                  AS round,
-      u.role                    AS role
+      u.gamertag                           AS gamertag,
+      c.team_name                          AS team_name,
+      t.name                               AS tournament_name,
+      tm.timestamp                         AS match_time,
+      tm.round                             AS round,
+      COALESCE(ums.position, ums.position_name, u.role) AS role
     FROM user_match_stats ums
-    INNER JOIN users u ON u.id = ums.user_id
-    LEFT  JOIN teams c ON c.id = ums.team_id
-    LEFT  JOIN tournament_matches tm ON tm.id = ums.match_id
-    LEFT  JOIN tournaments t ON t.id = tm.tournament_id
+      INNER JOIN users u           ON u.id = ums.user_id
+      LEFT  JOIN teams c           ON c.id = ums.team_id
+      LEFT  JOIN tournament_matches tm ON tm.id = ums.match_id
+      LEFT  JOIN tournaments t     ON t.id = tm.tournament_id
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
     ORDER BY tm.timestamp DESC NULLS LAST, u.gamertag ASC
     LIMIT 500
@@ -124,7 +175,6 @@ export default async function PlayersPage({
 
   let rows: Row[] = [];
   try {
-    // ВАЖНО: используем $queryRawUnsafe с параметрами (они подставятся безопасно как bind-переменные)
     rows = (await prisma.$queryRawUnsafe(baseSql, ...params)) as Row[];
   } catch (e) {
     return (
@@ -132,8 +182,8 @@ export default async function PlayersPage({
         <h1 className="text-2xl font-semibold mb-4">Игроки</h1>
         <FiltersClient initial={{ q, team, tournament, from, to, role }} roles={roles} />
         <p className="mt-4 text-red-600">
-          Не удалось загрузить данные игроков. Проверь SQL-запрос в
-          <code className="px-1">/app/players/page.tsx</code> и имена таблиц/полей.
+          Не удалось загрузить данные игроков. Проверь SQL и имена таблиц/полей в{" "}
+          <code className="px-1">/app/players/page.tsx</code>.
         </p>
       </main>
     );
@@ -146,9 +196,7 @@ export default async function PlayersPage({
       <FiltersClient initial={{ q, team, tournament, from, to, role }} roles={roles} />
 
       <section className="space-y-3">
-        {rows.length === 0 && (
-          <div className="opacity-60">По заданным фильтрам ничего не найдено.</div>
-        )}
+        {rows.length === 0 && <div className="opacity-60">По заданным фильтрам ничего не найдено.</div>}
 
         {rows.map((r, i) => (
           <div key={`${r.gamertag}-${i}`} className="border-b pb-2">
