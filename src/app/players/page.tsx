@@ -168,7 +168,9 @@ export default async function PlayersPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  cconst sp: SearchParamsDict = searchParams ? await searchParams : {};
+  const sp: Record<string, string | string[] | undefined> =
+  searchParams ? await searchParams : {};
+
 const s: Search = {
   q: val(sp.q),
   team: val(sp.team),
@@ -262,4 +264,5 @@ const s: Search = {
     </div>
   );
 }
+
 
