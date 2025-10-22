@@ -2,7 +2,7 @@
 import { getDb } from "@/lib/db";
 import FiltersClient from "@/components/players/FiltersClient";
 
-// Если у тебя строгий кеш, можно форсить динамику:
+// Если нужен принудительный рендер на сервере без кеша:
 // export const dynamic = "force-dynamic";
 
 type Search = Record<string, string | string[] | undefined>;
@@ -23,7 +23,6 @@ function toStr(v: unknown) {
 function fmtDate(d: Date | string | null) {
   if (!d) return "";
   const date = typeof d === "string" ? new Date(d) : d;
-  // dd.mm.yyyy hh:mm
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(
     date.getHours()
@@ -31,28 +30,27 @@ function fmtDate(d: Date | string | null) {
 }
 
 export default async function PlayersPage({
+  // В NEXT 15 searchParams — это Promise
   searchParams,
 }: {
-  searchParams: Search;
+  searchParams: Promise<Search>;
 }) {
   const prisma = await getDb();
 
-  const q = toStr(searchParams.q);
-  const team = toStr(searchParams.team);
-  const tournament = toStr(searchParams.tournament);
-  const from = toStr(searchParams.from); // YYYY-MM-DD
-  const to = toStr(searchParams.to); // YYYY-MM-DD
-  const role = toStr(searchParams.role);
+  const sp = await searchParams;
+  const q = toStr(sp.q);
+  const team = toStr(sp.team);
+  const tournament = toStr(sp.tournament);
+  const from = toStr(sp.from); // YYYY-MM-DD
+  const to = toStr(sp.to); // YYYY-MM-DD
+  const role = toStr(sp.role);
 
-  // Когда БД отключена (SKIP_DB=1, клиент не сгенерен и т.п.) — мягкая заглушка.
+  // Мягкая заглушка, если БД отключена/недоступна
   if (!prisma) {
     return (
       <main className="p-6">
         <h1 className="text-2xl font-semibold mb-4">Игроки</h1>
-        <FiltersClient
-          initial={{ q, team, tournament, from, to, role }}
-          roles={[]}
-        />
+        <FiltersClient initial={{ q, team, tournament, from, to, role }} roles={[]} />
         <p className="text-sm opacity-70">
           База данных недоступна (SKIP_DB=1 или не сгенерирован PrismaClient).
         </p>
@@ -74,11 +72,7 @@ export default async function PlayersPage({
     roles = [];
   }
 
-  // 2) Данные игроков
-  // ВНИМАНИЕ: ниже — ориентировочный SQL по тем именам, что мелькали в логах/скринах.
-  // Если у тебя таблицы/поля называются иначе — поправь SELECT/FROM/JOIN/WHERE.
-  //
-  // Идея: собираем WHERE динамически и передаём параметры безопасно.
+  // 2) Данные игроков — динамически собираем WHERE и параметры
   const where: string[] = [];
   const params: unknown[] = [];
 
@@ -95,12 +89,12 @@ export default async function PlayersPage({
     params.push(`%${tournament}%`);
   }
   if (from) {
-    // from — включительно, начало дня
+    // начало дня включительно
     where.push(`tm.timestamp >= ?`);
     params.push(new Date(`${from}T00:00:00Z`));
   }
   if (to) {
-    // to — включительно, конец дня
+    // конец дня включительно
     where.push(`tm.timestamp <= ?`);
     params.push(new Date(`${to}T23:59:59.999Z`));
   }
@@ -109,12 +103,7 @@ export default async function PlayersPage({
     params.push(role);
   }
 
-  // Базовый запрос. Подстрой под свою схему, если нужно.
-  // u — users (gamertag, role)
-  // ums — user_match_stats (user_id, team_id, match_id, ... )
-  // c — teams (team_name)
-  // t — tournaments (name)
-  // tm — tournament_matches (timestamp, round, tournament_id, id)
+  // Подстрой названия таблиц/полей под свою схему при необходимости.
   const baseSql = `
     SELECT
       u.gamertag                AS gamertag,
@@ -135,10 +124,9 @@ export default async function PlayersPage({
 
   let rows: Row[] = [];
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    // ВАЖНО: используем $queryRawUnsafe с параметрами (они подставятся безопасно как bind-переменные)
     rows = (await prisma.$queryRawUnsafe(baseSql, ...params)) as Row[];
   } catch (e) {
-    // Если возникла ошибка выполнения SQL — показываем мягкое сообщение
     return (
       <main className="p-6">
         <h1 className="text-2xl font-semibold mb-4">Игроки</h1>
