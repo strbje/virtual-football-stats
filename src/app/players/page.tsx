@@ -2,20 +2,20 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { headers } from "next/headers";
-
 import type { PrismaClient } from "@prisma/client";
 import { getDb } from "@/lib/db";
 import FiltersClient from "@/components/players/FiltersClient";
 
+// --------- types & helpers ---------
 type SearchParamsDict = Record<string, string | string[] | undefined>;
 
 type Search = {
   q?: string;
   team?: string;
   tournament?: string;
-  role?: string;        // Амплуа
-  from?: string;        // YYYY-MM-DD
-  to?: string;          // YYYY-MM-DD
+  role?: string;   // Амплуа
+  from?: string;   // YYYY-MM-DD
+  to?: string;     // YYYY-MM-DD
 };
 
 type PlayerRow = {
@@ -42,19 +42,18 @@ async function getBaseUrl() {
   return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
 }
 
+// --------- role (амплуа) detection ---------
 /**
- * Выясняем, где именно в БД лежит "Амплуа".
- * Пробуем по очереди:
- *   1) user_match_stats.position
- *   2) user_match_stats.role
- *   3) users.role
- * Возвращаем: { columnExpr: string, distinctValues: string[] }
+ * Пробуем понять, где лежит «амплуа» в вашей БД.
+ * По очереди проверяем:
+ *   - user_match_stats.position
+ *   - user_match_stats.role
+ *   - users.role
+ * Возвращаем выражение колонки + список distinct-значений.
  */
-async function detectRoleFieldAndValues(prisma: PrismaClient): Promise<{
-  columnExpr: "ums.position" | "ums.role" | "u.role";
-  values: string[];
-}> {
-  // утилита: выполнить DISTINCT по выражению (без падения, если колонки нет)
+async function detectRoleFieldAndValues(
+  prisma: PrismaClient
+): Promise<{ columnExpr: "ums.position" | "ums.role" | "u.role"; values: string[] }> {
   async function tryDistinct(columnExpr: "ums.position" | "ums.role" | "u.role") {
     try {
       const rows = await prisma.$queryRawUnsafe<{ val: string }[]>(
@@ -69,34 +68,29 @@ async function detectRoleFieldAndValues(prisma: PrismaClient): Promise<{
       const vals = rows
         .map((r) => (typeof r.val === "string" ? r.val.trim() : ""))
         .filter((s) => s.length > 0);
-      if (vals.length > 0) {
-        return vals;
-      }
+      if (vals.length > 0) return vals;
     } catch {
-      // колонка могла отсутствовать – просто пробуем следующую
+      // колонка/таблица могла отсутствовать — двигаемся дальше
     }
     return [];
   }
 
-  // 1) ums.position
   const v1 = await tryDistinct("ums.position");
-  if (v1.length > 0) return { columnExpr: "ums.position", values: v1 };
+  if (v1.length) return { columnExpr: "ums.position", values: v1 };
 
-  // 2) ums.role
   const v2 = await tryDistinct("ums.role");
-  if (v2.length > 0) return { columnExpr: "ums.role", values: v2 };
+  if (v2.length) return { columnExpr: "ums.role", values: v2 };
 
-  // 3) u.role
   const v3 = await tryDistinct("u.role");
-  if (v3.length > 0) return { columnExpr: "u.role", values: v3 };
+  if (v3.length) return { columnExpr: "u.role", values: v3 };
 
-  // ничего не нашли
   return { columnExpr: "ums.position", values: [] };
 }
 
+// --------- main query ---------
 /**
  * Основной запрос игроков с фильтрами.
- * Фильтры безопасно встраиваем через параметры (без prisma.sql).
+ * Все значения передаём параметрами (без шаблонной подстановки в SQL).
  */
 async function getPlayers(prisma: PrismaClient, s: Search): Promise<PlayerRow[]> {
   const where: string[] = [];
@@ -119,13 +113,11 @@ async function getPlayers(prisma: PrismaClient, s: Search): Promise<PlayerRow[]>
     params.push(s.from);
   }
   if (s.to) {
-    // включаем конец дня
     where.push(`tm.timestamp <= ?`);
     params.push(`${s.to} 23:59:59`);
   }
-
-  // Если выбрано амплуа — фильтруем по любому возможному месту хранения
   if (s.role) {
+    // фильтруем по любому возможному месту хранения амплуа
     where.push(`(
       (ums.position IS NOT NULL AND ums.position <> '' AND ums.position = ?)
       OR (ums.role IS NOT NULL AND ums.role <> '' AND ums.role = ?)
@@ -146,7 +138,6 @@ async function getPlayers(prisma: PrismaClient, s: Search): Promise<PlayerRow[]>
       SUM(COALESCE(ums.goals, 0)) AS goals,
       SUM(COALESCE(ums.assists, 0)) AS assists,
       AVG(ums.rating) AS rating,
-      -- для удобства отображения покажем найденное амплуа по приоритету
       COALESCE(ums.position, ums.role, u.role) AS role
     FROM user_match_stats ums
     INNER JOIN users u ON u.id = ums.user_id
@@ -163,43 +154,49 @@ async function getPlayers(prisma: PrismaClient, s: Search): Promise<PlayerRow[]>
   return rows;
 }
 
+// --------- page ---------
 export default async function PlayersPage({
   searchParams,
 }: {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+  searchParams?: Promise<SearchParamsDict>;
 }) {
-  const sp: Record<string, string | string[] | undefined> =
-  searchParams ? await searchParams : {};
+  // корректно получаем query params из Promise (App Router)
+  const sp: SearchParamsDict = searchParams ? await searchParams : {};
 
-const s: Search = {
-  q: val(sp.q),
-  team: val(sp.team),
-  tournament: val(sp.tournament),
-  role: val(sp.role),
-  from: val(sp.from),
-  to: val(sp.to),
-};
+  const s: Search = {
+    q: val(sp.q),
+    team: val(sp.team),
+    tournament: val(sp.tournament),
+    role: val(sp.role),
+    from: val(sp.from),
+    to: val(sp.to),
+  };
 
   const prisma = await getDb();
+  const base = await getBaseUrl();
 
   let roles: string[] = [];
   let players: PlayerRow[] = [];
+  let errorMsg = "";
 
   if (prisma) {
-    // 1) загрузим возможные значения "Амплуа" из БД
-    const roleInfo = await detectRoleFieldAndValues(prisma);
-    roles = roleInfo.values;
+    try {
+      // 1) список амплуа из БД (DISTINCT)
+      const roleInfo = await detectRoleFieldAndValues(prisma);
+      roles = roleInfo.values;
 
-    // 2) сами данные игроков с применением всех фильтров (включая роль)
-    players = await getPlayers(prisma, s);
+      // 2) сами игроки
+      players = await getPlayers(prisma, s);
+    } catch (e: any) {
+      console.error("Players page DB error:", e);
+      errorMsg =
+        "Не удалось загрузить данные игроков. Проверь SQL-структуру/права пользователя базы данных.";
+      roles = [];
+      players = [];
+    }
   } else {
-    // без БД — пустые фильтры и данные
-    roles = [];
-    players = [];
+    errorMsg = "База данных недоступна (нет соединения).";
   }
-
-  const base = await getBaseUrl();
-  const hasDb = Boolean(prisma);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -210,32 +207,35 @@ const s: Search = {
         </Link>
       </div>
 
-      {/* Фильтры: амплуа берём из roles (DISTINCT из БД). Если пусто — селект не показываем */}
-     <FiltersClient
-  initial={{
-    q: s.q || "",
-    team: s.team || "",
-    tournament: s.tournament || "",
-    role: s.role || "",
-    from: s.from || "",
-    to: s.to || "",
-  }}
-  roles={roles}
-/>
+      {/* Фильтры (если ролей нет, селект всё равно будет с «любое») */}
+      <FiltersClient
+        initial={{
+          q: s.q || "",
+          team: s.team || "",
+          tournament: s.tournament || "",
+          role: s.role || "",
+          from: s.from || "",
+          to: s.to || "",
+        }}
+        roles={roles}
+      />
 
-      {!hasDb && (
-        <div className="rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
-          База данных недоступна. Показ пустой.
+      {errorMsg && (
+        <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {errorMsg}
         </div>
       )}
 
       <div className="grid gap-3">
-        {players.length === 0 && (
+        {players.length === 0 && !errorMsg && (
           <div className="text-gray-500">Ничего не найдено (поменяйте фильтры).</div>
         )}
 
         {players.map((p) => (
-          <div key={`${p.user_id}-${p.tournament_name ?? "any"}`} className="border rounded p-4 hover:shadow">
+          <div
+            key={`${p.user_id}-${p.tournament_name ?? "any"}`}
+            className="border rounded p-4 hover:shadow"
+          >
             <div className="flex flex-wrap gap-2 items-center justify-between">
               <div className="font-semibold">{p.gamertag}</div>
               <div className="text-sm text-gray-500">
@@ -265,6 +265,3 @@ const s: Search = {
     </div>
   );
 }
-
-
-
