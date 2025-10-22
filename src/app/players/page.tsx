@@ -1,33 +1,33 @@
-export const dynamic = "force-dynamic";
-
-import { headers } from "next/headers";
-import type { DraftPlayer } from "@/lib/store"; // если есть общий тип, иначе убери
+// src/app/players/page.tsx
 import { getDb } from "@/lib/db";
+import FiltersClient from "@/components/players/FiltersClient";
 
-/** Утилита для baseUrl (как у тебя в других страницах) */
-async function getBaseUrl() {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
-}
+// Если у тебя строгий кеш, можно форсить динамику:
+// export const dynamic = "force-dynamic";
 
-type Search = {
-  q?: string;             // игрок
-  team?: string;          // команда
-  tournament?: string;    // турнир
-  role?: string;          // амплуа
-  period?: string;        // формат: 2025-08-01..2025-08-31
-  from?: string;          // legacy поддержка
-  to?: string;            // legacy поддержка
+type Search = Record<string, string | string[] | undefined>;
+
+type Row = {
+  gamertag: string;
+  team_name: string | null;
+  tournament_name: string | null;
+  match_time: Date | string | null;
+  round: number | null;
+  role?: string | null;
 };
 
-function parsePeriod(s?: string) {
-  if (!s) return { from: undefined, to: undefined };
-  const [a, b] = s.split("..");
-  const from = a?.trim() || undefined;
-  const to = b?.trim() || undefined;
-  return { from, to };
+function toStr(v: unknown) {
+  return typeof v === "string" ? v : "";
+}
+
+function fmtDate(d: Date | string | null) {
+  if (!d) return "";
+  const date = typeof d === "string" ? new Date(d) : d;
+  // dd.mm.yyyy hh:mm
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
 }
 
 export default async function PlayersPage({
@@ -35,244 +35,145 @@ export default async function PlayersPage({
 }: {
   searchParams: Search;
 }) {
-  const db = await getDb();
-  const base = await getBaseUrl();
+  const prisma = await getDb();
 
-  // --- собираем фильтры
-  const q = (searchParams.q ?? "").trim();
-  const team = (searchParams.team ?? "").trim();
-  const tournament = (searchParams.tournament ?? "").trim();
-  const role = (searchParams.role ?? "").trim();
+  const q = toStr(searchParams.q);
+  const team = toStr(searchParams.team);
+  const tournament = toStr(searchParams.tournament);
+  const from = toStr(searchParams.from); // YYYY-MM-DD
+  const to = toStr(searchParams.to); // YYYY-MM-DD
+  const role = toStr(searchParams.role);
 
-  const { from: periodFrom, to: periodTo } = parsePeriod(searchParams.period);
-  const from = (periodFrom ?? searchParams.from ?? "").trim();
-  const to = (periodTo ?? searchParams.to ?? "").trim();
-
-  // список амплуа для дропдауна
-  let roles: string[] = [];
-  if (db) {
-    try {
-      // если в твоей схеме поле называется иначе (например, `role` / `position` / `amplua`)
-      // поменяй `position` на актуальное имя поля:
-      const rows = await db.$queryRaw<{ position: string }[]>(
-        // @ts-ignore
-        `SELECT DISTINCT position FROM users WHERE position IS NOT NULL AND position <> '' ORDER BY position`
-      );
-      roles = rows.map((r) => r.position);
-    } catch {
-      roles = [];
-    }
+  // Когда БД отключена (SKIP_DB=1, клиент не сгенерен и т.п.) — мягкая заглушка.
+  if (!prisma) {
+    return (
+      <main className="p-6">
+        <h1 className="text-2xl font-semibold mb-4">Игроки</h1>
+        <FiltersClient
+          initial={{ q, team, tournament, from, to, role }}
+          roles={[]}
+        />
+        <p className="text-sm opacity-70">
+          База данных недоступна (SKIP_DB=1 или не сгенерирован PrismaClient).
+        </p>
+      </main>
+    );
   }
 
-  // данные игроков (плейсхолдер при отключенной БД)
-  let players:
-    | {
-        gamertag: string;
-        team_name: string | null;
-        tournament_name: string | null;
-        match_time: string | null;
-        round: number | null;
-        role: string | null;
-      }[]
-    | null = null;
+  // 1) Список амплуа для выпадашки
+  let roles: string[] = [];
+  try {
+    const rolesRows = await prisma.$queryRaw<{ role: string }[]>`
+      SELECT DISTINCT role
+      FROM users
+      WHERE role IS NOT NULL AND role <> ''
+      ORDER BY role
+    `;
+    roles = rolesRows.map((r) => r.role);
+  } catch {
+    roles = [];
+  }
 
-  if (!db) {
-    // режим заглушки
-    players = [];
-  } else {
-    // собираем WHERE безопасно
-    const where: string[] = [];
-    const params: any[] = [];
+  // 2) Данные игроков
+  // ВНИМАНИЕ: ниже — ориентировочный SQL по тем именам, что мелькали в логах/скринах.
+  // Если у тебя таблицы/поля называются иначе — поправь SELECT/FROM/JOIN/WHERE.
+  //
+  // Идея: собираем WHERE динамически и передаём параметры безопасно.
+  const where: string[] = [];
+  const params: unknown[] = [];
 
-    if (q) {
-      where.push(`u.gamertag LIKE ?`);
-      params.push(`%${q}%`);
-    }
-    if (team) {
-      where.push(`t.team_name LIKE ?`);
-      params.push(`%${team}%`);
-    }
-    if (tournament) {
-      where.push(`tr.name LIKE ?`);
-      params.push(`%${tournament}%`);
-    }
-    if (role) {
-      // имя поля роли должно совпадать с SELECT ниже
-      where.push(`u.position = ?`);
-      params.push(role);
-    }
-    if (from) {
-      where.push(`m.timestamp >= ?`);
-      params.push(from);
-    }
-    if (to) {
-      where.push(`m.timestamp <= ?`);
-      params.push(to);
-    }
+  if (q) {
+    where.push(`u.gamertag LIKE ?`);
+    params.push(`%${q}%`);
+  }
+  if (team) {
+    where.push(`c.team_name LIKE ?`);
+    params.push(`%${team}%`);
+  }
+  if (tournament) {
+    where.push(`t.name LIKE ?`);
+    params.push(`%${tournament}%`);
+  }
+  if (from) {
+    // from — включительно, начало дня
+    where.push(`tm.timestamp >= ?`);
+    params.push(new Date(`${from}T00:00:00Z`));
+  }
+  if (to) {
+    // to — включительно, конец дня
+    where.push(`tm.timestamp <= ?`);
+    params.push(new Date(`${to}T23:59:59.999Z`));
+  }
+  if (role) {
+    where.push(`u.role = ?`);
+    params.push(role);
+  }
 
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  // Базовый запрос. Подстрой под свою схему, если нужно.
+  // u — users (gamertag, role)
+  // ums — user_match_stats (user_id, team_id, match_id, ... )
+  // c — teams (team_name)
+  // t — tournaments (name)
+  // tm — tournament_matches (timestamp, round, tournament_id, id)
+  const baseSql = `
+    SELECT
+      u.gamertag                AS gamertag,
+      c.team_name               AS team_name,
+      t.name                    AS tournament_name,
+      tm.timestamp              AS match_time,
+      tm.round                  AS round,
+      u.role                    AS role
+    FROM user_match_stats ums
+    INNER JOIN users u ON u.id = ums.user_id
+    LEFT  JOIN teams c ON c.id = ums.team_id
+    LEFT  JOIN tournament_matches tm ON tm.id = ums.match_id
+    LEFT  JOIN tournaments t ON t.id = tm.tournament_id
+    ${where.length ? "WHERE " + where.join(" AND ") : ""}
+    ORDER BY tm.timestamp DESC NULLS LAST, u.gamertag ASC
+    LIMIT 500
+  ` as const;
 
-    players = await db.$queryRaw<
-      {
-        gamertag: string;
-        team_name: string | null;
-        tournament_name: string | null;
-        match_time: string | null;
-        round: number | null;
-        role: string | null;
-      }[]
-    >(
-      // ВАЖНО: подставь реальные имена таблиц/полей
-      // users u, teams t, tournaments tr, matches m, user_match_stats ums (пример)
-      `
-      SELECT
-        u.gamertag,
-        t.team_name,
-        tr.name AS tournament_name,
-        m.timestamp AS match_time,
-        ums.round AS round,
-        u.position AS role
-      FROM user_match_stats ums
-      JOIN users u       ON ums.user_id = u.id
-      LEFT JOIN teams t  ON ums.team_id = t.id
-      LEFT JOIN matches m ON ums.match_id = m.id
-      LEFT JOIN tournaments tr ON m.tournament_id = tr.id
-      ${whereSql}
-      ORDER BY m.timestamp DESC, u.gamertag ASC
-      LIMIT 500
-      `,
-      ...params
+  let rows: Row[] = [];
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    rows = (await prisma.$queryRawUnsafe(baseSql, ...params)) as Row[];
+  } catch (e) {
+    // Если возникла ошибка выполнения SQL — показываем мягкое сообщение
+    return (
+      <main className="p-6">
+        <h1 className="text-2xl font-semibold mb-4">Игроки</h1>
+        <FiltersClient initial={{ q, team, tournament, from, to, role }} roles={roles} />
+        <p className="mt-4 text-red-600">
+          Не удалось загрузить данные игроков. Проверь SQL-запрос в
+          <code className="px-1">/app/players/page.tsx</code> и имена таблиц/полей.
+        </p>
+      </main>
     );
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-4">
-      <h1 className="text-2xl font-bold">Игроки</h1>
+    <main className="p-6">
+      <h1 className="text-2xl font-semibold mb-4">Игроки</h1>
 
-      {/* Форма фильтров (клиентская; собирает только непустые поля) */}
-      <PlayersFilter
-        roles={roles}
-        initial={{
-          q,
-          team,
-          tournament,
-          role,
-          period: from || to ? `${from || ""}..${to || ""}` : "",
-        }}
-      />
+      <FiltersClient initial={{ q, team, tournament, from, to, role }} roles={roles} />
 
-      <div className="divide-y">
-        {(players ?? []).map((p, i) => (
-          <div key={`${p.gamertag}-${i}`} className="py-3">
-            <span className="font-semibold">{p.gamertag}</span>{" "}
-            — {p.team_name ?? "—"} — {p.tournament_name ?? "—"} —{" "}
-            {p.match_time ? new Date(p.match_time).toLocaleString("ru-RU") : "—"}
-            {p.round != null ? <span>  Раунд: {p.round}</span> : null}
-            {p.role ? <span>  • {p.role}</span> : null}
+      <section className="space-y-3">
+        {rows.length === 0 && (
+          <div className="opacity-60">По заданным фильтрам ничего не найдено.</div>
+        )}
+
+        {rows.map((r, i) => (
+          <div key={`${r.gamertag}-${i}`} className="border-b pb-2">
+            <div className="font-semibold">{r.gamertag}</div>
+            <div className="text-sm opacity-80">
+              {r.team_name ?? "—"} — {r.tournament_name ?? "—"}
+              {r.match_time ? ` — ${fmtDate(r.match_time)}` : ""}
+              {typeof r.round === "number" ? ` — Раунд: ${r.round}` : ""}
+              {r.role ? ` — ${r.role}` : ""}
+            </div>
           </div>
         ))}
-        {(players ?? []).length === 0 && (
-          <div className="text-gray-500">Ничего не найдено.</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Клиентская форма фильтрации */
-function PlayersFilter({
-  roles,
-  initial,
-}: {
-  roles: string[];
-  initial: { q: string; team: string; tournament: string; role: string; period: string };
-}) {
-  "use client";
-
-  import { useRouter, usePathname } from "next/navigation";
-  import { FormEvent, useState } from "react";
-
-  const router = useRouter();
-  const pathname = usePathname();
-
-  const [q, setQ] = useState(initial.q);
-  const [team, setTeam] = useState(initial.team);
-  const [tournament, setTournament] = useState(initial.tournament);
-  const [role, setRole] = useState(initial.role);
-  const [period, setPeriod] = useState(initial.period); // формат 2025-08-01..2025-08-31
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    const params = new URLSearchParams();
-
-    if (q.trim()) params.set("q", q.trim());
-    if (team.trim()) params.set("team", team.trim());
-    if (tournament.trim()) params.set("tournament", tournament.trim());
-    if (role.trim()) params.set("role", role.trim());
-    if (period.trim()) params.set("period", period.trim());
-
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname);
-  }
-
-  function reset() {
-    setQ("");
-    setTeam("");
-    setTournament("");
-    setRole("");
-    setPeriod("");
-    router.replace(pathname); // чистим урл целиком
-  }
-
-  return (
-    <form onSubmit={submit} className="flex flex-wrap gap-2 items-center">
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Ник игрока"
-        className="border rounded px-3 py-2 w-64"
-      />
-      <input
-        value={team}
-        onChange={(e) => setTeam(e.target.value)}
-        placeholder="Команда"
-        className="border rounded px-3 py-2 w-56"
-      />
-      <input
-        value={tournament}
-        onChange={(e) => setTournament(e.target.value)}
-        placeholder="Турнир"
-        className="border rounded px-3 py-2 w-56"
-      />
-      <select
-        value={role}
-        onChange={(e) => setRole(e.target.value)}
-        className="border rounded px-3 py-2 w-52"
-      >
-        <option value="">Амплуа: любое</option>
-        {roles.map((r) => (
-          <option key={r} value={r}>
-            {r}
-          </option>
-        ))}
-      </select>
-
-      {/* Один инпут периода: YYYY-MM-DD..YYYY-MM-DD */}
-      <input
-        value={period}
-        onChange={(e) => setPeriod(e.target.value)}
-        placeholder="Период: YYYY-MM-DD..YYYY-MM-DD"
-        className="border rounded px-3 py-2 w-72"
-      />
-
-      <button className="bg-blue-600 text-white rounded px-4 py-2">Фильтр</button>
-      <button
-        type="button"
-        onClick={reset}
-        className="border rounded px-4 py-2"
-      >
-        Сброс
-      </button>
-    </form>
+      </section>
+    </main>
   );
 }
