@@ -211,16 +211,17 @@ const s: Search = {
       </div>
 
       {/* Фильтры: амплуа берём из roles (DISTINCT из БД). Если пусто — селект не показываем */}
-      <FiltersClient
-        qDefault={s.q || ""}
-        teamDefault={s.team || ""}
-        tournamentDefault={s.tournament || ""}
-        fromDefault={s.from || ""}
-        toDefault={s.to || ""}
-        roleDefault={s.role || ""}
-        roles={roles}
-        disabled={!hasDb}
-      />
+     <FiltersClient
+  initial={{
+    q: s.q || "",
+    team: s.team || "",
+    tournament: s.tournament || "",
+    role: s.role || "",
+    from: s.from || "",
+    to: s.to || "",
+  }}
+  roles={roles}
+/>
 
       {!hasDb && (
         <div className="rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
@@ -264,5 +265,6 @@ const s: Search = {
     </div>
   );
 }
+
 
 
