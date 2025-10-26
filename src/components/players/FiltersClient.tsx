@@ -1,16 +1,14 @@
-// src/components/players/FiltersClient.tsx
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
 
 type Initial = {
-  q?: string;
-  team?: string;
-  tournament?: string;
-  role?: string;
-  from?: string; // YYYY-MM-DD
-  to?: string;   // YYYY-MM-DD
+  q: string;
+  team: string;
+  tournament: string;
+  range: string; // единое поле периода, например "01.09.2025 — 30.09.2025"
+  role: string;
 };
 
 export default function FiltersClient({
@@ -22,128 +20,145 @@ export default function FiltersClient({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const current = useSearchParams();
+  const sp = useSearchParams();
 
-  // локальные значения инпутов
-  const [q, setQ] = useState(initial.q ?? "");
-  const [team, setTeam] = useState(initial.team ?? "");
-  const [tournament, setTournament] = useState(initial.tournament ?? "");
-  const [role, setRole] = useState(initial.role ?? "");
-  const [from, setFrom] = useState(initial.from ?? "");
-  const [to, setTo] = useState(initial.to ?? "");
+  const [q, setQ] = useState(initial.q);
+  const [team, setTeam] = useState(initial.team);
+  const [tournament, setTournament] = useState(initial.tournament);
+  const [range, setRange] = useState(initial.range);
+  const [role, setRole] = useState(initial.role);
 
-  // собираем query без пустых значений
-  const buildParams = useMemo(() => {
-    return (next?: Partial<Initial>) => {
-      const p = new URLSearchParams(current?.toString() ?? "");
+  // Парсер "ДД.ММ.ГГГГ — ДД.ММ.ГГГГ" (пробелы/дефисы терпим)
+  function parseRange(input: string): { from?: string; to?: string } {
+    const normalized = input.replace(/\s+/g, " ").trim();
+    if (!normalized) return {};
+    // допустим: "01.09.2025 — 30.09.2025" или "01.09.2025-30.09.2025"
+    const parts = normalized.split(/[-—–]+/).map(s => s.trim()).filter(Boolean);
+    const isDate = (d: string) => /^\d{2}\.\d{2}\.\d{4}$/.test(d);
 
-      const entries: [keyof Initial, string][] = [
-        ["q", next?.q ?? q],
-        ["team", next?.team ?? team],
-        ["tournament", next?.tournament ?? tournament],
-        ["role", next?.role ?? role],
-        ["from", next?.from ?? from],
-        ["to", next?.to ?? to],
-      ];
-
-      for (const [k, v] of entries) {
-        const val = (v ?? "").trim();
-        if (val) p.set(k, val);
-        else p.delete(k);
-      }
-
-      // если даты перепутаны — поменяем местами
-      const f = p.get("from");
-      const t = p.get("to");
-      if (f && t && f > t) {
-        p.set("from", t);
-        p.set("to", f);
-      }
-
-      return p;
-    };
-  }, [current, q, team, tournament, role, from, to]);
-
-  function apply(params?: URLSearchParams) {
-    const p = params ?? buildParams();
-    const url = p.toString() ? `${pathname}?${p}` : pathname;
-    // без перезагрузки и без прыжка страницы
-    router.push(url, { scroll: false });
+    if (parts.length === 1) {
+      // пользователь ввёл одну дату — трактуем как "с этой даты"
+      return isDate(parts[0]) ? { from: parts[0] } : {};
+    }
+    if (parts.length >= 2) {
+      const from = isDate(parts[0]) ? parts[0] : undefined;
+      const to   = isDate(parts[1]) ? parts[1] : undefined;
+      return { from, to };
+    }
+    return {};
   }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    apply();
+    const url = new URL(window.location.href);
+    const p = url.searchParams;
+
+    function setParam(key: string, v: string) {
+      if (v && v.trim()) p.set(key, v.trim());
+      else p.delete(key);
+    }
+
+    setParam("q", q);
+    setParam("team", team);
+    setParam("tournament", tournament);
+
+    // разложим range на from/to
+    const { from, to } = parseRange(range);
+    if (from) p.set("from", from); else p.delete("from");
+    if (to)   p.set("to", to);     else p.delete("to");
+
+    setParam("role", role);
+
+    router.replace(`${pathname}?${p.toString()}`);
   }
 
   function onReset() {
-    setQ("");
-    setTeam("");
-    setTournament("");
-    setRole("");
-    setFrom("");
-    setTo("");
-    router.push(pathname, { scroll: false });
+    const url = new URL(window.location.href);
+    url.search = "";
+    router.replace(url.toString());
   }
 
+  const roleOptions = useMemo(
+    () => ["", ...roles],
+    [roles]
+  );
+
   return (
-    <form onSubmit={onSubmit} className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-6">
-      <input
-        className="border rounded px-3 py-2"
-        placeholder="Игрок"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
-      <input
-        className="border rounded px-3 py-2"
-        placeholder="Команда"
-        value={team}
-        onChange={(e) => setTeam(e.target.value)}
-      />
-      <input
-        className="border rounded px-3 py-2"
-        placeholder="Турнир"
-        value={tournament}
-        onChange={(e) => setTournament(e.target.value)}
-      />
-
-      {/* Амплуа (выпадающий список) */}
-      <select
-        className="border rounded px-3 py-2"
-        value={role}
-        onChange={(e) => setRole(e.target.value)}
-      >
-        <option value="">Амплуа: любое</option>
-        {roles.map((r) => (
-          <option key={r} value={r}>
-            {r}
-          </option>
-        ))}
-      </select>
-
-      {/* Единый фильтр периода: два date-поля как «с» и «до» */}
-      <div className="flex gap-2">
+    <form onSubmit={onSubmit} className="grid gap-3 items-end"
+      style={{
+        gridTemplateColumns:
+          "repeat(auto-fit, minmax(180px, 1fr))",
+      }}
+    >
+      <div className="flex flex-col">
         <input
-          type="date"
-          className="border rounded px-3 py-2 w-full"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          aria-label="Период с"
-        />
-        <input
-          type="date"
-          className="border rounded px-3 py-2 w-full"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          aria-label="Период до"
+          className="border rounded px-3 py-2"
+          placeholder="Игрок"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
         />
       </div>
 
+      <div className="flex flex-col">
+        <input
+          className="border rounded px-3 py-2"
+          placeholder="Команда"
+          value={team}
+          onChange={(e) => setTeam(e.target.value)}
+        />
+      </div>
+
+      <div className="flex flex-col">
+        <input
+          className="border rounded px-3 py-2"
+          placeholder="Турнир"
+          value={tournament}
+          onChange={(e) => setTournament(e.target.value)}
+        />
+      </div>
+
+      <div className="flex flex-col">
+        <select
+          className="border rounded px-3 py-2"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+        >
+          <option value="">Амплуа: любое</option>
+          {roleOptions.map((r, idx) =>
+            r ? (
+              <option key={r + idx} value={r}>
+                {r}
+              </option>
+            ) : null
+          )}
+        </select>
+      </div>
+
+      {/* ЕДИНЫЙ ФИЛЬТР ПЕРИОДА */}
+      <div className="flex flex-col col-span-2">
+        <input
+          className="border rounded px-3 py-2"
+          placeholder="ДД.ММ.ГГГГ — ДД.ММ.ГГГГ"
+          value={range}
+          onChange={(e) => setRange(e.target.value)}
+        />
+        <span className="text-xs text-gray-500 mt-1">
+          Можно ввести одну дату (будет «с даты») или диапазон через дефис/тире.
+        </span>
+      </div>
+
       <div className="flex gap-2">
-        <button type="submit" className="bg-blue-600 text-white rounded px-4 py-2">
+        <button
+          type="submit"
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+        >
           Показать
         </button>
-        <button type="button" className="border rounded px-4 py-2" onClick={onReset}>
+        <button
+          type="button"
+          onClick={onReset}
+          className="border px-4 py-2 rounded"
+        >
           Сбросить
         </button>
       </div>
