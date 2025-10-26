@@ -1,18 +1,16 @@
-// src/app/players/page.tsx
 import { PrismaClient } from "@prisma/client";
 import FiltersClient from "@/components/players/FiltersClient";
 import React from "react";
 
 const prisma = new PrismaClient();
 
-/** ---------- Типы ---------- */
 type Search = {
   q?: string;
   team?: string;
   tournament?: string;
   role?: string;
-  from?: string; // формат дд.мм.гггг
-  to?: string;   // формат дд.мм.гггг
+  from?: string;
+  to?: string;
 };
 
 type SearchParamsDict = Record<string, string | string[] | undefined>;
@@ -21,22 +19,18 @@ type PlayerRow = {
   gamertag: string | null;
   username: string | null;
   team_name: string | null;
-  date_formatted: string | null; // уже отформатировано в SQL
+  date_formatted: string | null;
   tournament_name: string | null;
   tournament_id: number | null;
-  short_name: string | null; // амплуа
+  short_name: string | null;
   round: number | null;
-  // + поля ums.* тоже есть, но мы их не перечисляем
 };
 
-/** ---------- Утилиты ---------- */
 function val(v: string | string[] | undefined): string | undefined {
   if (Array.isArray(v)) return v[0];
   return v ?? undefined;
 }
 
-/** ---------- Данные из БД ---------- */
-// 1) список амплуа (DISTINCT из skills_positions.short_name)
 async function getAllRoles(): Promise<string[]> {
   const rows = await prisma.$queryRawUnsafe<{ role: string }[]>(
     `
@@ -50,13 +44,11 @@ async function getAllRoles(): Promise<string[]> {
   return rows.map(r => (r.role || "").trim()).filter(Boolean);
 }
 
-// 2) строки игроков с фильтрами
 async function getPlayers(s: Search): Promise<PlayerRow[]> {
   const where: string[] = [];
   const params: any[] = [];
 
   if (s.q) {
-    // ищем по gamertag/username
     where.push(`(u.gamertag LIKE ? OR u.username LIKE ?)`);
     params.push(`%${s.q}%`, `%${s.q}%`);
   }
@@ -73,12 +65,10 @@ async function getPlayers(s: Search): Promise<PlayerRow[]> {
     params.push(s.role);
   }
   if (s.from) {
-    // начало дня "from"
     where.push(`tm.timestamp >= UNIX_TIMESTAMP(STR_TO_DATE(?, '%d.%m.%Y'))`);
     params.push(s.from);
   }
   if (s.to) {
-    // строго до начала следующего дня "to"
     where.push(
       `tm.timestamp < UNIX_TIMESTAMP(DATE_ADD(STR_TO_DATE(?, '%d.%m.%Y'), INTERVAL 1 DAY))`
     );
@@ -112,13 +102,11 @@ async function getPlayers(s: Search): Promise<PlayerRow[]> {
   return (await prisma.$queryRawUnsafe(sql, ...params)) as PlayerRow[];
 }
 
-/** ---------- Страница ---------- */
 export default async function Page({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // Next 15 может передать промис — аккуратно разворачиваем:
   const sp: SearchParamsDict = searchParams ? await searchParams : {};
 
   const s: Search = {
@@ -130,30 +118,34 @@ export default async function Page({
     to: val(sp.to),
   };
 
-  // Параллельно тянем список амплуа и сами строки
   const [roles, rows] = await Promise.all([getAllRoles(), getPlayers(s)]);
 
   return (
     <div className="p-4 space-y-4">
-      {/* Фильтры. Селект амплуа заполняется из БД (skills_positions.short_name) */}
       <FiltersClient
         initial={{
           q: s.q || "",
           team: s.team || "",
           tournament: s.tournament || "",
-          from: s.from || "",
-          to: s.to || "",
+          // соберём единое текстовое поле периода для клиента
+          range:
+            s.from && s.to
+              ? `${s.from} — ${s.to}`
+              : s.from
+              ? `${s.from}`
+              : s.to
+              ? `— ${s.to}`
+              : "",
           role: s.role || "",
         }}
         roles={roles}
       />
 
-      {/* Таблица результатов (упрощённый рендер) */}
       <div className="overflow-x-auto rounded border">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="p-2 text-left">Дата</th>
+              {/* Дату убрали */}
               <th className="p-2 text-left">Игрок</th>
               <th className="p-2 text-left">Амплуа</th>
               <th className="p-2 text-left">Команда</th>
@@ -164,7 +156,7 @@ export default async function Page({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="p-3 text-center" colSpan={6}>
+                <td className="p-3 text-center" colSpan={5}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -174,7 +166,7 @@ export default async function Page({
                   key={`${r.username ?? r.gamertag ?? "u"}-${i}`}
                   className={i % 2 ? "bg-white" : "bg-gray-50/50"}
                 >
-                  <td className="p-2 whitespace-nowrap">{r.date_formatted}</td>
+                  {/* Дату не отображаем */}
                   <td className="p-2 whitespace-nowrap">
                     {r.gamertag || r.username || "-"}
                   </td>
@@ -194,7 +186,7 @@ export default async function Page({
       </div>
 
       <p className="text-xs text-gray-500">
-        Источник данных: таблицы <code>tbl_users_match_stats</code>,{" "}
+        Источник данных: <code>tbl_users_match_stats</code>,{" "}
         <code>tournament_match</code>, <code>skills_positions</code>,{" "}
         <code>tbl_users</code>, <code>tournament</code>, <code>teams</code>.
       </p>
