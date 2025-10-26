@@ -1,104 +1,64 @@
-export const dynamic = "force-dynamic";
-
-import Link from "next/link";
-import { headers } from "next/headers";
-import type { PrismaClient } from "@prisma/client";
-import { getDb } from "@/lib/db";
+// src/app/players/page.tsx
+import { PrismaClient } from "@prisma/client";
 import FiltersClient from "@/components/players/FiltersClient";
+import React from "react";
 
-// --------- types & helpers ---------
-type SearchParamsDict = Record<string, string | string[] | undefined>;
+const prisma = new PrismaClient();
 
+/** ---------- Типы ---------- */
 type Search = {
   q?: string;
   team?: string;
   tournament?: string;
-  role?: string;   // Амплуа
-  from?: string;   // YYYY-MM-DD
-  to?: string;     // YYYY-MM-DD
+  role?: string;
+  from?: string; // формат дд.мм.гггг
+  to?: string;   // формат дд.мм.гггг
 };
+
+type SearchParamsDict = Record<string, string | string[] | undefined>;
 
 type PlayerRow = {
-  user_id: number;
-  gamertag: string;
+  gamertag: string | null;
+  username: string | null;
   team_name: string | null;
+  date_formatted: string | null; // уже отформатировано в SQL
   tournament_name: string | null;
-  matches: number;
-  goals: number;
-  assists: number;
-  rating: number | null;
-  role?: string | null;
+  tournament_id: number | null;
+  short_name: string | null; // амплуа
+  round: number | null;
+  // + поля ums.* тоже есть, но мы их не перечисляем
 };
 
+/** ---------- Утилиты ---------- */
 function val(v: string | string[] | undefined): string | undefined {
   if (Array.isArray(v)) return v[0];
-  return v || undefined;
+  return v ?? undefined;
 }
 
-async function getBaseUrl() {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return process.env.NEXT_PUBLIC_BASE_URL || `${proto}://${host}`;
+/** ---------- Данные из БД ---------- */
+// 1) список амплуа (DISTINCT из skills_positions.short_name)
+async function getAllRoles(): Promise<string[]> {
+  const rows = await prisma.$queryRawUnsafe<{ role: string }[]>(
+    `
+    SELECT DISTINCT sp.short_name AS role
+    FROM tbl_users_match_stats ums
+    INNER JOIN skills_positions sp ON ums.skill_id = sp.id
+    WHERE sp.short_name IS NOT NULL AND sp.short_name <> ''
+    ORDER BY sp.short_name
+    `
+  );
+  return rows.map(r => (r.role || "").trim()).filter(Boolean);
 }
 
-// --------- role (амплуа) detection ---------
-/**
- * Пробуем понять, где лежит «амплуа» в вашей БД.
- * По очереди проверяем:
- *   - user_match_stats.position
- *   - user_match_stats.role
- *   - users.role
- * Возвращаем выражение колонки + список distinct-значений.
- */
-async function detectRoleFieldAndValues(
-  prisma: PrismaClient
-): Promise<{ columnExpr: "ums.position" | "ums.role" | "u.role"; values: string[] }> {
-  async function tryDistinct(columnExpr: "ums.position" | "ums.role" | "u.role") {
-    try {
-      const rows = await prisma.$queryRawUnsafe<{ val: string }[]>(
-        `
-          SELECT DISTINCT ${columnExpr} AS val
-          FROM user_match_stats ums
-          LEFT JOIN users u ON u.id = ums.user_id
-          WHERE ${columnExpr} IS NOT NULL AND ${columnExpr} <> ''
-          ORDER BY ${columnExpr} ASC
-        `
-      );
-      const vals = rows
-        .map((r) => (typeof r.val === "string" ? r.val.trim() : ""))
-        .filter((s) => s.length > 0);
-      if (vals.length > 0) return vals;
-    } catch {
-      // колонка/таблица могла отсутствовать — двигаемся дальше
-    }
-    return [];
-  }
-
-  const v1 = await tryDistinct("ums.position");
-  if (v1.length) return { columnExpr: "ums.position", values: v1 };
-
-  const v2 = await tryDistinct("ums.role");
-  if (v2.length) return { columnExpr: "ums.role", values: v2 };
-
-  const v3 = await tryDistinct("u.role");
-  if (v3.length) return { columnExpr: "u.role", values: v3 };
-
-  return { columnExpr: "ums.position", values: [] };
-}
-
-// --------- main query ---------
-/**
- * Основной запрос игроков с фильтрами.
- * Все значения передаём параметрами (без шаблонной подстановки в SQL).
- */
-async function getPlayers(prisma: PrismaClient, s: Search): Promise<PlayerRow[]> {
+// 2) строки игроков с фильтрами
+async function getPlayers(s: Search): Promise<PlayerRow[]> {
   const where: string[] = [];
   const params: any[] = [];
 
   if (s.q) {
-    where.push(`u.gamertag LIKE ?`);
-    params.push(`%${s.q}%`);
+    // ищем по gamertag/username
+    where.push(`(u.gamertag LIKE ? OR u.username LIKE ?)`);
+    params.push(`%${s.q}%`, `%${s.q}%`);
   }
   if (s.team) {
     where.push(`c.team_name LIKE ?`);
@@ -108,59 +68,57 @@ async function getPlayers(prisma: PrismaClient, s: Search): Promise<PlayerRow[]>
     where.push(`t.name LIKE ?`);
     params.push(`%${s.tournament}%`);
   }
+  if (s.role) {
+    where.push(`sp.short_name = ?`);
+    params.push(s.role);
+  }
   if (s.from) {
-    where.push(`tm.timestamp >= ?`);
+    // начало дня "from"
+    where.push(`tm.timestamp >= UNIX_TIMESTAMP(STR_TO_DATE(?, '%d.%m.%Y'))`);
     params.push(s.from);
   }
   if (s.to) {
-    where.push(`tm.timestamp <= ?`);
-    params.push(`${s.to} 23:59:59`);
-  }
-  if (s.role) {
-    // фильтруем по любому возможному месту хранения амплуа
-    where.push(`(
-      (ums.position IS NOT NULL AND ums.position <> '' AND ums.position = ?)
-      OR (ums.role IS NOT NULL AND ums.role <> '' AND ums.role = ?)
-      OR (u.role IS NOT NULL AND u.role <> '' AND u.role = ?)
-    )`);
-    params.push(s.role, s.role, s.role);
+    // строго до начала следующего дня "to"
+    where.push(
+      `tm.timestamp < UNIX_TIMESTAMP(DATE_ADD(STR_TO_DATE(?, '%d.%m.%Y'), INTERVAL 1 DAY))`
+    );
+    params.push(s.to);
   }
 
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   const sql = `
     SELECT
-      u.id AS user_id,
       u.gamertag,
+      u.username,
       c.team_name,
+      DATE_FORMAT(FROM_UNIXTIME(tm.timestamp), '%d.%m.%Y %H:%i:%s') AS date_formatted,
       t.name AS tournament_name,
-      COUNT(DISTINCT tm.id) AS matches,
-      SUM(COALESCE(ums.goals, 0)) AS goals,
-      SUM(COALESCE(ums.assists, 0)) AS assists,
-      AVG(ums.rating) AS rating,
-      COALESCE(ums.position, ums.role, u.role) AS role
-    FROM user_match_stats ums
-    INNER JOIN users u ON u.id = ums.user_id
-    LEFT JOIN team_members tm ON tm.user_id = u.id
-    LEFT JOIN teams c ON tm.team_id = c.id
-    LEFT JOIN tournaments t ON t.id = ums.tournament_id
-    ${whereSql}
-    GROUP BY u.id, u.gamertag, c.team_name, t.name, role
-    ORDER BY matches DESC, goals DESC, assists DESC, gamertag ASC
+      tm.tournament_id,
+      sp.short_name,
+      tm.round,
+      ums.*
+    FROM tbl_users_match_stats ums
+    INNER JOIN tournament_match tm ON ums.match_id = tm.id
+    INNER JOIN skills_positions sp ON ums.skill_id = sp.id
+    INNER JOIN tbl_users u ON ums.user_id = u.id
+    INNER JOIN tournament t ON tm.tournament_id = t.id
+    INNER JOIN teams c ON ums.team_id = c.id
+    ${whereSQL}
+    ORDER BY tm.timestamp DESC
     LIMIT 500
   `;
 
-  const rows = (await prisma.$queryRawUnsafe(sql, ...params)) as PlayerRow[];
-  return rows;
+  return (await prisma.$queryRawUnsafe(sql, ...params)) as PlayerRow[];
 }
 
-// --------- page ---------
-export default async function PlayersPage({
+/** ---------- Страница ---------- */
+export default async function Page({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParamsDict>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // корректно получаем query params из Promise (App Router)
+  // Next 15 может передать промис — аккуратно разворачиваем:
   const sp: SearchParamsDict = searchParams ? await searchParams : {};
 
   const s: Search = {
@@ -172,96 +130,74 @@ export default async function PlayersPage({
     to: val(sp.to),
   };
 
-  const prisma = await getDb();
-  const base = await getBaseUrl();
-
-  let roles: string[] = [];
-  let players: PlayerRow[] = [];
-  let errorMsg = "";
-
-  if (prisma) {
-    try {
-      // 1) список амплуа из БД (DISTINCT)
-      const roleInfo = await detectRoleFieldAndValues(prisma);
-      roles = roleInfo.values;
-
-      // 2) сами игроки
-      players = await getPlayers(prisma, s);
-    } catch (e: any) {
-      console.error("Players page DB error:", e);
-      errorMsg =
-        "Не удалось загрузить данные игроков. Проверь SQL-структуру/права пользователя базы данных.";
-      roles = [];
-      players = [];
-    }
-  } else {
-    errorMsg = "База данных недоступна (нет соединения).";
-  }
+  // Параллельно тянем список амплуа и сами строки
+  const [roles, rows] = await Promise.all([getAllRoles(), getPlayers(s)]);
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Игроки</h1>
-        <Link href="/" className="text-blue-600 underline">
-          На главную
-        </Link>
-      </div>
-
-      {/* Фильтры (если ролей нет, селект всё равно будет с «любое») */}
+    <div className="p-4 space-y-4">
+      {/* Фильтры. Селект амплуа заполняется из БД (skills_positions.short_name) */}
       <FiltersClient
         initial={{
           q: s.q || "",
           team: s.team || "",
           tournament: s.tournament || "",
-          role: s.role || "",
           from: s.from || "",
           to: s.to || "",
+          role: s.role || "",
         }}
         roles={roles}
       />
 
-      {errorMsg && (
-        <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-          {errorMsg}
-        </div>
-      )}
-
-      <div className="grid gap-3">
-        {players.length === 0 && !errorMsg && (
-          <div className="text-gray-500">Ничего не найдено (поменяйте фильтры).</div>
-        )}
-
-        {players.map((p) => (
-          <div
-            key={`${p.user_id}-${p.tournament_name ?? "any"}`}
-            className="border rounded p-4 hover:shadow"
-          >
-            <div className="flex flex-wrap gap-2 items-center justify-between">
-              <div className="font-semibold">{p.gamertag}</div>
-              <div className="text-sm text-gray-500">
-                {p.team_name ? `Команда: ${p.team_name}` : "Без команды"}
-              </div>
-              <div className="text-sm text-gray-500">
-                {p.tournament_name ? `Турнир: ${p.tournament_name}` : ""}
-              </div>
-              {p.role && (
-                <div className="text-sm px-2 py-0.5 rounded bg-gray-100 border text-gray-700">
-                  Амплуа: {p.role}
-                </div>
-              )}
-            </div>
-
-            <div className="mt-2 text-sm text-gray-700">
-              Матчи: <b>{p.matches}</b>, Голы: <b>{p.goals}</b>, Пасы: <b>{p.assists}</b>
-              {p.rating != null && `, Рейтинг: ${p.rating.toFixed(2)}`}
-            </div>
-          </div>
-        ))}
+      {/* Таблица результатов (упрощённый рендер) */}
+      <div className="overflow-x-auto rounded border">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="p-2 text-left">Дата</th>
+              <th className="p-2 text-left">Игрок</th>
+              <th className="p-2 text-left">Амплуа</th>
+              <th className="p-2 text-left">Команда</th>
+              <th className="p-2 text-left">Турнир</th>
+              <th className="p-2 text-left">Раунд</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td className="p-3 text-center" colSpan={6}>
+                  Ничего не найдено
+                </td>
+              </tr>
+            ) : (
+              rows.map((r, i) => (
+                <tr
+                  key={`${r.username ?? r.gamertag ?? "u"}-${i}`}
+                  className={i % 2 ? "bg-white" : "bg-gray-50/50"}
+                >
+                  <td className="p-2 whitespace-nowrap">{r.date_formatted}</td>
+                  <td className="p-2 whitespace-nowrap">
+                    {r.gamertag || r.username || "-"}
+                  </td>
+                  <td className="p-2 whitespace-nowrap">{r.short_name || "-"}</td>
+                  <td className="p-2 whitespace-nowrap">{r.team_name || "-"}</td>
+                  <td className="p-2 whitespace-nowrap">
+                    {r.tournament_name || "-"}
+                  </td>
+                  <td className="p-2 whitespace-nowrap">
+                    {r.round ?? "-"}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
-      <div className="pt-6 text-xs text-gray-400">
-        Источник API: <code>{base}</code>
-      </div>
+      <p className="text-xs text-gray-500">
+        Источник данных: таблицы <code>tbl_users_match_stats</code>,{" "}
+        <code>tournament_match</code>, <code>skills_positions</code>,{" "}
+        <code>tbl_users</code>, <code>tournament</code>, <code>teams</code>.
+      </p>
     </div>
   );
 }
