@@ -41,15 +41,25 @@ export const dynamic = "force-dynamic"; // серверный рендер по 
 export default async function Page({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParamsDict>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const sp = (await (searchParams ?? Promise.resolve({}))) || {};
+  // приводим к словарю
+  const raw: Record<string, string | string[] | undefined> =
+    (await (searchParams ?? Promise.resolve({}))) ?? {};
+
+  // берём значение как строку (учитываем string | string[] | undefined)
+  const get = (key: string): string => {
+    const v = raw[key];
+    return Array.isArray(v) ? v[0] ?? "" : v ?? "";
+  };
+
+  // то, что раньше собиралось через sp.q / first(...)
   const s: Search = {
-    q: first(sp.q) ?? "",
-    team: first(sp.team) ?? "",
-    tournament: first(sp.tournament) ?? "",
-    role: first(sp.role) ?? "",
-    range: first(sp.range) ?? "",
+    q: get("q"),
+    team: get("team"),
+    tournament: get("tournament"),
+    role: get("role"),
+    range: get("range"), // если используешь единый date-range
   };
 
   const { from, to } = parseRange(s.range);
@@ -172,3 +182,4 @@ export default async function Page({
     </div>
   );
 }
+
