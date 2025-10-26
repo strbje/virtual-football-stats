@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Flatpickr from "flatpickr";
+import "flatpickr/dist/flatpickr.css";
 
 type Initial = {
   q: string;
   team: string;
   tournament: string;
-  role: string;
-  range: string; // "YYYY-MM-DD:YYYY-MM-DD" или ""
+  role: string;     // амплуа
+  range: string;    // формат: YYYY-MM-DD:YYYY-MM-DD  (поддерживается и 'YYYY-MM-DD..YYYY-MM-DD')
 };
 
 export default function FiltersClient({
@@ -19,99 +21,156 @@ export default function FiltersClient({
   roles: string[];
 }) {
   const router = useRouter();
-  const pathname = usePathname();
   const sp = useSearchParams();
 
-  const [q, setQ] = useState(initial.q);
-  const [team, setTeam] = useState(initial.team);
-  const [tournament, setTournament] = useState(initial.tournament);
-  const [role, setRole] = useState(initial.role);
-  const [range, setRange] = useState(initial.range); // единый контрол
+  // поля
+  const qRef = useRef<HTMLInputElement>(null);
+  const teamRef = useRef<HTMLInputElement>(null);
+  const tournRef = useRef<HTMLInputElement>(null);
+  const roleRef = useRef<HTMLSelectElement>(null);
+  const rangeRef = useRef<HTMLInputElement>(null);
 
-  const qsString = useMemo(() => {
-    const p = new URLSearchParams(sp?.toString());
-    function setOrDel(k: string, v?: string) {
-      if (v && v.trim()) p.set(k, v.trim());
-      else p.delete(k);
+  const [fp, setFp] = useState<Flatpickr.Instance | null>(null);
+
+  // распарсим initial.range в from/to для дефолта календаря
+  const { fromDefault, toDefault } = useMemo(() => {
+    if (!initial?.range) return { fromDefault: "", toDefault: "" };
+    const raw = initial.range.replace("..", ":");
+    const [f, t] = raw.split(":");
+    return { fromDefault: f || "", toDefault: t || "" };
+  }, [initial?.range]);
+
+  // инициализация flatpickr один раз
+  useEffect(() => {
+    if (!rangeRef.current) return;
+
+    const defaultDates: string[] = [];
+    if (fromDefault) defaultDates.push(fromDefault);
+    if (toDefault) defaultDates.push(toDefault);
+
+    const inst = Flatpickr(rangeRef.current, {
+      mode: "range",
+      dateFormat: "Y-m-d",
+      defaultDate: defaultDates.length ? defaultDates : undefined,
+      allowInput: true,
+    });
+
+    setFp(inst);
+    return () => inst.destroy();
+  }, [rangeRef, fromDefault, toDefault]);
+
+  // форматтер для параметров
+  const buildQuery = () => {
+    const params = new URLSearchParams(sp?.toString() || "");
+
+    const q = qRef.current?.value?.trim() || "";
+    const team = teamRef.current?.value?.trim() || "";
+    const tournament = tournRef.current?.value?.trim() || "";
+    const role = roleRef.current?.value || "";
+
+    if (q) params.set("q", q); else params.delete("q");
+    if (team) params.set("team", team); else params.delete("team");
+    if (tournament) params.set("tournament", tournament); else params.delete("tournament");
+    if (role) params.set("role", role); else params.delete("role");
+
+    // читаем выбранные даты из flatpickr
+    const sel = fp?.selectedDates || [];
+    let from = "";
+    let to = "";
+    if (sel[0]) from = toISO(sel[0]);
+    if (sel[1]) to = toISO(sel[1]);
+    // если выбран только один день — считаем его и from, и to
+    if (from && !to) to = from;
+
+    if (from && to) {
+      params.set("range", `${from}:${to}`);
+    } else {
+      params.delete("range");
     }
-    setOrDel("q", q);
-    setOrDel("team", team);
-    setOrDel("tournament", tournament);
-    setOrDel("role", role);
-    setOrDel("range", range);
-    return p.toString();
-  }, [q, team, tournament, role, range, sp]);
 
-  function submit() {
-    const url = qsString ? `${pathname}?${qsString}` : pathname;
-    router.push(url);
-  }
+    return params;
+  };
 
-  function reset() {
-    setQ("");
-    setTeam("");
-    setTournament("");
-    setRole("");
-    setRange("");
-    router.push(pathname);
-  }
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const params = buildQuery();
+    router.push(`/players?${params.toString()}`);
+  };
 
-  // Удобный ввод диапазона одной строкой: вводишь "2025-09-01:2025-09-30".
-  // Если хочется визуально — можно два date-инпута, но мы оставляем единый контрол.
+  const onReset = () => {
+    qRef.current && (qRef.current.value = "");
+    teamRef.current && (teamRef.current.value = "");
+    tournRef.current && (tournRef.current.value = "");
+    if (roleRef.current) roleRef.current.value = "";
+    fp?.clear();
+    router.push("/players");
+  };
+
   return (
-    <div className="flex flex-wrap gap-2 items-end">
+    <form onSubmit={onSubmit} className="mb-4 flex flex-wrap gap-3 items-start">
       <input
-        className="border rounded px-3 py-2 min-w-[180px]"
+        ref={qRef}
+        defaultValue={initial.q}
+        className="border px-3 py-2 rounded w-64"
         placeholder="Игрок"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
       />
       <input
-        className="border rounded px-3 py-2 min-w-[180px]"
+        ref={teamRef}
+        defaultValue={initial.team}
+        className="border px-3 py-2 rounded w-64"
         placeholder="Команда"
-        value={team}
-        onChange={(e) => setTeam(e.target.value)}
       />
       <input
-        className="border rounded px-3 py-2 min-w-[180px]"
+        ref={tournRef}
+        defaultValue={initial.tournament}
+        className="border px-3 py-2 rounded w-64"
         placeholder="Турнир"
-        value={tournament}
-        onChange={(e) => setTournament(e.target.value)}
       />
 
       <select
-        className="border rounded px-3 py-2 min-w-[180px]"
-        value={role}
-        onChange={(e) => setRole(e.target.value)}
+        ref={roleRef}
+        defaultValue={initial.role || ""}
+        className="border px-3 py-2 rounded"
       >
         <option value="">Амплуа: любое</option>
         {roles.map((r) => (
-          <option key={r} value={r}>
-            {r}
-          </option>
+          <option key={r} value={r}>{r}</option>
         ))}
       </select>
 
-      {/* Один контрол «Период» */}
+      {/* ЕДИНЫЙ date-range с календарём */}
       <input
-        className="border rounded px-3 py-2 min-w-[220px]"
-        placeholder="Период: 2025-09-01:2025-09-30"
-        value={range}
-        onChange={(e) => setRange(e.target.value)}
+        ref={rangeRef}
+        className="border px-3 py-2 rounded w-64"
+        placeholder="Период: выберите в календаре"
+        // показываем пользователю человекочитаемую подпись
+        defaultValue={
+          fromDefault && toDefault ? `${fromDefault} — ${toDefault}` : ""
+        }
+        readOnly
       />
 
       <button
-        className="bg-blue-600 text-white px-4 py-2 rounded"
-        onClick={submit}
+        type="submit"
+        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
       >
         Показать
       </button>
       <button
+        type="button"
+        onClick={onReset}
         className="border px-4 py-2 rounded"
-        onClick={reset}
       >
         Сбросить
       </button>
-    </div>
+    </form>
   );
+}
+
+function toISO(d: Date): string {
+  // YYYY-MM-DD в локали UTC, чтобы не ловить сдвиги
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
 }
