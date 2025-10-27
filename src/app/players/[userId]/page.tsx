@@ -79,7 +79,7 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
     matches: number;
     goals: number | null;
     assists: number | null;
-    -- добавить SUM/AVG по тем полям, что есть
+    // добавить SUM/AVG по тем полям, что есть
   }[]>(`
     SELECT
       COUNT(*) AS matches,
