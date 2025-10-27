@@ -22,7 +22,7 @@ npm config set fetch-retry-maxtimeout 60000
 npm config set fetch-retry-mintimeout 10000
 
 echo ">>> npm ci (чистая установка)"
-npm ci --no-audit --no-fund
+npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
 echo ">>> prisma generate (не валим деплой, если схемы нет)"
 npx prisma generate || true
