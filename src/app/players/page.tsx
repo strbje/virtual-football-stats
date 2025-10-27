@@ -2,6 +2,7 @@
 import { prisma } from "@/lib/prisma"; // если у тебя prisma уже проксируется иначе — оставь свой импорт
 import FiltersClient from "@/components/players/FiltersClient";
 import React from "react";
+import Link from "next/link";
 
 type SearchParamsDict = Record<string, string | string[] | undefined>;
 
@@ -14,6 +15,7 @@ type Search = {
 };
 
 type Row = {
+  user_id: number;
   gamertag: string;
   username: string;
   role: string;     // sp.short_name
@@ -110,6 +112,7 @@ export default async function Page({
   const rows: Row[] = await prisma.$queryRawUnsafe(
     `
       SELECT
+        u.id AS user_id,
         u.gamertag,
         u.username,
         sp.short_name AS role,
@@ -162,7 +165,14 @@ export default async function Page({
           <tbody>
             {rows.map((r, i) => (
               <tr key={`${r.gamertag}-${i}`} className="border-b last:border-b-0">
-                <td className="py-2 pr-4">{r.username || r.gamertag}</td>
+               <td className="px-4 py-2">
+  <Link
+    href={`/players/${r.user_id}${s.range ? `?range=${s.range}` : ""}`}
+    className="hover:underline"
+  >
+    {r.gamertag}
+  </Link>
+</td>
                 <td className="py-2 pr-4">{r.role}</td>
                 <td className="py-2 pr-4">{r.team_name}</td>
                 <td className="py-2 pr-4">{r.tournament_name}</td>
@@ -182,4 +192,5 @@ export default async function Page({
     </div>
   );
 }
+
 
