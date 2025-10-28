@@ -12,6 +12,36 @@ type PageProps = {
   searchParams?: Promise<SearchParamsDict>;
 };
 
+type RoleStat = { role: string; cnt: number };
+
+const roleStats = await prisma.$queryRawUnsafe<RoleStat[]>(
+  `
+  SELECT sp.short_name   AS role,
+         COUNT(*)        AS cnt
+  FROM tbl_users_match_stats ums
+  JOIN tournament_match tm ON tm.id = ums.match_id
+  JOIN skills_positions sp ON sp.id = ums.skill_id
+  WHERE ums.user_id = ?
+    /** опционально ограничиваем период */
+    AND (tm.timestamp BETWEEN ? AND ?)
+  GROUP BY sp.short_name
+  ORDER BY cnt DESC
+  `,
+  userId,
+  fromTs || 0,                // если делаешь фильтр периода — подставь значения
+  toTs   || 32503680000       // (пример: 01.01.3000)
+);
+
+// нормализуем в проценты
+const total = roleStats.reduce((s, r) => s + Number(r.cnt), 0) || 1;
+const rolePct = roleStats.map(r => ({
+  role: r.role,
+  pct: Math.round((Number(r.cnt) / total) * 100),
+}));
+
+// последнее амплуа (как у тебя сейчас)
+const lastRole = roleStats[0]?.role ?? "—";
+
 // удобные хелперы
 const first = (v: string | string[] | undefined): string | undefined =>
   Array.isArray(v) ? v[0] : v;
