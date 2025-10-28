@@ -1,161 +1,189 @@
 // src/app/players/[userId]/page.tsx
-import { prisma } from "@/lib/prisma";
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import PlayerPeriodPicker from "./PeriodPickerClient"; // клиентский календарь-диапазон
-import { parseRange } from "@/app/players/_utils/parseRange"; // уже есть у нас
+import prisma from "@/lib/prisma";
+import { parseRange } from "@/app/players/_utils/parseRange";
+
+// чтобы страница всегда генерировалась на сервере и брала свежие данные
+export const dynamic = "force-dynamic";
+
+type SearchParamsDict = Record<string, string | string[] | undefined>;
 
 type PageProps = {
-  params: { userId: string };
-  searchParams?: Record<string, string | string[] | undefined>;
+  params?: Promise<{ userId: string }>;
+  searchParams?: Promise<SearchParamsDict>;
 };
 
-type Row = {
-  date_formatted: string;
-  tournament_name: string;
-  round: number | null;
-  team_name: string;
-  short_name: string | null; // амплуа
-  goals?: number | null;
-  assists?: number | null;
-  // … добавь поля из ums, которые реально есть
-};
+// удобные хелперы
+const first = (v: string | string[] | undefined): string | undefined =>
+  Array.isArray(v) ? v[0] : v;
 
 export default async function PlayerPage({ params, searchParams }: PageProps) {
-  const userId = Number(params.userId);
-  if (!Number.isFinite(userId)) notFound();
+  // --- params ---
+  const p = params ? await params : ({ userId: "" } as { userId: string });
+  const userId = p.userId;
 
-  const sp = searchParams ?? {};
-  const { from, to } = parseRange(typeof sp.range === "string" ? sp.range : "");
-
-  // Базовая инфа (ник/команда/амплуа по последнему матчу)
-  const header = await prisma.$queryRawUnsafe<{
-    gamertag: string;
-    team_name: string | null;
-    role: string | null;
-  }[]>(`
-    SELECT u.gamertag,
-           (SELECT c.team_name FROM tbl_users_match_stats ums
-             INNER JOIN teams c ON ums.team_id = c.id
-             WHERE ums.user_id = u.id
-             ORDER BY ums.match_id DESC LIMIT 1) AS team_name,
-           (SELECT sp.short_name FROM tbl_users_match_stats ums
-             INNER JOIN skills_positions sp ON ums.skill_id = sp.id
-             WHERE ums.user_id = u.id
-             ORDER BY ums.match_id DESC LIMIT 1) AS role
-    FROM tbl_users u
-    WHERE u.id = ?
-    LIMIT 1
-  `, userId);
-
-  if (!header.length) notFound();
-  const h = header[0];
-
-  // Список матчей за период
-  const rows = await prisma.$queryRawUnsafe<Row[]>(`
-    SELECT
-      DATE_FORMAT(FROM_UNIXTIME(tm.timestamp), '%d.%m.%Y %H:%i:%s') AS date_formatted,
-      t.name AS tournament_name,
-      tm.round,
-      c.team_name,
-      sp.short_name,
-      ums.goals,
-      ums.assists
-      -- добавь ещё поля ums.* которые нужны в таблицу
-    FROM tbl_users_match_stats ums
-    INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    INNER JOIN tournament t ON tm.tournament_id = t.id
-    INNER JOIN teams c ON ums.team_id = c.id
-    LEFT JOIN skills_positions sp ON ums.skill_id = sp.id
-    WHERE ums.user_id = ?
-      ${from ? "AND tm.timestamp >= UNIX_TIMESTAMP(?)" : ""}
-      ${to   ? "AND tm.timestamp <= UNIX_TIMESTAMP(?)"   : ""}
-    ORDER BY tm.timestamp DESC
-    LIMIT 200
-  `, ...(from && to ? [userId, from, to] : from ? [userId, from] : to ? [userId, to] : [userId]));
-
-  // Агрегаты по периоду (пример — матчи/голы/передачи)
-  const agg = await prisma.$queryRawUnsafe<{
-    matches: number;
-    goals: number | null;
-    assists: number | null;
-    // добавить SUM/AVG по тем полям, что есть
-  }[]>(`
-    SELECT
-      COUNT(*) AS matches,
-      SUM(ums.goals)   AS goals,
-      SUM(ums.assists) AS assists
-    FROM tbl_users_match_stats ums
-    INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    WHERE ums.user_id = ?
-      ${from ? "AND tm.timestamp >= UNIX_TIMESTAMP(?)" : ""}
-      ${to   ? "AND tm.timestamp <= UNIX_TIMESTAMP(?)"   : ""}
-  `, ...(from && to ? [userId, from, to] : from ? [userId, from] : to ? [userId, to] : [userId]));
-
-  const a = agg[0] ?? { matches: 0, goals: 0, assists: 0 };
-
-  return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">{h.gamertag}</h1>
-          <div className="text-sm text-muted-foreground">
-            {h.team_name ?? "—"} · {h.role ?? "—"}
-          </div>
-        </div>
-        <PlayerPeriodPicker initialRange={typeof sp.range === "string" ? sp.range : ""} />
+  if (!userId) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Игрок не указан</h1>
       </div>
+    );
+  }
 
-      {/* KPI */}
-      <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Матчи" value={a.matches} />
-        <Kpi label="Голы" value={a.goals ?? 0} />
-        <Kpi label="ГП" value={a.assists ?? 0} />
-        {/* сюда легко добавить ещё KPI, когда подтвердим поля */}
-      </div>
+  // --- searchParams ---
+  const sp: SearchParamsDict = (await (searchParams ?? Promise.resolve({}))) || {};
 
-      {/* Матчи */}
-      <div className="rounded-xl border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="px-4 py-2 text-left">Дата</th>
-              <th className="px-4 py-2 text-left">Турнир</th>
-              <th className="px-4 py-2 text-left">Раунд</th>
-              <th className="px-4 py-2 text-left">Команда</th>
-              <th className="px-4 py-2 text-left">Амплуа</th>
-              <th className="px-4 py-2 text-left">Г</th>
-              <th className="px-4 py-2 text-left">П</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-t">
-                <td className="px-4 py-2">{r.date_formatted}</td>
-                <td className="px-4 py-2">{r.tournament_name}</td>
-                <td className="px-4 py-2">{r.round ?? "—"}</td>
-                <td className="px-4 py-2">{r.team_name}</td>
-                <td className="px-4 py-2">{r.short_name ?? "—"}</td>
-                <td className="px-4 py-2">{r.goals ?? 0}</td>
-                <td className="px-4 py-2">{r.assists ?? 0}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+  // поддерживаем и range=YYYY-MM-DD_to_YYYY-MM-DD, и from/to (на будущее)
+  const rangeRaw = first(sp.range);
+  const fromRaw = first(sp.from);
+  const toRaw = first(sp.to);
 
-      <div className="mt-6">
-        <Link href="/players" className="text-primary hover:underline">← Назад к списку</Link>
-      </div>
-    </div>
+  let fromISO: string | undefined;
+  let toISO: string | undefined;
+
+  if (rangeRaw) {
+    const r = parseRange(rangeRaw);
+    fromISO = r.from ?? undefined;
+    toISO = r.to ?? undefined;
+  } else {
+    fromISO = fromRaw ?? undefined;
+    toISO = toRaw ?? undefined;
+  }
+
+  // --- дата в unix секундах для фильтра к tournament_match.timestamp ---
+  const fromTs = fromISO ? Math.floor(Date.parse(fromISO) / 1000) : undefined;
+  const toTs = toISO ? Math.floor(Date.parse(toISO) / 1000) : undefined;
+
+  // --- профиль игрока (gamertag, username) ---
+  const user = await prisma.$queryRawUnsafe<{
+    id: number;
+    gamertag: string | null;
+    username: string | null;
+  }[]>(
+    `
+      SELECT u.id, u.gamertag, u.username
+      FROM tbl_users u
+      WHERE u.id = ?
+      LIMIT 1
+    `,
+    userId
   );
-}
 
-function Kpi({ label, value }: { label: string; value: number | string }) {
+  if (!user.length) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Игрок не найден</h1>
+      </div>
+    );
+  }
+
+  // --- агрегаты по выбранному периоду ---
+  // Пример: матчи/голы/ассисты + роль (последняя за период) и команда (последняя за период)
+  // При необходимости расширим (xG, передачи и т.д.) — данные есть в ums.*
+  const whereDate =
+    fromTs && toTs
+      ? "AND tm.timestamp BETWEEN ? AND ?"
+      : fromTs
+      ? "AND tm.timestamp >= ?"
+      : toTs
+      ? "AND tm.timestamp <= ?"
+      : "";
+
+  const paramsDate: (string | number)[] = [userId];
+  if (fromTs && toTs) paramsDate.push(fromTs, toTs);
+  else if (fromTs) paramsDate.push(fromTs);
+  else if (toTs) paramsDate.push(toTs);
+
+  const agg = await prisma.$queryRawUnsafe<
+    {
+      matches: number;
+      goals: number | null;
+      assists: number | null;
+      last_role: string | null;
+      last_team: string | null;
+    }[]
+  >(
+    `
+      SELECT
+        COUNT(*)                            AS matches,
+        SUM(ums.goals)                      AS goals,
+        SUM(ums.assists)                    AS assists,
+        (
+          SELECT sp.short_name
+          FROM tbl_users_match_stats ums2
+          JOIN tournament_match tm2 ON tm2.id = ums2.match_id
+          JOIN skills_positions sp ON sp.id = ums2.skill_id
+          WHERE ums2.user_id = ?
+            ${whereDate.replaceAll("tm.", "tm2.")}
+          ORDER BY tm2.timestamp DESC
+          LIMIT 1
+        ) AS last_role,
+        (
+          SELECT t2.team_name
+          FROM tbl_users_match_stats ums3
+          JOIN tournament_match tm3 ON tm3.id = ums3.match_id
+          JOIN teams t2 ON t2.id = ums3.team_id
+          WHERE ums3.user_id = ?
+            ${whereDate.replaceAll("tm.", "tm3.")}
+          ORDER BY tm3.timestamp DESC
+          LIMIT 1
+        ) AS last_team
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      WHERE ums.user_id = ?
+        ${whereDate}
+    `,
+    // подзапрос 1 (role)
+    ...paramsDate,
+    // подзапрос 2 (team)
+    ...paramsDate,
+    // основной where
+    ...paramsDate
+  );
+
+  const a = agg[0] || {
+    matches: 0,
+    goals: 0,
+    assists: 0,
+    last_role: null,
+    last_team: null,
+  };
+
   return (
-    <div className="rounded-xl border p-4">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-2xl font-semibold">{value}</div>
+    <div className="p-6 space-y-6">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">
+            {user[0].gamertag || user[0].username || `User #${userId}`}
+          </h1>
+          <p className="text-sm text-gray-500">
+            {a.last_team ? `${a.last_team} · ` : ""}
+            {a.last_role ?? "—"}
+          </p>
+        </div>
+        {/* сюда позже добавим date-range фильтр (тот же формат range=YYYY-MM-DD_to_YYYY-MM-DD),
+            чтобы фильтровать прямо в профиле */}
+      </header>
+
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Матчи</div>
+          <div className="text-2xl font-semibold">{a.matches ?? 0}</div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Голы</div>
+          <div className="text-2xl font-semibold">{a.goals ?? 0}</div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Передачи</div>
+          <div className="text-2xl font-semibold">{a.assists ?? 0}</div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Амплуа (последнее)</div>
+          <div className="text-2xl font-semibold">{a.last_role ?? "—"}</div>
+        </div>
+      </section>
+
+      {/* ниже можно добавить таблицу матчей игрока с пагинацией — добьём на следующем шаге */}
     </div>
   );
 }
