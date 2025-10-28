@@ -179,55 +179,53 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
     last_team: null,
   };
 
-  return (
-    <div className="p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">
-            {user[0].gamertag || user[0].username || `User #${userId}`}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {a.last_team ? `${a.last_team} · ` : ""}
-            {a.last_role ?? "—"}
-          </p>
-        </div>
-        {/* сюда позже добавим date-range фильтр (тот же формат range=YYYY-MM-DD_to_YYYY-MM-DD),
-            чтобы фильтровать прямо в профиле */}
-      </header>
+ return (
+  <div className="p-6 space-y-6">
+    <header className="flex items-center justify-between">
+      <div>
+        <h1 className="text-2xl font-bold">
+          {user[0]?.gamertag || user[0]?.username || `User #${userId}`}
+        </h1>
+        <p className="text-sm text-gray-500">
+          {a.last_team ? `${a.last_team} · ` : ""}
+          {a.last_role ?? "—"}
+        </p>
+      </div>
+      {/* сюда позже добавим date-range фильтр (range=YYYY-MM-DD_to_YYYY-MM-DD) */}
+    </header>
 
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Матчи</div>
-          <div className="text-2xl font-semibold">{a.matches ?? 0}</div>
-        </div>
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Голы</div>
-          <div className="text-2xl font-semibold">{a.goals ?? 0}</div>
-        </div>
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Передачи</div>
-          <div className="text-2xl font-semibold">{a.assists ?? 0}</div>
-        </div>
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Амплуа (последнее)</div>
-          <div className="text-2xl font-semibold">{a.last_role ?? "—"}</div>
-        </div>
-      </section
-      // ...
-<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-  {/* Твои KPI-карточки: матчи/голы/передачи/последнее амплуа */}
-  {/* ... */}
+    <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="rounded-2xl border p-4">
+        <div className="text-sm text-gray-500">Матчи</div>
+        <div className="text-2xl font-semibold">{a.matches ?? 0}</div>
+      </div>
+      <div className="rounded-2xl border p-4">
+        <div className="text-sm text-gray-500">Голы</div>
+        <div className="text-2xl font-semibold">{a.goals ?? 0}</div>
+      </div>
+      <div className="rounded-2xl border p-4">
+        <div className="text-sm text-gray-500">Передачи</div>
+        <div className="text-2xl font-semibold">{a.assists ?? 0}</div>
+      </div>
+      <div className="rounded-2xl border p-4">
+        <div className="text-sm text-gray-500">Амплуа (последнее)</div>
+        <div className="text-2xl font-semibold">{a.last_role ?? "—"}</div>
+      </div>
+    </section>
 
-  {/* Карта амплуа за период */}
-  <div className="xl:col-span-2">
-    <PositionMap
-      data={rolePct}                          // [{role:'НАП', pct: 62}, ...]
-      caption="Карта амплуа (доля матчей за период)"
-    />
-  </div>
-</div>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {/* Карта амплуа за период */}
+      <div className="xl:col-span-2">
+        <PositionMap
+          data={rolePct ?? []}                       // [{ role:'НАП', pct:62 }, ...]
+          caption="Карта амплуа (доля матчей за период)"
+        />
+      </div>
 
-      {/* ниже можно добавить таблицу матчей игрока с пагинацией — добьём на следующем шаге */}
+      {/* сюда позже добавим дополнительные виджеты (радар, heatmap ударов и т.п.) */}
     </div>
-  );
+
+    {/* ниже можно добавить таблицу матчей игрока с пагинацией — добьём на следующем шаге */}
+  </div>
+);
 }
