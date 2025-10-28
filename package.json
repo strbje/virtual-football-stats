@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint"
-    // postinstall убран — генерируем клиент Prisma в deploy.sh
+    -- postinstall убран — генерируем клиент Prisma в deploy.sh
   },
   "dependencies": {
     "@prisma/client": "^6.9.0",
@@ -31,3 +31,4 @@
     "typescript": "^5"
   }
 }
+
