@@ -1,6 +1,7 @@
 // src/app/players/[userId]/page.tsx
 import prisma from "@/lib/prisma";
 import { parseRange } from "@/app/players/_utils/parseRange";
+import PositionMap from "@/app/players/_components/PositionMap";
 
 // чтобы страница всегда генерировалась на сервере и брала свежие данные
 export const dynamic = "force-dynamic";
@@ -211,7 +212,20 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
           <div className="text-sm text-gray-500">Амплуа (последнее)</div>
           <div className="text-2xl font-semibold">{a.last_role ?? "—"}</div>
         </div>
-      </section>
+      </section
+      // ...
+<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+  {/* Твои KPI-карточки: матчи/голы/передачи/последнее амплуа */}
+  {/* ... */}
+
+  {/* Карта амплуа за период */}
+  <div className="xl:col-span-2">
+    <PositionMap
+      data={rolePct}                          // [{role:'НАП', pct: 62}, ...]
+      caption="Карта амплуа (доля матчей за период)"
+    />
+  </div>
+</div>
 
       {/* ниже можно добавить таблицу матчей игрока с пагинацией — добьём на следующем шаге */}
     </div>
