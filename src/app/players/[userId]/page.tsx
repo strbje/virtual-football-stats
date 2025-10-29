@@ -170,8 +170,11 @@ export default async function Page({ params, searchParams }: PageProps) {
         {/* Карта амплуа за период */}
         <div className="xl:col-span-2">
          <PositionPitchHeatmap
-  data={rolePct /* [{role:'ЦАП', pct:81}, ...] */}
-  caption="Карта амплуа (доля матчей за период)"
+  // если у тебя уже есть агрегированные зоны:
+  // zones={[{ zone: "ST", value: 12 }, ...]}
+  // либо можно скормить данные из rolePct:
+  data={rolePct}  // [{ role: 'НАП', pct: 62 }, ...]
+  title="Тепловая карта позиций"
 />
         </div>
       </div>
