@@ -2,6 +2,7 @@
 import prisma from "@/lib/prisma";
 import { parseRange } from "@/app/players/_utils/parseRange";
 import PositionMap from "@/app/players/_components/PositionMap";
+import PositionPitchHeatmap from '@/components/PositionPitchHeatmap';
 
 export const dynamic = "force-dynamic";
 
@@ -168,10 +169,10 @@ export default async function Page({ params, searchParams }: PageProps) {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {/* Карта амплуа за период */}
         <div className="xl:col-span-2">
-          <PositionMap
-            data={rolePct}
-            caption="Карта амплуа (доля матчей за период)"
-          />
+         <PositionPitchHeatmap
+  data={rolePct /* [{role:'ЦАП', pct:81}, ...] */}
+  caption="Карта амплуа (доля матчей за период)"
+/>
         </div>
       </div>
 
