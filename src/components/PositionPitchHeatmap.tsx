@@ -1,197 +1,205 @@
 // src/components/PositionPitchHeatmap.tsx
-"use client";
+'use client';
 
-import * as React from "react";
+import React, { useMemo } from 'react';
+import clsx from 'clsx';
 
-/**
- * Универсальный компонент «тепловая карта позиций».
- * Принимает:
- *  - zones: [{ zone, value }] — готовые значения по «зонам» поля
- *    ИЛИ
- *  - data:  [{ role, pct }] — доли по амплуа; будут сведены в зоны через role→zone mapping
- *
- * title — заголовок (необязательно)
- */
-
-type ZonePoint = { zone: string; value: number };
-type RolePoint = { role: string; pct: number };
-
-type Props = {
-  zones?: ZonePoint[];
-  data?: RolePoint[];
+type RawRoleDatum = { role: string; count: number }; // «сырые» амплуа из БД
+type HeatmapProps = {
+  data: RawRoleDatum[];           // например [{role:'ЛЦЗ', count:12}, {role:'ПФД', count:3}, ...]
   title?: string;
 };
 
-// Нормализуем кириллицу/варианты амплуа в зоны поля.
-// При необходимости расширяй таблицу.
-const roleToZone = (raw: string): string => {
-  const r = raw.trim().toLowerCase();
+// ---- 1) Маппинг «сырых» амплуа -> каноническое ----
+const ALIAS_TO_CANON: Record<string, string> = {
+  // Вратарь
+  'ВР': 'ВР', 'ВРТ': 'ВР', 'ГК': 'ВР',
 
-  // Форварды
-  if (["нап", "st", "cf", "frv", "пфд", "лфд", "rfd", "lfd"].some(x => r.includes(x)))
-    return "ST";
+  // Линия защиты
+  'ЛЗ': 'ЛЗ',
+  'ПЗ': 'ПЗ',
+  'ЦЗ': 'ЦЗ', 'ЛЦЗ': 'ЦЗ', 'ПЦЗ': 'ЦЗ',
 
-  // Атака по флангам
-  if (["фп", "фланг", "lw", "лв", "лвинг", "lm"].some(x => r.includes(x)))
-    return "LW";
-  if (["rw", "пв", "rm"].some(x => r.includes(x)))
-    return "RW";
+  // Опорка / центр
+  'ЦОП': 'ОП', 'ЛОП': 'ОП', 'ПОП': 'ОП',
+  'ЦП': 'ЦП', 'ЛЦП': 'ЦП', 'ПЦП': 'ЦП',
 
-  // Полузащита
-  if (["цап", "cam"].some(x => r.includes(x))) return "CAM";
-  if (["цп", "cm"].some(x => r.includes(x))) return "CM";
-  if (["цоП", "cdm"].some(x => r.includes(x))) return "CDM";
+  // Полуфланги
+  'ЛП': 'ЛП',
+  'ПП': 'ПП',
 
-  // Фуллбеки
-  if (["кз", "лз", "lb", "lwb"].some(x => r.includes(x))) return "LB";
-  if (["пз", "rb", "rwb"].some(x => r.includes(x))) return "RB";
+  // Атака из полузащиты
+  'ЦАП': 'АП',
 
-  // Центр-беки (включая боковых ЦЗ)
-  if (["цз", "cb"].some(x => r === x)) return "CB";
-  if (["лцз", "lcb"].some(x => r.includes(x))) return "LCB";
-  if (["пцз", "rcb"].some(x => r.includes(x))) return "RCB";
+  // Нападающие и фланговые вингеры
+  'ЦФД': 'ОФ',
+  'ЛАП': 'ЛВ', 'ЛФА': 'ЛВ',
+  'ПАП': 'ПВ', 'ПФА': 'ПВ',
+  'ФРВ': 'ЦФ', 'ЛФД': 'ЦФ', 'ПФД': 'ЦФ',
+
+  // На всякий случай частые альтернативы
+  'НАП': 'ЦФ', 'СТ': 'ЦФ', 'RW': 'ПВ', 'LW': 'ЛВ', 'CAM': 'АП', 'CDM': 'ОП',
+  'CM': 'ЦП', 'RM': 'ПП', 'LM': 'ЛП', 'CB': 'ЦЗ', 'LB': 'ЛЗ', 'RB': 'ПЗ', 'GK': 'ВР',
+};
+
+// Порядок отрисовки (сверху-вниз), чтобы слой был предсказуемым
+const CANON_ORDER = ['ЦФ','ОФ','ЛВ','ПВ','АП','ЛП','ПП','ЦП','ОП','ЛЗ','ЦЗ','ПЗ','ВР'];
+
+// ---- 2) Координаты на «поле» (grid 6×9; можно подстроить при желании) ----
+/** gridRow / gridColumn — 1-based; gridRowEnd/gridColumnEnd — включительно */
+const POS_LAYOUT: Record<string, {r:number; c:number; rs?:number; cs?:number}> = {
+  // ВЕРХ (атака)
+  'ЦФ': { r: 2, c: 4, rs: 2, cs: 2 },
+  'ОФ': { r: 3, c: 4, rs: 2, cs: 2 },
+
+  // Фланговая атака
+  'ЛВ': { r: 3, c: 2, rs: 3, cs: 2 },
+  'ПВ': { r: 3, c: 6, rs: 3, cs: 2 },
+
+  // АП
+  'АП': { r: 5, c: 4, rs: 2, cs: 2 },
+
+  // Полуфланги
+  'ЛП': { r: 6, c: 2, rs: 2, cs: 2 },
+  'ПП': { r: 6, c: 6, rs: 2, cs: 2 },
+
+  // Центр
+  'ЦП': { r: 7, c: 4, rs: 2, cs: 2 },
+  'ОП': { r: 8, c: 4, rs: 2, cs: 2 },
+
+  // Защита
+  'ЛЗ': { r: 9, c: 2, rs: 3, cs: 2 },
+  'ЦЗ': { r: 9, c: 4, rs: 3, cs: 2 },
+  'ПЗ': { r: 9, c: 6, rs: 3, cs: 2 },
 
   // Вратарь
-  if (["вр", "гк", "gk"].some(x => r.includes(x))) return "GK";
-
-  // По умолчанию — центр поля
-  return "CM";
+  'ВР': { r: 12, c: 4, rs: 2, cs: 2 },
 };
 
-// Координаты зон на SVG-поле (12 зон + GK)
-type ZoneRect = { x: number; y: number; w: number; h: number; label: string };
+// ---- 3) Утилиты цвета и округления ----
+const clamp = (x:number, lo:number, hi:number) => Math.min(hi, Math.max(lo, x));
+/** Красный (0) → Зелёный (120) по доле */
+function colorByShare(share01: number): string {
+  const hue = 120 * clamp(share01, 0, 1); // 0=red, 120=green
+  return `hsl(${hue} 75% 45%)`;
+}
+const pct = (x: number) => Math.round(x * 100);
 
-const PITCH_W = 1050;
-const PITCH_H = 680;
-const PAD = 24;
+// ---- 4) Агрегация в канон + расчёт процентов ----
+function aggregateToCanon(data: RawRoleDatum[]) {
+  const bucket = new Map<string, number>();
+  let total = 0;
 
-const ZONES: Record<string, ZoneRect> = {
-  GK:  { x: PAD, y: PITCH_H/2 - 70, w: 60,  h: 140, label: "GK" },
+  for (const { role, count } of data) {
+    const canon = ALIAS_TO_CANON[role.trim().toUpperCase()];
+    if (!canon) continue;                // незнакомые амплуа просто пропускаем
+    const prev = bucket.get(canon) ?? 0;
+    bucket.set(canon, prev + count);
+    total += count;
+  }
 
-  LB:  { x: PAD + 100, y: PAD,            w: 150, h: 200, label: "LB" },
-  LCB: { x: PAD + 100, y: PAD + 210,      w: 150, h: 220, label: "LCB" },
-  CB:  { x: PAD + 260, y: PAD + 210,      w: 150, h: 220, label: "CB" },
-  RCB: { x: PAD + 420, y: PAD + 210,      w: 150, h: 220, label: "RCB" },
-  RB:  { x: PAD + 580, y: PAD,            w: 150, h: 200, label: "RB" },
+  // массив c долями (только сыгранные)
+  const rows = Array.from(bucket.entries()).map(([canon, cnt]) => ({
+    canon,
+    count: cnt,
+    share: total > 0 ? cnt / total : 0,
+  }));
 
-  CDM: { x: PAD + 260, y: PAD + 440,      w: 150, h: 100, label: "CDM" },
-  CM:  { x: PAD + 260, y: PAD + 545,      w: 150, h: 100, label: "CM" },
-  CAM: { x: PAD + 420, y: PAD + 545,      w: 150, h: 100, label: "CAM" },
+  // min/max для градиента
+  const min = rows.reduce((m, r) => Math.min(m, r.share), Infinity);
+  const max = rows.reduce((m, r) => Math.max(m, r.share), -Infinity);
 
-  LW:  { x: PAD + 770, y: PAD + 480,      w: 120, h: 150, label: "LW" },
-  ST:  { x: PAD + 900, y: PAD + 520,      w: 120, h: 120, label: "ST" },
-  RW:  { x: PAD + 770, y: PAD + 320,      w: 120, h: 150, label: "RW" },
-};
+  return { rows, total, min: min === Infinity ? 0 : min, max: max === -Infinity ? 1 : max };
+}
 
-// Цвет от красного → зелёного
-const colorFrom = (v: number, max: number) => {
-  const ratio = max > 0 ? Math.max(0, Math.min(1, v / max)) : 0;
-  const hue = 0 + (120 - 0) * ratio; // 0=red, 120=green
-  const light = 46;
-  return `hsl(${hue}, 85%, ${light}%)`;
-};
+// ---- 5) Сам компонент ----
+export default function PositionPitchHeatmap({ data, title = 'Тепловая карта позиций' }: HeatmapProps) {
+  const { rows, total, min, max } = useMemo(() => aggregateToCanon(data), [data]);
 
-export default function PositionPitchHeatmap({ zones, data, title }: Props) {
-  // Если пришёл zones — используем их.
-  // Иначе агрегируем из data по маппингу role→zone.
-  const aggregated: Record<string, number> = React.useMemo(() => {
-    if (zones && zones.length) {
-      return zones.reduce<Record<string, number>>((acc, z) => {
-        acc[z.zone] = (acc[z.zone] ?? 0) + z.value;
-        return acc;
-      }, {});
-    }
-    const acc: Record<string, number> = {};
-    (data ?? []).forEach((r) => {
-      const zone = roleToZone(r.role);
-      acc[zone] = (acc[zone] ?? 0) + r.pct;
-    });
-    return acc;
-  }, [zones, data]);
+  // нормируем share в 0..1 относительно min..max, чтобы градиент был заметным
+  const norm = (s: number) => {
+    if (max <= min) return 0; // все равны
+    return (s - min) / (max - min);
+  };
 
-  const maxVal = React.useMemo(
-    () => Math.max(0, ...Object.values(aggregated)),
-    [aggregated]
-  );
+  // для удобства обращения по ключу
+  const byCanon = useMemo(() => {
+    const m = new Map(rows.map(r => [r.canon, r]));
+    return m;
+  }, [rows]);
 
   return (
     <div className="rounded-2xl border p-4">
-      {title && <div className="mb-3 text-sm text-gray-500">{title}</div>}
+      <div className="text-sm text-gray-500 mb-3">{title}</div>
 
-      <div className="relative w-full overflow-hidden rounded-xl border bg-emerald-50">
-        <svg
-          viewBox={`0 0 ${PITCH_W} ${PITCH_H}`}
-          width="100%"
-          height="auto"
-          preserveAspectRatio="xMidYMid meet"
+      {/* «Поле»: 6 колонок × 13 строк, соотношение сторон близкое к 2:3 */}
+      <div
+        className="relative rounded-xl border overflow-hidden"
+        style={{
+          background: 'linear-gradient(#eafff1 0%, #eafff1 100%)',
+          aspectRatio: '2 / 3',
+        }}
+      >
+        {/* сетка */}
+        <div
+          className="absolute inset-2 grid"
+          style={{
+            gridTemplateColumns: 'repeat(8, 1fr)', // чуть шире для краёв
+            gridTemplateRows: 'repeat(14, 1fr)',
+            background:
+              'radial-gradient(circle at 50% 33%, rgba(0,0,0,0.05) 0 2px, transparent 2px), radial-gradient(circle at 50% 66%, rgba(0,0,0,0.05) 0 2px, transparent 2px)',
+            border: '1px solid #b8f3cd',
+            borderRadius: 16,
+          }}
         >
-          {/* Поле (контур) */}
-          <rect
-            x={PAD}
-            y={PAD}
-            width={PITCH_W - PAD * 2}
-            height={PITCH_H - PAD * 2}
-            rx={16}
-            fill="#e8fff4"
-            stroke="#a7f3d0"
-            strokeWidth={3}
-          />
-          {/* Центральная линия и круг */}
-          <line
-            x1={PITCH_W / 2}
-            y1={PAD}
-            x2={PITCH_W / 2}
-            y2={PITCH_H - PAD}
-            stroke="#86efac"
-            strokeWidth={2}
-            opacity={0.8}
-          />
-          <circle
-            cx={PITCH_W / 2}
-            cy={PITCH_H / 2}
-            r={60}
-            fill="none"
-            stroke="#86efac"
-            strokeWidth={2}
-            opacity={0.8}
-          />
+          {CANON_ORDER.map((key) => {
+            const coords = POS_LAYOUT[key];
+            if (!coords) return null;
+            const row = byCanon.get(key);
+            if (!row || row.count === 0) return null; // показываем только реальные позиции
 
-          {/* Зоны с цветом по интенсивности */}
-          {Object.entries(ZONES).map(([key, rect]) => {
-            const v = aggregated[key] ?? 0;
-            const fill = colorFrom(v, maxVal);
+            const share = row.share;
+            const share01 = norm(share);
+
             return (
-              <g key={key}>
-                <rect
-                  x={rect.x}
-                  y={rect.y}
-                  width={rect.w}
-                  height={rect.h}
-                  rx={12}
-                  fill={fill}
-                  stroke="rgba(0,0,0,0.08)"
-                />
-                <text
-                  x={rect.x + rect.w / 2}
-                  y={rect.y + rect.h / 2}
-                  fontSize={18}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill="#0f172a"
-                  fontWeight={700}
+              <div
+                key={key}
+                style={{
+                  gridColumn: `${coords.c} / span ${coords.cs ?? 1}`,
+                  gridRow: `${coords.r} / span ${coords.rs ?? 1}`,
+                  alignSelf: 'center',
+                  justifySelf: 'center',
+                }}
+              >
+                <div
+                  className={clsx(
+                    'rounded-xl border shadow-sm text-center select-none',
+                    'flex items-center justify-center'
+                  )}
+                  style={{
+                    width: 110,
+                    height: 64,
+                    background: colorByShare(share01),
+                    color: '#fff',
+                    borderColor: 'rgba(0,0,0,0.2)',
+                  }}
+                  title={`${key}: ${pct(share)}% (${row.count} из ${total})`}
                 >
-                  {rect.label}
-                </text>
-              </g>
+                  <div className="text-sm font-semibold">
+                    {key} · {pct(share)}%
+                  </div>
+                </div>
+              </div>
             );
           })}
-        </svg>
+        </div>
       </div>
 
-      {/* Легенда */}
+      {/* легенда */}
       <div className="mt-3 flex items-center gap-3 text-xs text-gray-600">
         <span>Меньше матчей</span>
-        <div className="h-2 flex-1 rounded-full bg-gradient-to-r from-red-400 via-yellow-400 to-green-500" />
+        <div className="h-2 flex-1 rounded-full"
+             style={{background: 'linear-gradient(90deg, hsl(0 75% 45%), hsl(120 75% 45%))'}} />
         <span>Больше матчей</span>
       </div>
     </div>
