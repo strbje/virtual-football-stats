@@ -60,6 +60,97 @@ export default async function PlayerPage({ params, searchParams }: PageProps) {
     );
   }
 
+  export default async function Page(
+  {
+    params,
+    searchParams,
+  }: {
+    params: Promise<{ userId: string }>;
+    searchParams?: Promise<SearchParamsDict>;
+  }
+) {
+  // достаём userId из params (Next 15: params — Promise)
+  const { userId } = await params;
+
+  // читаем query-параметры (range и т.п.)
+  const sp = (await (searchParams ?? Promise.resolve({}))) || {};
+  const rangeRaw = (Array.isArray(sp.range) ? sp.range[0] : sp.range) ?? "";
+  const { from, to } = parseRange(rangeRaw);
+  const fromTs = from ? Math.floor(new Date(from).getTime() / 1000) : 0;
+  const toTs = to ? Math.floor(new Date(to).getTime() / 1000) : 32503680000; // 01.01.3000
+
+  // профиль пользователя (минимум нужен для заголовка)
+  const user = await prisma.$queryRawUnsafe<{
+    id: number;
+    gamertag: string | null;
+    username: string | null;
+    team_name?: string | null;
+    last_role?: string | null;
+  }[]>(
+    `
+    SELECT u.id, u.gamertag, u.username
+    FROM tbl_users u
+    WHERE u.id = ?
+    LIMIT 1
+    `,
+    Number(userId)
+  );
+
+  // агрегаты за период (пример: матчи/голы/передачи)
+  const agg = await prisma.$queryRawUnsafe<{
+    matches: number;
+    goals: number | null;
+    assists: number | null;
+  }[]>(
+    `
+    SELECT
+      COUNT(*)            AS matches,
+      SUM(ums.goals)      AS goals,
+      SUM(ums.assists)    AS assists
+    FROM tbl_users_match_stats ums
+    INNER JOIN tournament_match tm ON ums.match_id = tm.id
+    WHERE ums.user_id = ?
+      AND tm.timestamp BETWEEN ? AND ?
+    `,
+    Number(userId),
+    fromTs,
+    toTs
+  );
+
+  // упакуем агрегаты в удобный объект
+  const a = {
+    matches: Number(agg?.[0]?.matches ?? 0),
+    goals: Number(agg?.[0]?.goals ?? 0),
+    assists: Number(agg?.[0]?.assists ?? 0),
+    last_team: user?.[0]?.team_name ?? null, // если позже добавим запрос последней команды
+    last_role: user?.[0]?.last_role ?? null, // если позже добавим last_role
+  };
+
+  // распределение по амплуа (за выбранный период)
+  const rolesRows = await prisma.$queryRawUnsafe<
+    { role: string; cnt: number }[]
+  >(
+    `
+    SELECT sp.short_name AS role, COUNT(*) AS cnt
+    FROM tbl_users_match_stats ums
+    INNER JOIN tournament_match tm ON ums.match_id = tm.id
+    INNER JOIN skills_positions  sp ON ums.skill_id = sp.id
+    WHERE ums.user_id = ?
+      AND tm.timestamp BETWEEN ? AND ?
+    GROUP BY sp.short_name
+    ORDER BY cnt DESC
+    `,
+    Number(userId),
+    fromTs,
+    toTs
+  );
+
+  const totalCnt = rolesRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
+  const rolePct = rolesRows.map(r => ({
+    role: r.role,
+    pct: Math.round((Number(r.cnt) * 100) / totalCnt),
+  }));
+
   // --- searchParams ---
   const sp: SearchParamsDict = (await (searchParams ?? Promise.resolve({}))) || {};
 
