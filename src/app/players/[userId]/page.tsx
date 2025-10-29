@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma"; // <— ваш общий клиент (если другой путь — поправьте)
 import PositionPitchHeatmap from "@/components/PositionPitchHeatmap";
+import Link from 'next/link';
 
 // ───────────────────────────────────────────────
 // helpers
@@ -11,6 +12,12 @@ import PositionPitchHeatmap from "@/components/PositionPitchHeatmap";
 function first<T>(v: T | T[] | undefined): T | undefined {
   if (Array.isArray(v)) return v[0];
   return v;
+}
+// Помощник: приводим userId к числу безопасно
+function toInt(val: string | string[] | undefined) {
+  if (!val) return null;
+  const n = Array.isArray(val) ? parseInt(val[0], 10) : parseInt(val, 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 function parseRange(raw?: string) {
@@ -110,69 +117,106 @@ type PageProps = {
   searchParams?: { range?: string | string[] };
 };
 
-export default async function PlayerPage({ params, searchParams }: PageProps) {
-  const uid = Number(params.userId);
-  if (!Number.isFinite(uid)) return notFound();
+export default async function PlayerPage({ params }: { params: { userId: string } }) {
+  const userId = toInt(params.userId);
+  if (!userId) {
+    return <div className="p-6">Invalid userId</div>;
+  }
 
-  // диапазон по параметрам запроса
-  const sp = (searchParams ?? {}) as { range?: string | string[] };
-  const rangeRaw = first(sp.range);
-  const { from, to } = parseRange(rangeRaw);
+  // 1) Профиль игрока (минимум)
+  const profile = await prisma.$queryRawUnsafe<any[]>(
+    `
+    SELECT u.user_id, u.nickname
+    FROM users u
+    WHERE u.user_id = ?
+    LIMIT 1
+    `,
+    userId
+  );
+  const player = profile[0];
 
-  const fromTs = toUnix(from, 0);
-  const toTs = toUnix(to, 32503680000); // 01.01.3000
+  // 2) СЫРЫЕ РОЛИ ПО МАТЧАМ (без нормализации)
+  //    - Берём позиции как они записаны в БД
+  //    - Источники: tbl_users_match_stats (помачёвка), при необходимости связка со skills_positions
+  //    - Твоему компоненту отдаём:
+  //        match_id, skill_position_id, field_position, season_id, tournament_id, played_minutes (если нужно)
+  const rawRoles = await prisma.$queryRawUnsafe<any[]>(
+    `
+    SELECT 
+      ums.user_id,
+      ums.match_id,
+      ums.skill_position_id,    -- ссылка на skills_positions.id
+      ums.field_position,       -- если у вас это заполняется текстом/кодом
+      ums.season_id,
+      ums.tournament_id,
+      ums.played_minutes        -- поле есть не всегда, если отсутствует — убери
+    FROM tbl_users_match_stats AS ums
+    WHERE ums.user_id = ?
+      AND (ums.skill_position_id IS NOT NULL OR ums.field_position IS NOT NULL)
+    `,
+    userId
+  );
 
-  const user = await getUser(uid);
-  if (!user) return notFound();
+  // 3) Пример агрегации по матчам (оставляем как у тебя было по логике)
+  //    Счётчики, xG surrogate, передачи и т.п. — адаптируй под реальные поля из tbl_users_match_stats
+  const aggregates = await prisma.$queryRawUnsafe<any[]>(
+    `
+    SELECT 
+      COUNT(DISTINCT ums.match_id)              AS matches,
+      SUM(ums.goals)                            AS goals,
+      SUM(ums.assists)                          AS assists,
+      SUM(ums.passes)                           AS passes,
+      SUM(ums.completedpasses)                  AS completed_passes,
+      AVG(NULLIF(ums.passes_rate, 0))           AS pass_accuracy_avg,   -- если это %, обычно хранится как 0..100
+      SUM(ums.intercepts)                       AS intercepts,
+      SUM(ums.tackles)                          AS tackles,
+      SUM(ums.duels_air)                        AS air_duels,
+      SUM(ums.duels_air_win)                    AS air_duels_win
+    FROM tbl_users_match_stats ums
+    WHERE ums.user_id = ?
+    `,
+    userId
+  );
+  const agg = aggregates[0];
 
-  const a = await getKpi(uid, fromTs, toTs);
-  const rawRoles = await getRawRoles(uid, fromTs, toTs); // ← «сырые» роли, без нормализаций
-
+  // 4) Отдаём всё компоненту страницы
   return (
     <div className="p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">
-            {user.gamertag || user.username || `User #${uid}`}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {a.last_team ? `${a.last_team} · ` : ""}
-            {a.last_role ?? "—"}
-          </p>
-        </div>
-        {/* сюда позже добавим date-range фильтр (range=YYYY-MM-DD_to_YYYY-MM-DD) */}
-      </header>
+      <div>
+        <Link href="/players" className="text-sm text-blue-500 hover:underline">← Back to Players</Link>
+      </div>
 
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Матчи</div>
-          <div className="text-2xl font-semibold">{a.matches}</div>
-        </div>
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Голы</div>
-          <div className="text-2xl font-semibold">{a.goals}</div>
-        </div>
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Передачи</div>
-          <div className="text-2xl font-semibold">{a.assists}</div>
-        </div>
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Амплуа (последнее)</div>
-          <div className="text-2xl font-semibold">{a.last_role ?? "—"}</div>
+      <div>
+        <h1 className="text-2xl font-semibold">
+          {player?.nickname ?? `User #${userId}`}
+        </h1>
+        <p className="text-sm text-neutral-500">ID: {userId}</p>
+      </div>
+
+      <section>
+        <h2 className="text-xl font-semibold mb-2">Aggregates</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div><div className="text-neutral-500">Matches</div><div className="font-medium">{agg?.matches ?? 0}</div></div>
+          <div><div className="text-neutral-500">Goals</div><div className="font-medium">{agg?.goals ?? 0}</div></div>
+          <div><div className="text-neutral-500">Assists</div><div className="font-medium">{agg?.assists ?? 0}</div></div>
+          <div><div className="text-neutral-500">Passes</div><div className="font-medium">{agg?.passes ?? 0}</div></div>
+          <div><div className="text-neutral-500">Completed</div><div className="font-medium">{agg?.completed_passes ?? 0}</div></div>
+          <div><div className="text-neutral-500">Pass Acc. (avg)</div><div className="font-medium">{agg?.pass_accuracy_avg?.toFixed?.(1) ?? '—'}%</div></div>
+          <div><div className="text-neutral-500">Interceptions</div><div className="font-medium">{agg?.intercepts ?? 0}</div></div>
+          <div><div className="text-neutral-500">Tackles</div><div className="font-medium">{agg?.tackles ?? 0}</div></div>
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {/* KPI карточки выше */}
-        {/* Тепловая карта позиций: компонент сам нормализует роли и рисует проценты */}
-        <div className="xl:col-span-2 rounded-2xl border p-4">
-          <PositionPitchHeatmap
-            rawRoles={rawRoles}                 // <— отдаём «как в БД»
-            caption="Тепловая карта позиций (доля матчей за период)"
-            showPercent                          // компонент выведет % по каждой зоне
-          />
-        </div>
-      </div>
+      <section>
+        <h2 className="text-xl font-semibold mb-2">Raw roles (from DB)</h2>
+        <pre className="text-xs bg-neutral-950/60 text-neutral-200 p-3 rounded-lg overflow-auto">
+{JSON.stringify(rawRoles.slice(0, 50), null, 2)}
+        </pre>
+        <p className="text-xs text-neutral-500 mt-1">
+          *Отдаём компоненту «сырые» роли: <code>skill_position_id</code> / <code>field_position</code> по матчам без любой нормализации. 
+          Дальше твой компонент сам делает маппинг групп (ЦФ/ЛВ/ПВ/ОФ/АП/ЛП/ПП/ЦП/ОП/ЛЗ/ПЗ/ЦЗ) и считает % сыгранных матчей на позиции.
+        </p>
+      </section>
     </div>
   );
 }
