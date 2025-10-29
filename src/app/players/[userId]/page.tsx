@@ -29,8 +29,8 @@ export default async function Page({ params, searchParams }: PageProps) {
   }
 
   // --- search params: диапазон дат ---
-  const sp = (await (searchParams ?? Promise.resolve({}))) || {};
-  const rangeRaw = first(sp.range);
+  const sp = (await (searchParams ?? Promise.resolve({}))) as SearchParamsDict;
+  const rangeRaw = first(sp?.range);
   const { from, to } = parseRange(rangeRaw);
   const fromTs = from ? Math.floor(new Date(from).getTime() / 1000) : 0;
   const toTs = to ? Math.floor(new Date(to).getTime() / 1000) : 32503680000; // до 01.01.3000
