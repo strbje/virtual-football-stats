@@ -2,9 +2,9 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
-// ---- УТИЛИТЫ ----
 type SearchParams = Record<string, string | string[] | undefined>;
 
+// --- helpers ---
 function getParam(sp: SearchParams, key: string): string {
   const v = sp[key];
   return Array.isArray(v) ? v[0] ?? "" : v ?? "";
@@ -19,29 +19,18 @@ function parseRange(range?: string): { from?: string; to?: string } {
   };
 }
 
-// Next.js 15 может прокинуть params/searchParams как Promise.
-// Делаем безопасный анфолд без жёстких зависимостей от внутр. типов Next.
-async function unwrapMaybePromise<T>(value: T | Promise<T> | undefined, fallback: T): Promise<T> {
-  if (value && typeof (value as any).then === "function") {
-    return await (value as Promise<T>);
-  }
-  return (value ?? fallback) as T;
-}
-
 export const dynamic = "force-dynamic";
 
-// ---- ТИП ПРОПСОВ ----
-// Разрешаем и обычный объект, и Promise-объект — чтобы удовлетворить PageProps в Next 15.
+// ВАЖНО: строго Promise-тип, чтобы удовлетворить PageProps в Next 15
 type Props = {
-  params?: { userId: string } | Promise<{ userId: string }>;
-  searchParams?: SearchParams | Promise<SearchParams>;
+  params?: Promise<{ userId: string }>;
+  searchParams?: Promise<SearchParams>;
 };
 
-// ---- СТРАНИЦА ----
-export default async function PlayerPage(props: Props) {
-  // Безопасно разворачиваем params и searchParams
-  const { userId: userIdRaw } = await unwrapMaybePromise(props.params, { userId: "" });
-  const sp = await unwrapMaybePromise(props.searchParams, {});
+export default async function PlayerPage({ params, searchParams }: Props) {
+  // await безопасен и для обычного объекта (JS сделает Promise.resolve(value))
+  const { userId: userIdRaw } = await (params ?? Promise.resolve({ userId: "" }));
+  const sp = await (searchParams ?? Promise.resolve({} as SearchParams));
 
   const range = getParam(sp, "range");
   const { from, to } = parseRange(range);
@@ -59,19 +48,19 @@ export default async function PlayerPage(props: Props) {
   }
 
   // Игрок
-  const userRow = (await prisma.$queryRawUnsafe<
-    { id: number; gamertag: string; username: string }[]
-  >(
-    `
-    SELECT u.id, u.gamertag, u.username
-    FROM tbl_users u
-    WHERE u.id = ?
-    LIMIT 1
-  `,
-    userId
-  ))[0];
+  const userRow = (
+    await prisma.$queryRawUnsafe<{ id: number; gamertag: string; username: string }[]>(
+      `
+      SELECT u.id, u.gamertag, u.username
+      FROM tbl_users u
+      WHERE u.id = ?
+      LIMIT 1
+    `,
+      userId
+    )
+  )[0];
 
-  // Роли игрока (как есть в БД), с опциональным фильтром по дате матча
+  // Роли игрока с необязательным фильтром по датам
   const rolesWhere: string[] = ["ums.user_id = ?"];
   const rolesParams: any[] = [userId];
 
@@ -84,9 +73,7 @@ export default async function PlayerPage(props: Props) {
     rolesParams.push(`${to} 23:59:59`);
   }
 
-  const roles = await prisma.$queryRawUnsafe<
-    { role: string; appearances: number }[]
-  >(
+  const roles = await prisma.$queryRawUnsafe<{ role: string; appearances: number }[]>(
     `
     SELECT sp.short_name AS role, COUNT(*) AS appearances
     FROM tbl_users_match_stats ums
@@ -99,31 +86,36 @@ export default async function PlayerPage(props: Props) {
     ...rolesParams
   );
 
-  // Общее число матчей в диапазоне (для процента по позиции)
-  const totalPlayedRow = (await prisma.$queryRawUnsafe<{ total: number }[]>(
-    `
-    SELECT COUNT(*) AS total
-    FROM tbl_users_match_stats ums
-    INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    WHERE ums.user_id = ?
-      ${from ? "AND tm.timestamp >= UNIX_TIMESTAMP(?)" : ""}
-      ${to ? "AND tm.timestamp <= UNIX_TIMESTAMP(?)" : ""}
-  `,
-    from && to
-      ? [userId, `${from} 00:00:00`, `${to} 23:59:59`]
-      : from
-      ? [userId, `${from} 00:00:00`]
-      : to
-      ? [userId, `${to} 23:59:59`]
-      : [userId]
-  ))[0];
+  // Общее число матчей
+  const totalPlayedRow = (
+    await prisma.$queryRawUnsafe<{ total: number }[]>(
+      `
+      SELECT COUNT(*) AS total
+      FROM tbl_users_match_stats ums
+      INNER JOIN tournament_match tm ON ums.match_id = tm.id
+      WHERE ums.user_id = ?
+        ${from ? "AND tm.timestamp >= UNIX_TIMESTAMP(?)" : ""}
+        ${to ? "AND tm.timestamp <= UNIX_TIMESTAMP(?)" : ""}
+    `,
+      from && to
+        ? [userId, `${from} 00:00:00`, `${to} 23:59:59`]
+        : from
+        ? [userId, `${from} 00:00:00`]
+        : to
+        ? [userId, `${to} 23:59:59`]
+        : [userId]
+    )
+  )[0];
 
   const totalPlayed = totalPlayedRow?.total ?? 0;
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center gap-4">
-        <Link href={`/players${range ? `?range=${range}` : ""}`} className="text-blue-600 hover:underline">
+        <Link
+          href={`/players${range ? `?range=${range}` : ""}`}
+          className="text-blue-600 hover:underline"
+        >
           ← Назад к игрокам
         </Link>
         {userRow ? (
@@ -172,7 +164,7 @@ export default async function PlayerPage(props: Props) {
         </table>
       </div>
 
-      {/* Здесь дальше можно подключить компонент нормализации ролей в ЦФ/ЛФД/... */}
+      {/* здесь можно добавить ваш компонент нормализации ролей */}
     </div>
   );
 }
