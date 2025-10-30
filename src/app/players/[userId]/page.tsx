@@ -1,42 +1,36 @@
-// src/app/players/[userId]/page.tsx
+// app/players/[userId]/page.tsx
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
-type SearchParams = Record<string, string | string[] | undefined>;
+export const dynamic = "force-dynamic";
 
-// --- helpers ---
-function getParam(sp: SearchParams, key: string): string {
-  const v = sp[key];
+type SearchParamsDict = Record<string, string | string[] | undefined>;
+
+function getVal(d: SearchParamsDict, k: string): string {
+  const v = d[k];
   return Array.isArray(v) ? v[0] ?? "" : v ?? "";
 }
 
 function parseRange(range?: string): { from?: string; to?: string } {
   if (!range) return {};
-  const [start, end] = range.split(":").map((s) => s?.trim()).filter(Boolean);
+  const [start, end] = range.split(":").map(s => s?.trim()).filter(Boolean);
   return {
     from: start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : undefined,
     to: end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : undefined,
   };
 }
 
-export const dynamic = "force-dynamic";
+export default async function PlayerPage({
+  params,
+  searchParams,
+}: {
+  params: { userId: string } | Promise<{ userId: string }>;
+  searchParams?: Promise<SearchParamsDict> | SearchParamsDict;
+}) {
+  const p = (await (params as any)) ?? { userId: "" };
+  const userIdNum = Number(p.userId);
 
-// ВАЖНО: строго Promise-тип, чтобы удовлетворить PageProps в Next 15
-type Props = {
-  params?: Promise<{ userId: string }>;
-  searchParams?: Promise<SearchParams>;
-};
-
-export default async function PlayerPage({ params, searchParams }: Props) {
-  // await безопасен и для обычного объекта (JS сделает Promise.resolve(value))
-  const { userId: userIdRaw } = await (params ?? Promise.resolve({ userId: "" }));
-  const sp = await (searchParams ?? Promise.resolve({} as SearchParams));
-
-  const range = getParam(sp, "range");
-  const { from, to } = parseRange(range);
-
-  const userId = Number(userIdRaw);
-  if (!Number.isFinite(userId)) {
+  if (!Number.isFinite(userIdNum)) {
     return (
       <div className="p-6">
         <h1 className="text-xl font-semibold">Неверный ID игрока</h1>
@@ -47,124 +41,144 @@ export default async function PlayerPage({ params, searchParams }: Props) {
     );
   }
 
-  // Игрок
-  const userRow = (
-    await prisma.$queryRawUnsafe<{ id: number; gamertag: string; username: string }[]>(
-      `
+  const raw: SearchParamsDict = (await (searchParams as any)) ?? {};
+  const range = getVal(raw, "range");
+  const { from, to } = parseRange(range);
+  const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
+  const toTs   = to   ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000;
+
+  // базовая инфа
+  const user = await prisma.$queryRawUnsafe<{ id: number; gamertag: string | null; username: string | null }[]>(
+    `
       SELECT u.id, u.gamertag, u.username
       FROM tbl_users u
       WHERE u.id = ?
       LIMIT 1
     `,
-      userId
-    )
-  )[0];
-
-  // Роли игрока с необязательным фильтром по датам
-  const rolesWhere: string[] = ["ums.user_id = ?"];
-  const rolesParams: any[] = [userId];
-
-  if (from) {
-    rolesWhere.push("tm.timestamp >= UNIX_TIMESTAMP(?)");
-    rolesParams.push(`${from} 00:00:00`);
-  }
-  if (to) {
-    rolesWhere.push("tm.timestamp <= UNIX_TIMESTAMP(?)");
-    rolesParams.push(`${to} 23:59:59`);
+    userIdNum
+  );
+  if (!user.length) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Игрок не найден</h1>
+      </div>
+    );
   }
 
-  const roles = await prisma.$queryRawUnsafe<{ role: string; appearances: number }[]>(
+  // агрегаты + последнее амплуа/команда
+  const agg = await prisma.$queryRawUnsafe<{
+    matches: number;
+    goals: number | null;
+    assists: number | null;
+    last_role: string | null;
+    last_team: string | null;
+  }[]>(
     `
-    SELECT sp.short_name AS role, COUNT(*) AS appearances
-    FROM tbl_users_match_stats ums
-    INNER JOIN skills_positions sp ON ums.skill_id = sp.id
-    INNER JOIN tournament_match tm  ON ums.match_id = tm.id
-    WHERE ${rolesWhere.join(" AND ")}
-    GROUP BY sp.short_name
-    ORDER BY appearances DESC, sp.short_name ASC
-  `,
-    ...rolesParams
+      SELECT
+        COUNT(*)                         AS matches,
+        SUM(ums.goals)                   AS goals,
+        SUM(ums.assists)                 AS assists,
+        (
+          SELECT sp.short_name
+          FROM tbl_users_match_stats ums2
+          JOIN tournament_match tm2 ON tm2.id = ums2.match_id
+          JOIN skills_positions sp ON sp.id = ums2.skill_id
+          WHERE ums2.user_id = ?
+            AND tm2.timestamp BETWEEN ? AND ?
+          ORDER BY tm2.timestamp DESC
+          LIMIT 1
+        ) AS last_role,
+        (
+          SELECT t2.team_name
+          FROM tbl_users_match_stats ums3
+          JOIN tournament_match tm3 ON tm3.id = ums3.match_id
+          JOIN teams t2 ON t2.id = ums3.team_id
+          WHERE ums3.user_id = ?
+            AND tm3.timestamp BETWEEN ? AND ?
+          ORDER BY tm3.timestamp DESC
+          LIMIT 1
+        ) AS last_team
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      WHERE ums.user_id = ?
+        AND tm.timestamp BETWEEN ? AND ?
+    `,
+    userIdNum, fromTs, toTs,   // подзапрос 1
+    userIdNum, fromTs, toTs,   // подзапрос 2
+    userIdNum, fromTs, toTs    // основной
   );
 
-  // Общее число матчей
-  const totalPlayedRow = (
-    await prisma.$queryRawUnsafe<{ total: number }[]>(
-      `
-      SELECT COUNT(*) AS total
-      FROM tbl_users_match_stats ums
-      INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      WHERE ums.user_id = ?
-        ${from ? "AND tm.timestamp >= UNIX_TIMESTAMP(?)" : ""}
-        ${to ? "AND tm.timestamp <= UNIX_TIMESTAMP(?)" : ""}
-    `,
-      from && to
-        ? [userId, `${from} 00:00:00`, `${to} 23:59:59`]
-        : from
-        ? [userId, `${from} 00:00:00`]
-        : to
-        ? [userId, `${to} 23:59:59`]
-        : [userId]
-    )
-  )[0];
+  const a = {
+    matches: Number(agg?.[0]?.matches ?? 0),
+    goals: Number(agg?.[0]?.goals ?? 0),
+    assists: Number(agg?.[0]?.assists ?? 0),
+    last_role: agg?.[0]?.last_role ?? null,
+    last_team: agg?.[0]?.last_team ?? null,
+  };
 
-  const totalPlayed = totalPlayedRow?.total ?? 0;
+  // распределение по амплуа
+  const rolesRows = await prisma.$queryRawUnsafe<{ role: string; cnt: number }[]>(
+    `
+      SELECT sp.short_name AS role, COUNT(*) AS cnt
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      JOIN skills_positions  sp ON sp.id = ums.skill_id
+      WHERE ums.user_id = ?
+        AND tm.timestamp BETWEEN ? AND ?
+      GROUP BY sp.short_name
+      ORDER BY cnt DESC
+    `,
+    userIdNum, fromTs, toTs
+  );
+
+  const totalCnt = rolesRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
+  const rolePct = rolesRows.map(r => ({
+    role: r.role,
+    pct: Math.round((Number(r.cnt) * 100) / totalCnt),
+  }));
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center gap-4">
-        <Link
-          href={`/players${range ? `?range=${range}` : ""}`}
-          className="text-blue-600 hover:underline"
-        >
-          ← Назад к игрокам
-        </Link>
-        {userRow ? (
-          <h1 className="text-2xl font-semibold">
-            {userRow.gamertag}{" "}
-            <span className="text-gray-500 text-base">(@{userRow.username})</span>
+    <div className="p-6 space-y-6">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">
+            {user[0]?.gamertag || user[0]?.username || `User #${userIdNum}`}
           </h1>
-        ) : (
-          <h1 className="text-2xl font-semibold">Игрок #{userId}</h1>
-        )}
+          <p className="text-sm text-gray-500">
+            {a.last_team ? `${a.last_team} · ` : ""}
+            {a.last_role ?? "—"}
+          </p>
+        </div>
+      </header>
+
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Матчи</div>
+          <div className="text-2xl font-semibold">{a.matches}</div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Голы</div>
+          <div className="text-2xl font-semibold">{a.goals}</div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Передачи</div>
+          <div className="text-2xl font-semibold">{a.assists}</div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Амплуа (последнее)</div>
+          <div className="text-2xl font-semibold">{a.last_role ?? "—"}</div>
+        </div>
+      </section>
+
+      <div className="mt-4">
+        <h2 className="font-semibold mb-2">Распределение амплуа, % матчей</h2>
+        <ul className="list-disc pl-6">
+          {rolePct.map(r => (
+            <li key={r.role}>{r.role}: {r.pct}%</li>
+          ))}
+          {rolePct.length === 0 && <li>Данных за выбранный период нет</li>}
+        </ul>
       </div>
-
-      <p className="text-sm text-gray-600">
-        Диапазон: {from ? from : "—"} — {to ? to : "—"} · Матчей в выборке: {totalPlayed}
-      </p>
-
-      <div className="overflow-x-auto">
-        <table className="min-w-[560px] border-collapse">
-          <thead>
-            <tr className="text-left border-b">
-              <th className="py-2 pr-4">Роль (как в БД)</th>
-              <th className="py-2 pr-4">Матчей</th>
-              <th className="py-2 pr-4">% от сыгранных</th>
-            </tr>
-          </thead>
-          <tbody>
-            {roles.map((r, idx) => {
-              const pct =
-                totalPlayed > 0 ? ((r.appearances / totalPlayed) * 100).toFixed(1) : "0.0";
-              return (
-                <tr key={`${r.role}-${idx}`} className="border-b last:border-b-0">
-                  <td className="py-2 pr-4">{r.role}</td>
-                  <td className="py-2 pr-4">{r.appearances}</td>
-                  <td className="py-2 pr-4">{pct}%</td>
-                </tr>
-              );
-            })}
-            {roles.length === 0 && (
-              <tr>
-                <td className="py-3 text-gray-500" colSpan={3}>
-                  Нет матчей в выбранном диапазоне.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* здесь можно добавить ваш компонент нормализации ролей */}
     </div>
   );
 }
