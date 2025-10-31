@@ -1,4 +1,4 @@
-// app/players/page.tsx
+// src/app/players/page.tsx
 import { prisma } from "@/lib/prisma";
 import FiltersClient from "@/components/players/FiltersClient";
 import Link from "next/link";
@@ -34,9 +34,9 @@ type Row = {
 export default async function Page({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParamsDict> | SearchParamsDict;
+  searchParams: Promise<SearchParamsDict>;
 }) {
-  const raw: SearchParamsDict = (await (searchParams as any)) ?? {};
+  const raw = (await searchParams) ?? {};
   const q = getVal(raw, "q");
   const team = getVal(raw, "team");
   const tournament = getVal(raw, "tournament");
