@@ -202,9 +202,10 @@ export default async function PlayerPage({
         </ul>
       </section>
 
-      <section className="mt-6">
+       <section className="mt-6">
         <h2 className="font-semibold mb-2">Тепловая карта амплуа</h2>
-        <PositionPitchHeatmap data={heatmapData} />
+        {/* ширину можно регулировать: 320–420px выглядят наиболее аккуратно */}
+        <PositionPitchHeatmap data={heatmapData} width={360} className="max-w-full" />
       </section>
     </div>
   );
