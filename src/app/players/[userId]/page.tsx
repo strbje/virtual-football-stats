@@ -1,4 +1,4 @@
-// app/players/[userId]/page.tsx
+// src/app/players/[userId]/page.tsx
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
@@ -24,11 +24,11 @@ export default async function PlayerPage({
   params,
   searchParams,
 }: {
-  params: { userId: string } | Promise<{ userId: string }>;
-  searchParams?: Promise<SearchParamsDict> | SearchParamsDict;
+  params: Promise<{ userId: string }>;
+  searchParams: Promise<SearchParamsDict>;
 }) {
-  const p = (await (params as any)) ?? { userId: "" };
-  const userIdNum = Number(p.userId);
+  const { userId } = await params;
+  const userIdNum = Number(userId);
 
   if (!Number.isFinite(userIdNum)) {
     return (
@@ -41,7 +41,7 @@ export default async function PlayerPage({
     );
   }
 
-  const raw: SearchParamsDict = (await (searchParams as any)) ?? {};
+  const raw = (await searchParams) ?? {};
   const range = getVal(raw, "range");
   const { from, to } = parseRange(range);
   const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
