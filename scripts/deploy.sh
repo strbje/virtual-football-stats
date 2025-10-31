@@ -64,6 +64,7 @@ npm run build
 log "pm2 start"
 # Если у тебя есть ecosystem.config.js — лучше:
 # pm2 start ecosystem.config.js --update-env
+pm2 delete virtual-football-stats || true
 pm2 start "npm" --name virtual-football-stats -- start
 
 pm2 status
