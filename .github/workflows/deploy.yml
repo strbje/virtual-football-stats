@@ -3,6 +3,7 @@ name: Deploy to VM
 on:
   push:
     branches: [ main ]
+  workflow_dispatch: {}
 
 jobs:
   deploy:
@@ -15,9 +16,8 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           port: 22
-          script_stop: true          # упадём сразу, если команда на ВМ вернула ненулевой код
-          command_timeout: 30m       # потолок на длительность
-          envs: NODE_ENV             # проброс переменных, если надо
+          script_stop: true
+          command_timeout: 30m
           script: |
             export NODE_ENV=production
             bash ~/virtual-football-stats/scripts/deploy.sh
