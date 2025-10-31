@@ -1,176 +1,146 @@
-// src/components/PositionPitchHeatmap.tsx
 "use client";
 
-import React from "react";
+import * as React from "react";
+import clsx from "clsx";
 
-// входные данные
-export type RawRoleDatum = { role: string; count: number };
+type RawRoleDatum = { role: string; count: number };
 
 export type HeatmapProps = {
+  /** Сырые данные из БД: short_name амплуа + количество матчей */
   data: RawRoleDatum[];
-  // можно переопределить ширину контейнера вне компонента, он сам тянется на 100%
+  /** Ширина полотна в px (высота считается автоматически как 1.5*width) */
+  width?: number;
+  className?: string;
 };
 
-type XY = { x: number; y: number };
+/** Координаты позиций (в процентах по полю 0..100).
+ *  Ось X: 0 — левый фланг, 100 — правый; Ось Y: 0 — свои ворота, 100 — чужие.
+ *  Добавил самые частые short_name (рус) + несколько алиасов.
+ */
+const POS: Record<string, { x: number; y: number; label?: string }> = {
+  // Вратарь (на всякий)
+  "ВРТ": { x: 50, y: 5 },
 
-// канонические позиции на сетке (0..100)
-// упрощённая схема 4-3-3 / 4-2-3-1
-const POS: Record<string, XY> = {
-  GK:  { x: 50, y: 95 },
+  // Центральные защитники
+  "КЗ": { x: 50, y: 18, label: "ЦЗ" },
+  "ЛЦЗ": { x: 38, y: 18 },
+  "ПЦЗ": { x: 62, y: 18 },
 
-  LB:  { x: 18, y: 72 },
-  LWB: { x: 22, y: 66 },
-  CB1: { x: 38, y: 78 },
-  CB2: { x: 62, y: 78 },
-  RWB: { x: 78, y: 66 },
-  RB:  { x: 82, y: 72 },
+  // Фуллбеки
+  "ЛЗ": { x: 20, y: 22 },
+  "ПЗ": { x: 80, y: 22 },
 
-  CDM: { x: 50, y: 58 },
-  LCM: { x: 36, y: 46 },
-  RCM: { x: 64, y: 46 },
-  CM:  { x: 50, y: 46 },
+  // Опорники / центр
+  "ЦОП": { x: 50, y: 35 },
+  "ЛОП": { x: 40, y: 35 },
+  "ПОП": { x: 60, y: 35 },
 
-  CAM: { x: 50, y: 36 },
-  LW:  { x: 22, y: 27 },
-  RW:  { x: 78, y: 27 },
+  "ЦП": { x: 50, y: 50 },
+  "ЛЦП": { x: 40, y: 50 },
+  "ПЦП": { x: 60, y: 50 },
 
-  CF:  { x: 50, y: 18 },
-  ST:  { x: 50, y: 18 }, // синоним к CF
+  "ЦАП": { x: 50, y: 62 },
+  "ЛАП": { x: 38, y: 62 },
+  "ПАП": { x: 62, y: 62 },
+
+  // Крайние полузащитники (LM/RM)
+  "ЛП": { x: 25, y: 56 },
+  "ПП": { x: 75, y: 56 },
+
+  // Нападающий(е)
+  "НАП": { x: 50, y: 78 },
+  "ЛН": { x: 40, y: 78 },
+  "ПН": { x: 60, y: 78 },
 };
 
-// алиасы коротких названий к каноническим ключам выше
-const ALIAS: Record<string, string> = {
-  // Вратарь
-  "ВР": "GK", "GK": "GK",
-
-  // Центр/опорная/атака
-  "ЦОП": "CDM", "ОП": "CDM", "CDM": "CDM",
-  "ЦП": "CM", "CM": "CM",
-  "ЦАП": "CAM", "АП": "CAM", "CAM": "CAM",
-
-  // Фланги полузащиты/атаки (если сторона не указана — ставим как LW)
-  "ФП": "LW", "ЛП": "LW", "LW": "LW",
-  "ПП": "RW", "RW": "RW",
-
-  // Защита
-  "ЛЗ": "LB", "LB": "LB", "ПЗ": "RB", "RB": "RB",
-  "КЗ": "LWB", "ЛВБ": "LWB", "ПВБ": "RWB", "RWB": "RWB",
-  "ЦЗ": "CB1", "CB": "CB1",
-
-  // Нападение
-  "НАП": "ST", "ЦФ": "ST", "ФОРВАРД": "ST", "ST": "ST", "CF": "CF",
-};
-
-function colorByPct(pct: number): string {
-  // зелёный → жёлтый → красный
-  // 0..100
-  const t = Math.max(0, Math.min(100, pct)) / 100;
-  const r = Math.round(255 * t);
-  const g = Math.round(200 * (1 - Math.max(0, t - 0.25) / 0.75));
-  const b = 90;
-  return `rgb(${r},${g},${b})`;
+/** Нормализация «синонимов».
+ *  Если в твоей БД встречается «ФП», а не разделение по флангам,
+ *  мы оставим его в центре на высоте вингеров, чтобы не потерять.
+ */
+function normalizeRole(short: string): string {
+  const s = short.trim().toUpperCase();
+  if (s === "ФП") return "ЦАП";       // без деления на фланги — ближе к атак. полузащите
+  if (s === "ЦД") return "КЗ";        // если где-то сокращают «центральный защитник»
+  return s;
 }
 
-export default function PositionPitchHeatmap({ data }: HeatmapProps) {
-  const total = Math.max(
-    1,
-    data.reduce((s, d) => s + Number(d.count || 0), 0)
-  );
+export default function PositionPitchHeatmap({
+  data,
+  width = 360, // ~в 6 раз меньше твоего текущего размера
+  className,
+}: HeatmapProps) {
+  const height = Math.round(width * 1.5); // соотношение ~2:3
 
-  // нормализация названий и подготовка точек
-  const points: Array<{ key: string; label: string; x: number; y: number; pct: number }> = [];
-  const unknown: Array<{ role: string; pct: number }> = [];
-
-  for (const d of data) {
-    const raw = (d.role || "").trim().toUpperCase();
-    const key = ALIAS[raw];
-    const pct = Math.round((Number(d.count || 0) * 100) / total);
-
-    if (key && POS[key]) {
-      const { x, y } = POS[key];
-      // Если одинаковая каноническая позиция встречается несколько раз (напр. CB1/CB2),
-      // деликатно сместим следующую точку, чтобы не наложились
-      const already = points.filter((p) => p.x === x && p.y === y).length;
-      const dx = already * 4 * (points.length % 2 === 0 ? 1 : -1);
-      const dy = already * 4;
-
-      points.push({
-        key: `${key}-${already}`,
-        label: raw, // показываем исходное короткое имя
-        x: x + dx,
-        y: y + dy,
-        pct,
-      });
-    } else {
-      unknown.push({ role: raw || "—", pct });
+  const summed = React.useMemo(() => {
+    const byRole = new Map<string, number>();
+    for (const row of data) {
+      const key = normalizeRole(row.role);
+      byRole.set(key, (byRole.get(key) ?? 0) + Number(row.count || 0));
     }
-  }
-
-  // размеры SVG и поля
-  const W = 100;
-  const H = 140;
+    const total = Array.from(byRole.values()).reduce((s, v) => s + v, 0) || 1;
+    return Array.from(byRole.entries())
+      .map(([role, count]) => ({
+        role,
+        count,
+        pct: Math.round((count * 100) / total),
+      }))
+      // показываем роли, у которых есть координаты — остальное игнорируем
+      .filter((r) => POS[r.role])
+      // крупные проценты вверх списка (чтобы не перекрывались мелочами)
+      .sort((a, b) => b.pct - a.pct);
+  }, [data]);
 
   return (
-    <div className="w-full">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="xMidYMid meet"
-        style={{ width: "100%", height: "auto", display: "block" }}
-        aria-label="Тепловая карта позиций"
-      >
-        {/* поле */}
-        <rect x={2} y={2} width={W - 4} height={H - 4} rx={3} ry={3} fill="#e9fff1" stroke="#bde7c8" />
-        {/* центральная линия */}
-        <line x1={2} y1={H / 2} x2={W - 2} y2={H / 2} stroke="#cfe8d5" strokeWidth={0.6} />
-        {/* центральный круг */}
-        <circle cx={W / 2} cy={H / 2} r={12} fill="none" stroke="#cfe8d5" strokeWidth={0.8} />
+    <div
+      className={clsx("relative rounded-xl border bg-zinc-50", className)}
+      style={{ width, height }}
+    >
+      {/* Поле — простое SVG, чтобы красиво и масштабируемо */}
+      <svg width={width} height={height} viewBox="0 0 100 150" className="absolute inset-0">
+        {/* фон */}
+        <rect x="0" y="0" width="100" height="150" rx="3" fill="#E9FFF2" stroke="#C7EED6" />
+        {/* центральная линия и круг */}
+        <line x1="0" y1="75" x2="100" y2="75" stroke="#C7EED6" strokeWidth="0.6" />
+        <circle cx="50" cy="75" r="9" fill="none" stroke="#C7EED6" strokeWidth="0.6" />
 
-        {/* точки-лейблы */}
-        {points.map((p) => {
-          const r = 8 + Math.round((p.pct / 100) * 10); // 8..18
-          const fill = colorByPct(p.pct);
-          return (
-            <g key={p.key} transform={`translate(${p.x}, ${p.y})`}>
-              <rect
-                x={-16}
-                y={-6}
-                width={32}
-                height={12}
-                rx={3}
-                ry={3}
-                fill={fill}
-                stroke="rgba(0,0,0,0.35)"
-                strokeWidth={0.4}
-                filter="drop-shadow(0 0 0.3 rgba(0,0,0,0.2))"
-              />
-              <text
-                x={0}
-                y={0}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fontSize={3.2}
-                fill="#fff"
-                style={{ fontWeight: 600 }}
-              >
-                {p.label} • {p.pct}%
-              </text>
-            </g>
-          );
-        })}
+        {/* штрафные */}
+        <rect x="18" y="0.8" width="64" height="24" fill="none" stroke="#C7EED6" strokeWidth="0.6" />
+        <rect x="18" y="125.2" width="64" height="24" fill="none" stroke="#C7EED6" strokeWidth="0.6" />
       </svg>
 
-      {unknown.length > 0 && (
-        <div className="mt-2 text-sm text-gray-600">
-          <div className="font-medium">Вне схемы:</div>
-          <ul className="list-disc pl-5">
-            {unknown.map((u, i) => (
-              <li key={`${u.role}-${i}`}>
-                {u.role}: {u.pct}%
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* бейджи ролей */}
+      {summed.map(({ role, pct }) => {
+        const { x, y, label } = POS[role];
+        // размер бейджа делаем адаптивным к ширине
+        const badgeW = Math.max(80, Math.min(140, Math.round(width * 0.38)));
+        const badgeH = Math.max(28, Math.min(40, Math.round(width * 0.11)));
+        // перевод процентов координат в пиксели
+        const left = Math.round((x / 100) * width - badgeW / 2);
+        const top = Math.round((y / 100) * height - badgeH / 2);
+
+        return (
+          <div
+            key={role}
+            className="absolute flex items-center justify-center rounded-xl shadow-sm border"
+            style={{
+              left,
+              top,
+              width: badgeW,
+              height: badgeH,
+              background: "linear-gradient(0deg, rgba(16,185,129,0.92), rgba(16,185,129,0.92))",
+              color: "white",
+              borderColor: "rgba(0,0,0,0.12)",
+              fontSize: Math.max(12, Math.min(16, Math.round(width * 0.038))),
+              lineHeight: 1,
+              padding: "0 10px",
+              whiteSpace: "nowrap",
+            }}
+            title={role}
+          >
+            {(label ?? role) + " • " + pct + "%"}
+          </div>
+        );
+      })}
     </div>
   );
 }
