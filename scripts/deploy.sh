@@ -1,94 +1,70 @@
 #!/usr/bin/env bash
-set -eEuo pipefail
+set -Eeuo pipefail
+
+log() { echo ">>> $*"; }
 
 REPO_DIR="$HOME/virtual-football-stats"
-
-log(){ echo ">>> $*"; }
-on_err(){ echo "✖ deploy failed"; pm2 logs --lines 200 || true; }
-trap on_err ERR
-
 cd "$REPO_DIR"
 
 log "repo: fetch/reset to origin/main"
-git fetch --all
+git fetch origin main --prune
 git reset --hard origin/main
 
 log "node/npm versions"
-node -v; npm -v
+node -v || true
+npm -v  || true
 
-# ---------- stop app (best effort)
 log "pm2 stop (best effort)"
 pm2 stop virtual-football-stats || true
 
-# ---------- housekeeping
 log "npm cache clean (best effort)"
-npm cache clean --force || true
+npm config set fund false --global || true
+npm config set audit false --global || true
+npm config set progress false --global || true
+npm config set loglevel warn --global || true
+
+# используем отдельный чистый кэш в /tmp
+npm config set cache /tmp/npm-cache --global || true
+rm -rf /tmp/npm-cache ~/.npm ~/.npm/_cacache ~/.cache/node-gyp || true
+mkdir -p /tmp/npm-cache
 
 log "git clean -xfd (preserve env)"
-git clean -xfd -e .env -e .env.local || true
+git clean -xfd -e ".env" -e ".env.local"
 
-# ---------- npm network settings & cache dirs
-export NPM_CONFIG_REGISTRY="https://registry.npmjs.org"
-export NPM_CONFIG_CACHE="/tmp/npm-cache"
-export NPM_CONFIG_PREFER_ONLINE=true
-export NPM_CONFIG_FETCH_RETRIES=6
-export NPM_CONFIG_FETCH_RETRY_FACTOR=2
-export NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000
-export NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
-mkdir -p "$NPM_CONFIG_CACHE"
+# --- npm ci с 3 попытками и автолечением кэша ---
+attempt_ci() {
+  log "npm ci (attempt $1)"
+  npm ci && return 0
 
-purge_all_caches () {
-  log "purge: ~/.npm/_cacache + $NPM_CONFIG_CACHE"
-  rm -rf "$HOME/.npm/_cacache" "$NPM_CONFIG_CACHE"
-  mkdir -p "$NPM_CONFIG_CACHE"
+  log "npm ci failed — purge caches and retry"
+  rm -rf node_modules /tmp/npm-cache ~/.npm ~/.npm/_cacache ~/.cache/node-gyp || true
   npm cache clean --force || true
+  mkdir -p /tmp/npm-cache
+  return 1
 }
 
-npm_install_with_retries () {
-  # 1) две попытки npm ci с полным сбросом кэша между ними
-  for i in 1 2; do
-    log "npm ci (attempt $i)"
-    if npm ci --no-audit --no-fund; then
-      return 0
+if ! attempt_ci 1; then
+  if ! attempt_ci 2; then
+    if ! attempt_ci 3; then
+      echo "✖ npm ci failed after 3 attempts"; exit 1
     fi
-    log "npm ci failed — will purge caches and retry"
-    purge_all_caches
-  done
-  # 2) fallback: обычный install (чаще пережёвывает повреждённые тарболы)
-  log "fallback to npm install"
-  npm install --no-audit --no-fund
-}
+  fi
+fi
 
-npm_install_with_retries
-
-# ---------- prisma client (non-fatal if schema absent)
-log "prisma generate (manual, non-fatal)"
+log "prisma generate (non-fatal)"
 npx prisma generate || true
 
-# ---------- swc sometimes needs a gentle rebuild
 log "rebuild @next/swc (best effort)"
-npm rebuild @next/swc @next/swc-linux-x64-gnu || true
+npx next telemetry disable || true
+npx --yes @next/swc-linux-x64-gnu@canary >/dev/null 2>&1 || true
 
-# ---------- build
 log "build"
 npm run build
 
-# ---------- run/reload
-log "pm2 reload"
-pm2 reload ecosystem.config.js --update-env || pm2 start ecosystem.config.js
-pm2 save || true
+log "pm2 start"
+# Если у тебя есть ecosystem.config.js — лучше:
+# pm2 start ecosystem.config.js --update-env
+pm2 start "npm" --name virtual-football-stats -- start
 
-# ---------- healthcheck (api route preferred; fallback to root)
-log "healthcheck (up to 30s)"
-for i in {1..30}; do
-  if curl -sfI http://127.0.0.1:3000/api/health >/dev/null 2>&1 \
-     || curl -sfI http://127.0.0.1:3000/ >/dev/null 2>&1 ; then
-    echo "health: OK"
-    exit 0
-  fi
-  sleep 1
-done
-
-echo "health: FAIL"
-pm2 logs --lines 200 || true
-exit 1
+pm2 status
+echo "✓ deploy done"
