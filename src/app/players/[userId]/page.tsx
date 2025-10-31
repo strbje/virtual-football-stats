@@ -1,6 +1,7 @@
 // src/app/players/[userId]/page.tsx
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
+import PositionPitchHeatmap from "@/components/PositionPitchHeatmap";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ function getVal(d: SearchParamsDict, k: string): string {
 
 function parseRange(range?: string): { from?: string; to?: string } {
   if (!range) return {};
-  const [start, end] = range.split(":").map(s => s?.trim()).filter(Boolean);
+  const [start, end] = range.split(":").map((s) => s?.trim()).filter(Boolean);
   return {
     from: start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : undefined,
     to: end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : undefined,
@@ -27,6 +28,7 @@ export default async function PlayerPage({
   params: Promise<{ userId: string }>;
   searchParams: Promise<SearchParamsDict>;
 }) {
+  // --- параметры и период ---
   const { userId } = await params;
   const userIdNum = Number(userId);
 
@@ -45,10 +47,12 @@ export default async function PlayerPage({
   const range = getVal(raw, "range");
   const { from, to } = parseRange(range);
   const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
-  const toTs   = to   ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000;
+  const toTs = to ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000;
 
-  // базовая инфа
-  const user = await prisma.$queryRawUnsafe<{ id: number; gamertag: string | null; username: string | null }[]>(
+  // --- базовая инфа по игроку ---
+  const user = await prisma.$queryRawUnsafe<
+    { id: number; gamertag: string | null; username: string | null }[]
+  >(
     `
       SELECT u.id, u.gamertag, u.username
       FROM tbl_users u
@@ -57,6 +61,7 @@ export default async function PlayerPage({
     `,
     userIdNum
   );
+
   if (!user.length) {
     return (
       <div className="p-6">
@@ -65,14 +70,16 @@ export default async function PlayerPage({
     );
   }
 
-  // агрегаты + последнее амплуа/команда
-  const agg = await prisma.$queryRawUnsafe<{
-    matches: number;
-    goals: number | null;
-    assists: number | null;
-    last_role: string | null;
-    last_team: string | null;
-  }[]>(
+  // --- агрегаты + последнее амплуа/команда ---
+  const agg = await prisma.$queryRawUnsafe<
+    {
+      matches: number;
+      goals: number | null;
+      assists: number | null;
+      last_role: string | null;
+      last_team: string | null;
+    }[]
+  >(
     `
       SELECT
         COUNT(*)                         AS matches,
@@ -103,9 +110,9 @@ export default async function PlayerPage({
       WHERE ums.user_id = ?
         AND tm.timestamp BETWEEN ? AND ?
     `,
-    userIdNum, fromTs, toTs,   // подзапрос 1
-    userIdNum, fromTs, toTs,   // подзапрос 2
-    userIdNum, fromTs, toTs    // основной
+    userIdNum, fromTs, toTs, // подзапрос 1
+    userIdNum, fromTs, toTs, // подзапрос 2
+    userIdNum, fromTs, toTs  // основной
   );
 
   const a = {
@@ -116,7 +123,7 @@ export default async function PlayerPage({
     last_team: agg?.[0]?.last_team ?? null,
   };
 
-  // распределение по амплуа
+  // --- распределение по амплуа ---
   const rolesRows = await prisma.$queryRawUnsafe<{ role: string; cnt: number }[]>(
     `
       SELECT sp.short_name AS role, COUNT(*) AS cnt
@@ -128,15 +135,25 @@ export default async function PlayerPage({
       GROUP BY sp.short_name
       ORDER BY cnt DESC
     `,
-    userIdNum, fromTs, toTs
+    userIdNum,
+    fromTs,
+    toTs
   );
 
   const totalCnt = rolesRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
-  const rolePct = rolesRows.map(r => ({
+
+  const rolePct = rolesRows.map((r) => ({
     role: r.role,
     pct: Math.round((Number(r.cnt) * 100) / totalCnt),
   }));
 
+  // данные для тепловой карты (нужны "сырые" счётчики)
+  const heatmapData = rolesRows.map((r) => ({
+    role: r.role,
+    count: Number(r.cnt),
+  }));
+
+  // --- рендер ---
   return (
     <div className="p-6 space-y-6">
       <header className="flex items-center justify-between">
@@ -149,6 +166,9 @@ export default async function PlayerPage({
             {a.last_role ?? "—"}
           </p>
         </div>
+        <Link href="/players" className="text-blue-600 hover:underline">
+          ← Ко всем игрокам
+        </Link>
       </header>
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -170,15 +190,22 @@ export default async function PlayerPage({
         </div>
       </section>
 
-      <div className="mt-4">
+      <section className="mt-4">
         <h2 className="font-semibold mb-2">Распределение амплуа, % матчей</h2>
         <ul className="list-disc pl-6">
-          {rolePct.map(r => (
-            <li key={r.role}>{r.role}: {r.pct}%</li>
+          {rolePct.map((r) => (
+            <li key={r.role}>
+              {r.role}: {r.pct}%
+            </li>
           ))}
           {rolePct.length === 0 && <li>Данных за выбранный период нет</li>}
         </ul>
-      </div>
+      </section>
+
+      <section className="mt-6">
+        <h2 className="font-semibold mb-2">Тепловая карта амплуа</h2>
+        <PositionPitchHeatmap data={heatmapData} className="max-w-[720px]" />
+      </section>
     </div>
   );
 }
