@@ -147,7 +147,7 @@ export default async function PlayerPage({
     pct: Math.round((Number(r.cnt) * 100) / totalCnt),
   }));
 
-  // данные для тепловой карты (нужны "сырые" счётчики)
+  // данные для тепловой карты
   const heatmapData = rolesRows.map((r) => ({
     role: r.role,
     count: Number(r.cnt),
@@ -204,7 +204,7 @@ export default async function PlayerPage({
 
       <section className="mt-6">
         <h2 className="font-semibold mb-2">Тепловая карта амплуа</h2>
-        <PositionPitchHeatmap data={heatmapData} className="max-w-[720px]" />
+        <PositionPitchHeatmap data={heatmapData} />
       </section>
     </div>
   );
