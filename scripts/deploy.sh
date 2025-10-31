@@ -2,69 +2,37 @@
 set -euo pipefail
 
 APP_DIR="$HOME/virtual-football-stats"
-export NPM_CONFIG_CACHE="/tmp/npm-cache"
-mkdir -p "$NPM_CONFIG_CACHE"
 
 echo ">>> repo: fetch/reset to origin/main"
 cd "$APP_DIR"
-
-# Сброс возможных зависших git-локов
-rm -f .git/index.lock .git/refs/remotes/origin/main.lock || true
-git gc --prune=now || true
-git remote prune origin || true
 git fetch --prune origin
 git reset --hard origin/main
+rm -f .git/index.lock .git/refs/remotes/origin/main.lock || true
 
 echo ">>> node/npm versions"
-node -v
-npm -v
+node -v || true
+npm -v  || true
 
 echo ">>> pm2 stop (best effort)"
-pm2 stop "virtual-football-stats" || true
+pm2 stop virtual-football-stats || true
 
 echo ">>> purge build artifacts"
-rm -rf .next package-lock.json node_modules || true
+rm -rf .next node_modules
 
-echo ">>> purge npm caches (user & /tmp)"
-rm -rf "$NPM_CONFIG_CACHE" ~/.npm/_cacache || true
-mkdir -p "$NPM_CONFIG_CACHE"
+echo ">>> purge user npm cache (safe)"
+rm -rf "$HOME/.npm/_cacache" || true
+rm -rf /tmp/* || true
 
-echo ">>> npm tune retries"
-npm config set fetch-retries 5
-npm config set fetch-retry-factor 2
-npm config set fetch-retry-maxtimeout 120000
-npm config set fetch-retry-mintimeout 2000
-
-# Гарантируем наличие проблемных пакетов до ci
-echo ">>> ensure critical deps"
-# styled-jsx — прод-зависимость у Next 15
-npm i -S styled-jsx@^5.1.1
-# tailwind/postcss — дев-зависимости; КЛАССИЧЕСКАЯ схема
-npm i -D tailwindcss postcss autoprefixer
-
-echo ">>> install deps (attempt 1)"
-if ! npm ci --no-audit --prefer-offline=false; then
-  echo "npm ci failed — will purge caches and retry"
-  rm -rf "$NPM_CONFIG_CACHE" ~/.npm/_cacache || true
-  mkdir -p "$NPM_CONFIG_CACHE"
-  npm ci --no-audit --prefer-offline=false
-fi
+echo ">>> install deps"
+npm ci
 
 echo ">>> prisma generate (non-fatal)"
 npx prisma generate || true
 
-echo ">>> rebuild @next/swc (best effort)"
-npx next telemetry disable || true
-
 echo ">>> build"
 npm run build
 
-echo ">>> pm2 start/reload"
-if pm2 describe "virtual-football-stats" >/dev/null 2>&1; then
-  pm2 reload "virtual-football-stats" --update-env
-else
-  pm2 start ecosystem.config.js
-fi
-
+echo ">>> start via PM2"
+pm2 start "$APP_DIR/ecosystem.config.js" --update-env
 pm2 save
-echo "✓ deploy done"
+pm2 status
