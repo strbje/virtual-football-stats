@@ -2,50 +2,52 @@
 set -euo pipefail
 
 APP_DIR="$HOME/virtual-football-stats"
-APP_NAME="virtual-football-stats"
-BRANCH="main"
+export NPM_CONFIG_CACHE="/tmp/npm-cache"
+mkdir -p "$NPM_CONFIG_CACHE"
 
+echo ">>> repo: fetch/reset to origin/main"
 cd "$APP_DIR"
 
-echo ">>> repo: fetch/reset to origin/$BRANCH"
-git fetch origin "$BRANCH" --prune
-git reset --hard "origin/$BRANCH"
+# Сброс возможных зависших git-локов
+rm -f .git/index.lock .git/refs/remotes/origin/main.lock || true
+git gc --prune=now || true
+git remote prune origin || true
+git fetch --prune origin
+git reset --hard origin/main
 
 echo ">>> node/npm versions"
-node -v || true
-npm -v || true
+node -v
+npm -v
 
 echo ">>> pm2 stop (best effort)"
-pm2 stop "$APP_NAME" || true
+pm2 stop "virtual-football-stats" || true
 
-# ---------- npm безопасные настройки ----------
-# не трогаем /etc/npmrc, используем только user config
-export NPM_CONFIG_GLOBALCONFIG=/dev/null
-export NPM_CONFIG_USERCONFIG="$HOME/.npmrc"
-export npm_config_cache="$HOME/.npm/_cacache"
-export npm_config_fetch_retries=5
-export npm_config_fetch_retry_maxtimeout=600000
-export npm_config_fetch_retry_mintimeout=20000
-export npm_config_loglevel=warn
-export npm_config_audit=false
-export npm_config_fund=false
-
-# ---------- очистка артефактов ----------
 echo ">>> purge build artifacts"
-rm -rf .next
+rm -rf .next package-lock.json node_modules || true
 
 echo ">>> purge npm caches (user & /tmp)"
-rm -rf "$HOME/.npm/_cacache" /tmp/npm-cache 2>/dev/null || true
-mkdir -p /tmp/npm-cache
+rm -rf "$NPM_CONFIG_CACHE" ~/.npm/_cacache || true
+mkdir -p "$NPM_CONFIG_CACHE"
+
+echo ">>> npm tune retries"
+npm config set fetch-retries 5
+npm config set fetch-retry-factor 2
+npm config set fetch-retry-maxtimeout 120000
+npm config set fetch-retry-mintimeout 2000
+
+# Гарантируем наличие проблемных пакетов до ci
+echo ">>> ensure critical deps"
+# styled-jsx — прод-зависимость у Next 15
+npm i -S styled-jsx@^5.1.1
+# tailwind/postcss — дев-зависимости; КЛАССИЧЕСКАЯ схема
+npm i -D tailwindcss postcss autoprefixer
 
 echo ">>> install deps (attempt 1)"
-rm -rf node_modules
-# npm ci использует lockfile, никакой реконструкции зависимостей
-if ! npm ci --cache /tmp/npm-cache --prefer-offline=false; then
-  echo ">>> npm ci failed — deep purge & retry"
-  rm -rf node_modules "$HOME/.npm/_cacache" /tmp/npm-cache
-  mkdir -p /tmp/npm-cache
-  npm ci --cache /tmp/npm-cache --prefer-offline=false
+if ! npm ci --no-audit --prefer-offline=false; then
+  echo "npm ci failed — will purge caches and retry"
+  rm -rf "$NPM_CONFIG_CACHE" ~/.npm/_cacache || true
+  mkdir -p "$NPM_CONFIG_CACHE"
+  npm ci --no-audit --prefer-offline=false
 fi
 
 echo ">>> prisma generate (non-fatal)"
@@ -53,18 +55,16 @@ npx prisma generate || true
 
 echo ">>> rebuild @next/swc (best effort)"
 npx next telemetry disable || true
-# В новых версиях SWC собирается при build, но пусть будет:
-# (если не нужен — можно удалить следующую строку)
-true
 
 echo ">>> build"
 npm run build
 
-echo ">>> pm2 start/restart"
-# убедимся, что актуален ecosystem.config.js
-pm2 startOrRestart ecosystem.config.js --only "$APP_NAME"
+echo ">>> pm2 start/reload"
+if pm2 describe "virtual-football-stats" >/dev/null 2>&1; then
+  pm2 reload "virtual-football-stats" --update-env
+else
+  pm2 start ecosystem.config.js
+fi
 
-echo ">>> save pm2"
 pm2 save
-
 echo "✓ deploy done"
