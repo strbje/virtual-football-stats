@@ -21,14 +21,15 @@ function parseRange(range?: string): { from?: string; to?: string } {
   };
 }
 
-export default async function PlayerPage({
-  params,
-  searchParams,
-}: {
-  params: { userId: string };
-  searchParams: SearchParamsDict;
-}) {
-  const userIdNum = Number(params.userId);
+// ВАЖНО: не типизируем аргументы как PageProps из Next 15 — там другая форма.
+// Берём any и дальше приводим params вручную.
+export default async function PlayerPage(props: any) {
+  const params = (props?.params ?? {}) as { userId?: string };
+  const searchParams = (props?.searchParams ?? {}) as SearchParamsDict;
+
+  const userIdStr = params.userId ?? "";
+  const userIdNum = Number(userIdStr);
+
   if (!Number.isFinite(userIdNum)) {
     return (
       <div className="p-6">
@@ -41,8 +42,7 @@ export default async function PlayerPage({
   }
 
   // --- диапазон дат из ?range=YYYY-MM-DD:YYYY-MM-DD (необязателен) ---
-  const raw = searchParams ?? {};
-  const range = getVal(raw, "range");
+  const range = getVal(searchParams, "range");
   const { from, to } = parseRange(range);
   const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
   const toTs =
@@ -60,6 +60,7 @@ export default async function PlayerPage({
     `,
     userIdNum
   );
+
   if (!user.length) {
     return (
       <div className="p-6">
@@ -128,7 +129,7 @@ export default async function PlayerPage({
     last_team: agg?.[0]?.last_team ?? null,
   };
 
-  // --- распределение по амплуа (ВАЖНО: берём fp.code, фоллбек sp.short_name) ---
+  // --- распределение по амплуа (fp.code приоритетно, иначе sp.short_name) ---
   const rolesRows = await prisma.$queryRawUnsafe<{ role: string; cnt: number }[]>(
     `
       SELECT COALESCE(fp.code, sp.short_name) AS role, COUNT(*) AS cnt
@@ -211,7 +212,6 @@ export default async function PlayerPage({
       {/* тепловая карта позиций */}
       <section className="mt-4">
         <h2 className="font-semibold mb-2">Тепловая карта амплуа</h2>
-        {/* ширина/высота управляются внутри компонента — карта компактная */}
         <PositionPitchHeatmap data={heatmapData} />
       </section>
     </div>
