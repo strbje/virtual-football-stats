@@ -1,7 +1,7 @@
 // src/app/players/[userId]/PeriodPickerClient.tsx
 "use client";
 import Flatpickr from "flatpickr";
-import "flatpickr/dist/flatpickr.css";
+import "flatpickr/dist/flatpickr.min.css";
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
