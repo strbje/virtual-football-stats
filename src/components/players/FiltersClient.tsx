@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Flatpickr from "flatpickr";
-import "flatpickr/dist/flatpickr.css";
+import "flatpickr/dist/flatpickr.min.css";
 
 type Initial = {
   q: string;
