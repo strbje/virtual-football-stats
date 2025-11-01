@@ -1,9 +1,8 @@
 // src/app/players/[userId]/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import PositionPitchHeatmap from "@/components/PositionPitchHeatmap";
-import RoleHeatmap from '@/components/players/RoleHeatmap';
-import RoleDistributionSection from '@/components/players/RoleDistributionSection';
+import RoleHeatmap from "@/components/players/RoleHeatmap";
+import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 
 export const dynamic = "force-dynamic";
 
@@ -23,16 +22,10 @@ function parseRange(range?: string): { from?: string; to?: string } {
   };
 }
 
-/** ---------------- ГРУППИРОВКА АМПЛУА (как «раньше было») ----------------
- * ЦЗ = ЛЦЗ, ПЦЗ (+ учтём «ЦЗ», если так пишется в БД)
- * ВРТ = ВРТ
- * КЗ = ЛЗ, ПЗ
- * ЦОП = ЦОП, ЛОП, ПОП
- * ЦП  = ЦП, ЛПЦ, ПЦП
- * КП  = ЛАП, ПАП, ЛП, ПП
- * ЦАП = ЦАП
- * ФРВ = ФРВ, ЦФД, ЛФД
- * Любые незнакомые коды выводим отдельными пунктами (чтобы ничего не потерять).
+/**
+ * === ГРУППИРОВКА АМПЛУА (как «раньше было») ===
+ * Если захочешь централизовать — перенеси GROUP_ORDER и GROUP_MAP в src/utils/roles.ts
+ * и импортируй отсюда.
  */
 const GROUP_ORDER = ["ЦЗ", "ВРТ", "КЗ", "ЦОП", "ЦП", "КП", "ЦАП", "ФРВ"] as const;
 
@@ -44,7 +37,8 @@ const GROUP_MAP: Record<(typeof GROUP_ORDER)[number], string[]> = {
   ЦП: ["ЦП", "ЛПЦ", "ПЦП"],
   КП: ["ЛАП", "ПАП", "ЛП", "ПП"],
   ЦАП: ["ЦАП"],
-  ФРВ: ["ФРВ", "ЦФД", "ЛФД"],
+  // ФРВ-группа: центр и фланговые форварды
+  ФРВ: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"], // <- добавил ПФД/ЛФА/ПФА
 };
 
 function groupRoles(
@@ -52,12 +46,12 @@ function groupRoles(
   totalCnt: number
 ): { group: string; pct: number }[] {
   const byRole = new Map<string, number>();
-  rows.forEach((r) => byRole.set(r.role, (byRole.get(r.role) ?? 0) + Number(r.cnt)));
+  for (const r of rows) byRole.set(r.role, (byRole.get(r.role) ?? 0) + Number(r.cnt));
 
   const used = new Set<string>();
-  const grouped: { group: string; pct: number }[] = [];
+  const out: { group: string; pct: number }[] = [];
 
-  // фиксированные группы в заданном порядке
+  // фиксированные группы по порядку
   for (const g of GROUP_ORDER) {
     const members = GROUP_MAP[g];
     const sum = members.reduce((s, m) => {
@@ -65,29 +59,26 @@ function groupRoles(
       if (v) used.add(m);
       return s + (v ?? 0);
     }, 0);
-    if (sum > 0) {
-      grouped.push({ group: g, pct: Math.round((sum * 100) / Math.max(totalCnt, 1)) });
-    }
+    if (sum > 0) out.push({ group: g, pct: Math.round((sum * 100) / Math.max(totalCnt, 1)) });
   }
 
-  // все, кто не попал в маппинг — отдельными строками
+  // «прочие» роли, не вошедшие в карту
   for (const [role, cnt] of byRole.entries()) {
     if (used.has(role)) continue;
-    grouped.push({ group: role, pct: Math.round((cnt * 100) / Math.max(totalCnt, 1)) });
+    out.push({ group: role, pct: Math.round((cnt * 100) / Math.max(totalCnt, 1)) });
   }
 
-  // сортировка: по порядку групп, затем по % у «прочих»
+  // сортировка: сперва фикс-группы по порядку, затем «прочие» по убыванию %
   const orderIndex = new Map<string, number>();
   GROUP_ORDER.forEach((g, i) => orderIndex.set(g, i));
-  grouped.sort((a, b) => {
+  out.sort((a, b) => {
     const ia = orderIndex.has(a.group) ? orderIndex.get(a.group)! : 999;
     const ib = orderIndex.has(b.group) ? orderIndex.get(b.group)! : 999;
     return ia === ib ? b.pct - a.pct : ia - ib;
   });
 
-  return grouped;
+  return out;
 }
-/** ---------------------------------------------------------------------- */
 
 export default async function PlayerPage(props: any) {
   const params = (props?.params ?? {}) as { userId?: string };
@@ -95,7 +86,6 @@ export default async function PlayerPage(props: any) {
 
   const userIdStr = params.userId ?? "";
   const userIdNum = Number(userIdStr);
-
   if (!Number.isFinite(userIdNum)) {
     return (
       <div className="p-6">
@@ -105,15 +95,15 @@ export default async function PlayerPage(props: any) {
         </Link>
       </div>
     );
-    }
+  }
 
-  // диапазон дат из ?range=YYYY-MM-DD:YYYY-MM-DD (необязателен)
+  // диапазон дат ?range=YYYY-MM-DD:YYYY-MM-DD
   const range = getVal(searchParams, "range");
   const { from, to } = parseRange(range);
   const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
   const toTs = to ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000; // ~3000 год
 
-  // базовая инфа по игроку
+  // базовая инфа
   const user = await prisma.$queryRawUnsafe<
     { id: number; gamertag: string | null; username: string | null }[]
   >(
@@ -125,7 +115,6 @@ export default async function PlayerPage(props: any) {
     `,
     userIdNum
   );
-
   if (!user.length) {
     return (
       <div className="p-6">
@@ -137,7 +126,7 @@ export default async function PlayerPage(props: any) {
     );
   }
 
-  // агрегаты + последнее амплуа/команда
+  // агрегаты + последняя команда/амплуа
   const agg = await prisma.$queryRawUnsafe<
     {
       matches: number;
@@ -191,7 +180,7 @@ export default async function PlayerPage(props: any) {
     last_team: agg?.[0]?.last_team ?? null,
   };
 
-  // распределение по амплуа (fp.code приоритетно, иначе sp.short_name)
+  // распределение по амплуа (берём fp.code, иначе sp.short_name)
   const rolesRows = await prisma.$queryRawUnsafe<{ role: string; cnt: number }[]>(
     `
       SELECT COALESCE(fp.code, sp.short_name) AS role, COUNT(*) AS cnt
@@ -211,14 +200,17 @@ export default async function PlayerPage(props: any) {
 
   const totalCnt = rolesRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
 
-  // верхний список — СГРУППИРОВАННЫЙ
-  const grouped = groupRoles(rolesRows, totalCnt);
+  // 1) Данные для СЕКЦИИ распределения (сгруппированные)
+  const groupedPercents = groupRoles(rolesRows, totalCnt);
 
-  // данные для теплокарты (ожидает role/count) — БЕЗ группировки
-  const heatmapData = rolesRows.map((r) => ({
-    role: r.role,
-    count: Number(r.cnt),
-  }));
+  // 2) Данные для ТЕПЛОКАРТЫ (по всем амплуа, без группировки, 0% скрываем)
+  const heatmapPercents = rolesRows
+    .map((r) => ({
+      role: r.role,
+      count: Number(r.cnt),
+      pct: Math.round((Number(r.cnt) * 100) / totalCnt),
+    }))
+    .filter((x) => x.pct > 0);
 
   return (
     <div className="p-6 space-y-6">
@@ -257,20 +249,16 @@ export default async function PlayerPage(props: any) {
         </div>
       </section>
 
-      {/* СГРУППИРОВАННОЕ распределение (как просил) */}
-      <section className="space-y-6">
-  <RoleDistributionSection data={rolePercents} />
-  <div>
-    <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
-    <RoleHeatmap data={rolePercents} />
-  </div>
-</section>
+      {/* 1) СГРУППИРОВАННОЕ РАСПРЕДЕЛЕНИЕ */}
+      <section>
+        <RoleDistributionSection data={groupedPercents} />
+      </section>
 
-      {/* Тепловая карта по ВСЕМ амплуа (без группировки) */}
-     <section>
-      <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
-      <RoleHeatmap data={rolePercents} />
-    </section>
+      {/* 2) ТЕПЛОВАЯ КАРТА ПО ВСЕМ АМПЛУА */}
+      <section>
+        <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
+        <RoleHeatmap data={heatmapPercents} />
+      </section>
     </div>
   );
 }
