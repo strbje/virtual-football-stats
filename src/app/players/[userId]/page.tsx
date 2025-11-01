@@ -26,22 +26,13 @@ function parseRange(range?: string): { from?: string; to?: string } {
  * ВРТ = ВРТ
  * КЗ = ЛЗ, ПЗ
  * ЦОП = ЦОП, ЛОП, ПОП
- * ЦП = ЦП, ЛПЦ, ПЦП
- * КП = ЛАП, ПАП, ЛП, ПП
+ * ЦП  = ЦП, ЛПЦ, ПЦП
+ * КП  = ЛАП, ПАП, ЛП, ПП
  * ЦАП = ЦАП
  * ФРВ = ФРВ, ЦФД, ЛФД
- * Любые незнакомые коды покажем отдельными пунктами (чтобы ничего не терять).
+ * Любые незнакомые коды выводим отдельными пунктами (чтобы ничего не потерять).
  */
-const GROUP_ORDER = [
-  "ЦЗ",
-  "ВРТ",
-  "КЗ",
-  "ЦОП",
-  "ЦП",
-  "КП",
-  "ЦАП",
-  "ФРВ",
-] as const;
+const GROUP_ORDER = ["ЦЗ", "ВРТ", "КЗ", "ЦОП", "ЦП", "КП", "ЦАП", "ФРВ"] as const;
 
 const GROUP_MAP: Record<(typeof GROUP_ORDER)[number], string[]> = {
   ЦЗ: ["ЛЦЗ", "ПЦЗ", "ЦЗ"],
@@ -94,7 +85,6 @@ function groupRoles(
 
   return grouped;
 }
-
 /** ---------------------------------------------------------------------- */
 
 export default async function PlayerPage(props: any) {
@@ -113,14 +103,13 @@ export default async function PlayerPage(props: any) {
         </Link>
       </div>
     );
-  }
+    }
 
   // диапазон дат из ?range=YYYY-MM-DD:YYYY-MM-DD (необязателен)
   const range = getVal(searchParams, "range");
   const { from, to } = parseRange(range);
   const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
-  const toTs =
-    to ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000; // ~ year 3000
+  const toTs = to ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000; // ~3000 год
 
   // базовая инфа по игроку
   const user = await prisma.$queryRawUnsafe<
