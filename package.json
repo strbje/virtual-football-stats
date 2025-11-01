@@ -1,13 +1,11 @@
 {
-  "name": "virtual-football-stats",
-  "version": "0.1.0",
-  "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "postinstall": "npx prisma generate || true"
+    "postinstall": "node -e \"process.exit(0)\"",
+    "prisma:generate": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "6.18.0",
