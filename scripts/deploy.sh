@@ -17,17 +17,21 @@ echo ">>> pm2 stop (best effort)"
 pm2 stop virtual-football-stats || true
 
 echo ">>> purge build artifacts"
-rm -rf .next node_modules
+# node_modules выпиливаем, а .next не трогаем здесь
+rm -rf node_modules
 
 echo ">>> purge user npm cache (safe)"
 rm -rf "$HOME/.npm/_cacache" || true
-rm -rf /tmp/* || true
+# rm -rf /tmp/*  # УДАЛЕНО: может ломать промежуточные файлы сборки
 
 echo ">>> install deps"
 npm ci
 
 echo ">>> prisma generate (non-fatal)"
 npx prisma generate || true
+
+echo ">>> prebuild"
+npm run prebuild
 
 echo ">>> build"
 npm run build
