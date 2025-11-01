@@ -1,67 +1,83 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
-
-# Печать строки и команды при сбое — удобнее дебажить
-trap 'echo "❌ Error on line $LINENO: $BASH_COMMAND" >&2' ERR
+set -euo pipefail
 
 APP_DIR="$HOME/virtual-football-stats"
 
-echo ">>> repo: fetch/reset to origin/main"
+log() { echo ">>> $*"; }
+
+safe_rm_dir() {
+  # безопасное и идемпотентное удаление каталога с ретраями
+  local target="$1"
+  if [ -d "$target" ]; then
+    chmod -R u+rwX "$target" || true
+    rm -rf "$target" 2>/dev/null || true
+    # если что-то удерживает файлы — подождём и повторим
+    for i in 1 2 3; do
+      [ -d "$target" ] || break
+      sleep 1
+      chmod -R u+rwX "$target" || true
+      rm -rf "$target" 2>/dev/null || true
+    done
+    # финальный хард-клин: удаляем содержимое поэлементно
+    if [ -d "$target" ]; then
+      find "$target" -mindepth 1 -exec rm -rf {} + 2>/dev/null || true
+      rmdir "$target" 2>/dev/null || true
+    fi
+  fi
+}
+
+export NODE_ENV=production
+export NEXT_TELEMETRY_DISABLED=1
 cd "$APP_DIR"
+
+log "repo: fetch/reset to origin/main"
 git fetch --prune origin
 git reset --hard origin/main
-# на всякий — убираем возможные git-локи
 rm -f .git/index.lock .git/refs/remotes/origin/main.lock || true
 
-echo ">>> node/npm versions"
+log "node/npm versions"
 node -v || true
 npm -v  || true
 
-echo ">>> pm2 stop (best effort)"
+log "pm2 stop (best effort)"
 pm2 stop virtual-football-stats || true
+pm2 stop 1 || true
+pm2 stop 2 || true
 
-echo ">>> purge build artifacts"
-# .next — всегда заново
-rm -rf .next || true
-mkdir -p .next || true
+log "purge build artifacts"
+safe_rm_dir "node_modules"
+safe_rm_dir ".next"
 
-# Иногда Next держит мусор в node_modules/next/dist/compiled => чистим аккуратно
-if [ -d "node_modules/next/dist/compiled" ]; then
-  echo "… remove node_modules/next/dist/compiled (rimraf fallback)"
-  npx -y rimraf node_modules/next/dist/compiled 2>/dev/null || true
-  chmod -R u+w node_modules/next/dist/compiled 2>/dev/null || true
-  rm -rf node_modules/next/dist/compiled 2>/dev/null || true
-fi
-
-# Если нужен «жёсткий» режим (например, после смены lockfile),
-# можно запустить с FULL_CLEAN=1 — тогда выпилим весь node_modules.
-if [ "${FULL_CLEAN:-0}" = "1" ]; then
-  echo "… FULL_CLEAN: remove node_modules"
-  # иногда ENOTEMPTY: лечим rimraf+chmod, затем rm -rf
-  npx -y rimraf node_modules 2>/dev/null || true
-  chmod -R u+w node_modules 2>/dev/null || true
-  rm -rf node_modules 2>/dev/null || true
-fi
-
-echo ">>> purge user npm cache (safe)"
+log "purge npm cache"
+# чистим ТОЛЬКО кэш npm, не трогаем /tmp целиком
+npm cache clean --force || true
 rm -rf "$HOME/.npm/_cacache" || true
 
-echo ">>> install deps (npm ci)"
-# --no-audit/--no-fund, чтобы не шуметь в логах; если node_modules удалён — ci с нуля
-npm ci --no-audit --no-fund
+log "install deps (npm ci)"
+# без optional, без audit/fund — стабильнее и быстрее
+npm ci --omit=optional --no-audit --no-fund
 
-echo ">>> prisma generate (non-fatal)"
+# sanity-check критичных модулей, которые раньше сыпались
+if [ ! -f node_modules/styled-jsx/package.json ]; then
+  log "styled-jsx missing, installing explicitly"
+  npm i styled-jsx@5.1.6 --no-audit --no-fund
+fi
+if [ ! -d node_modules/next/dist/compiled ]; then
+  # такое бывает при кривом распаковке — добьём оператором rebuild
+  log "next compiled bundle missing, forcing npm rebuild"
+  npm rebuild --no-audit --no-fund || true
+fi
+
+log "prisma generate (non-fatal)"
 npx prisma generate || true
 
-echo ">>> prebuild"
-# у тебя есть prebuild, но сделаем безопасно
-npm run -s prebuild || true
+log "prebuild"
+mkdir -p .next
 
-echo ">>> build"
-npm run -s build
+log "build"
+npm run build
 
-echo ">>> start via PM2"
-pm2 start "$APP_DIR/ecosystem.config.js" --update-env || pm2 restart virtual-football-stats --update-env || true
-pm2 save || true
+log "start via PM2"
+pm2 start "$APP_DIR/ecosystem.config.js" --update-env
+pm2 save
 pm2 status
-echo "✅ deploy done"
