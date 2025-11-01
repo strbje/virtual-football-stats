@@ -1,6 +1,10 @@
 {
+  "name": "virtual-football-stats",
+  "version": "0.1.0",
+  "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "prebuild": "rm -rf .next && mkdir -p .next",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
