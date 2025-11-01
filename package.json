@@ -18,6 +18,7 @@
     "mysql2": "^3.14.1",
     "next": "15.3.3",
     "postcss": "8.4.31",
+    "pure-rand": "^6.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "styled-jsx": "5.1.6",
