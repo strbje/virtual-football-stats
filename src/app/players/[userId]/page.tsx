@@ -21,8 +21,82 @@ function parseRange(range?: string): { from?: string; to?: string } {
   };
 }
 
-// ВАЖНО: не типизируем аргументы как PageProps из Next 15 — там другая форма.
-// Берём any и дальше приводим params вручную.
+/** ---------------- ГРУППИРОВКА АМПЛУА (как «раньше было») ----------------
+ * ЦЗ = ЛЦЗ, ПЦЗ (+ учтём «ЦЗ», если так пишется в БД)
+ * ВРТ = ВРТ
+ * КЗ = ЛЗ, ПЗ
+ * ЦОП = ЦОП, ЛОП, ПОП
+ * ЦП = ЦП, ЛПЦ, ПЦП
+ * КП = ЛАП, ПАП, ЛП, ПП
+ * ЦАП = ЦАП
+ * ФРВ = ФРВ, ЦФД, ЛФД
+ * Любые незнакомые коды покажем отдельными пунктами (чтобы ничего не терять).
+ */
+const GROUP_ORDER = [
+  "ЦЗ",
+  "ВРТ",
+  "КЗ",
+  "ЦОП",
+  "ЦП",
+  "КП",
+  "ЦАП",
+  "ФРВ",
+] as const;
+
+const GROUP_MAP: Record<(typeof GROUP_ORDER)[number], string[]> = {
+  ЦЗ: ["ЛЦЗ", "ПЦЗ", "ЦЗ"],
+  ВРТ: ["ВРТ"],
+  КЗ: ["ЛЗ", "ПЗ"],
+  ЦОП: ["ЦОП", "ЛОП", "ПОП"],
+  ЦП: ["ЦП", "ЛПЦ", "ПЦП"],
+  КП: ["ЛАП", "ПАП", "ЛП", "ПП"],
+  ЦАП: ["ЦАП"],
+  ФРВ: ["ФРВ", "ЦФД", "ЛФД"],
+};
+
+function groupRoles(
+  rows: { role: string; cnt: number }[],
+  totalCnt: number
+): { group: string; pct: number }[] {
+  const byRole = new Map<string, number>();
+  rows.forEach((r) => byRole.set(r.role, (byRole.get(r.role) ?? 0) + Number(r.cnt)));
+
+  const used = new Set<string>();
+  const grouped: { group: string; pct: number }[] = [];
+
+  // фиксированные группы в заданном порядке
+  for (const g of GROUP_ORDER) {
+    const members = GROUP_MAP[g];
+    const sum = members.reduce((s, m) => {
+      const v = byRole.get(m);
+      if (v) used.add(m);
+      return s + (v ?? 0);
+    }, 0);
+    if (sum > 0) {
+      grouped.push({ group: g, pct: Math.round((sum * 100) / Math.max(totalCnt, 1)) });
+    }
+  }
+
+  // все, кто не попал в маппинг — отдельными строками
+  for (const [role, cnt] of byRole.entries()) {
+    if (used.has(role)) continue;
+    grouped.push({ group: role, pct: Math.round((cnt * 100) / Math.max(totalCnt, 1)) });
+  }
+
+  // сортировка: по порядку групп, затем по % у «прочих»
+  const orderIndex = new Map<string, number>();
+  GROUP_ORDER.forEach((g, i) => orderIndex.set(g, i));
+  grouped.sort((a, b) => {
+    const ia = orderIndex.has(a.group) ? orderIndex.get(a.group)! : 999;
+    const ib = orderIndex.has(b.group) ? orderIndex.get(b.group)! : 999;
+    return ia === ib ? b.pct - a.pct : ia - ib;
+  });
+
+  return grouped;
+}
+
+/** ---------------------------------------------------------------------- */
+
 export default async function PlayerPage(props: any) {
   const params = (props?.params ?? {}) as { userId?: string };
   const searchParams = (props?.searchParams ?? {}) as SearchParamsDict;
@@ -41,14 +115,14 @@ export default async function PlayerPage(props: any) {
     );
   }
 
-  // --- диапазон дат из ?range=YYYY-MM-DD:YYYY-MM-DD (необязателен) ---
+  // диапазон дат из ?range=YYYY-MM-DD:YYYY-MM-DD (необязателен)
   const range = getVal(searchParams, "range");
   const { from, to } = parseRange(range);
   const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
   const toTs =
     to ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000; // ~ year 3000
 
-  // --- базовая инфа по игроку ---
+  // базовая инфа по игроку
   const user = await prisma.$queryRawUnsafe<
     { id: number; gamertag: string | null; username: string | null }[]
   >(
@@ -72,7 +146,7 @@ export default async function PlayerPage(props: any) {
     );
   }
 
-  // --- агрегаты + последнее амплуа/команда (ВАЖНО: код амплуа из tbl_field_positions) ---
+  // агрегаты + последнее амплуа/команда
   const agg = await prisma.$queryRawUnsafe<
     {
       matches: number;
@@ -113,11 +187,8 @@ export default async function PlayerPage(props: any) {
       WHERE ums.user_id = ?
         AND tm.timestamp BETWEEN ? AND ?
     `,
-    // подзапрос last_role
     userIdNum, fromTs, toTs,
-    // подзапрос last_team
     userIdNum, fromTs, toTs,
-    // основной
     userIdNum, fromTs, toTs
   );
 
@@ -129,7 +200,7 @@ export default async function PlayerPage(props: any) {
     last_team: agg?.[0]?.last_team ?? null,
   };
 
-  // --- распределение по амплуа (fp.code приоритетно, иначе sp.short_name) ---
+  // распределение по амплуа (fp.code приоритетно, иначе sp.short_name)
   const rolesRows = await prisma.$queryRawUnsafe<{ role: string; cnt: number }[]>(
     `
       SELECT COALESCE(fp.code, sp.short_name) AS role, COUNT(*) AS cnt
@@ -148,12 +219,11 @@ export default async function PlayerPage(props: any) {
   );
 
   const totalCnt = rolesRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
-  const rolePct = rolesRows.map((r) => ({
-    role: r.role,
-    pct: Math.round((Number(r.cnt) * 100) / totalCnt),
-  }));
 
-  // данные для теплокарты (ожидает role/count)
+  // верхний список — СГРУППИРОВАННЫЙ
+  const grouped = groupRoles(rolesRows, totalCnt);
+
+  // данные для теплокарты (ожидает role/count) — БЕЗ группировки
   const heatmapData = rolesRows.map((r) => ({
     role: r.role,
     count: Number(r.cnt),
@@ -196,20 +266,20 @@ export default async function PlayerPage(props: any) {
         </div>
       </section>
 
-      {/* список распределения */}
+      {/* СГРУППИРОВАННОЕ распределение (как просил) */}
       <section>
         <h2 className="font-semibold mb-2">Распределение амплуа, % матчей</h2>
-        <ul className="list-disc pl-6">
-          {rolePct.map((r) => (
-            <li key={r.role}>
-              {r.role}: {r.pct}%
+        <ul className="list-disc pl-6 space-y-1">
+          {grouped.map((g) => (
+            <li key={g.group}>
+              {g.group}: {g.pct}%
             </li>
           ))}
-          {rolePct.length === 0 && <li>Данных за выбранный период нет</li>}
+          {grouped.length === 0 && <li>Данных за выбранный период нет</li>}
         </ul>
       </section>
 
-      {/* тепловая карта позиций */}
+      {/* Тепловая карта по ВСЕМ амплуа (без группировки) */}
       <section className="mt-4">
         <h2 className="font-semibold mb-2">Тепловая карта амплуа</h2>
         <PositionPitchHeatmap data={heatmapData} />
