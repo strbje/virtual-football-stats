@@ -18,7 +18,7 @@
     "mysql2": "^3.14.1",
     "next": "15.3.3",
     "postcss": "8.4.31",
-    "pure-rand": "^6.0.4",
+    "pure-rand": "6.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "styled-jsx": "5.1.6",
@@ -35,5 +35,8 @@
     "prisma": "6.18.0",
     "typescript": "^5"
   },
-  "overrides": {}
+  "overrides": {
+    "sucrase": "3.35.0",
+    "pure-rand": "6.1.0"
+  }
 }
