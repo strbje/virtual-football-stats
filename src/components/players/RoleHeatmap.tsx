@@ -1,102 +1,66 @@
 // src/components/players/RoleHeatmap.tsx
-'use client';
 import React from 'react';
-import clsx from 'clsx';
-import { type RolePercent, ROLE_LABELS, type RoleCode } from '@/utils/roles';
+import { ROLE_LABELS, type RolePercent, type RoleCode } from '@/utils/roles';
 
-// градиент по доле (можешь подвинуть "30")
-function colorByPercent(p: number) {
-  const t = Math.min(1, Math.max(0, p / 30));
-  const from = [209, 250, 229]; // #d1fae5
-  const to   = [  5, 150, 105]; // #059669
-  const rgb = from.map((c, i) => Math.round(c + (to[i] - c) * t));
-  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-}
+// позиции на поле остаются твоими — ключи должны совпадать с RoleCode из БД
+const SLOT_STYLE: Record<RoleCode, React.CSSProperties> = {
+  ВРТ: { position:'absolute', left:'50%', bottom: 16, transform:'translateX(-50%)' },
 
-type Props = { data: RolePercent[] };
+  ЛЗ:  { position:'absolute', left:'18%',  top:'22%' },
+  ПЗ:  { position:'absolute', right:'18%', top:'22%' },
 
-// делаем быстрый map role->percent
-function toMap(data: RolePercent[]): Map<RoleCode, number> {
-  const m = new Map<RoleCode, number>();
-  for (const r of data) m.set(r.role as RoleCode, (m.get(r.role as RoleCode) ?? 0) + r.percent);
-  return m;
-}
+  ЛОП: { position:'absolute', left:'38%', top:'35%' },
+  ЦОП: { position:'absolute', left:'50%', top:'38%', transform:'translateX(-50%)' },
+  ПОП: { position:'absolute', right:'38%', top:'35%' },
 
-export default function RoleHeatmap({ data }: Props) {
-  const map = toMap(data);
-  const get = (role: RoleCode) => map.get(role) ?? 0;
+  ЛПЦ: { position:'absolute', left:'42%', top:'48%' },
+  ЦП:  { position:'absolute', left:'50%', top:'50%', transform:'translateX(-50%)' },
+  ПЦП:{ position:'absolute', right:'42%', top:'48%' },
 
-  const Badge = ({ role }: { role: RoleCode }) => {
-    const p = get(role);
-    if (p <= 0) return null; // <<< скрываем роли с 0%
-    return (
-      <div
-        className={clsx(
-          'px-3 py-1 rounded-full text-sm font-medium shadow',
-          'border border-emerald-700/10'
-        )}
-        style={{ backgroundColor: colorByPercent(p) }}
-        title={`${ROLE_LABELS[role] ?? role} — ${p.toFixed(0)}%`}
-      >
-        {role} · {p.toFixed(0)}%
-      </div>
-    );
-  };
+  ЛАП: { position:'absolute', left:'34%', top:'60%' },
+  ЛП:  { position:'absolute', left:'28%', top:'66%' },
+  ПП:  { position:'absolute', right:'28%', top:'66%' },
+  ПАП: { position:'absolute', right:'34%', top:'60%' },
+
+  ЦАП: { position:'absolute', left:'50%', top:'56%', transform:'translateX(-50%)' },
+
+  ФРВ: { position:'absolute', left:'50%', top:'70%', transform:'translateX(-50%)' },
+  ЦФД: { position:'absolute', left:'43%', top:'70%' },
+  ЛФД: { position:'absolute', right:'43%', top:'70%' },
+
+  // если используешь ЦЗ/ЛЦЗ/ПЦЗ — расставь их здесь
+  ЛЦЗ: { position:'absolute', left:'35%', top:'28%' },
+  ПЦЗ: { position:'absolute', right:'35%', top:'28%' },
+  ЦЗ:  { position:'absolute', left:'50%', top:'26%', transform:'translateX(-50%)' },
+};
+
+type Props = { data: RolePercent[]; showBadges?: boolean };
+
+export default function RoleHeatmap({ data, showBadges = false }: Props) {
+  // берём только роли, что реально >0%
+  const filled = data.filter(d => d.percent > 0);
+  if (!filled.length) return null;
+
+  const max = Math.max(...filled.map(d => d.percent));
 
   return (
-    <div className="rounded-2xl border p-4 bg-emerald-50/40">
-      <div className="mx-auto grid gap-3" style={{ gridTemplateRows: 'repeat(6, minmax(36px, auto))' }}>
-        {/* ЛЗ / ПЗ */}
-        <div className="row-start-2 flex justify-between px-6">
-          <Badge role="ЛЗ" />
-          <Badge role="ПЗ" />
-        </div>
-
-        {/* ЦЗ */}
-        <div className="row-start-2 -mt-14 flex justify-center gap-3">
-          <Badge role="ЛЦЗ" />
-          <Badge role="ПЦЗ" />
-        </div>
-
-        {/* опорники */}
-        <div className="row-start-3 flex justify-center gap-3">
-          <Badge role="ЛОП" />
-          <Badge role="ЦОП" />
-          <Badge role="ПОП" />
-        </div>
-
-        {/* центральные */}
-        <div className="row-start-4 flex justify-center gap-3">
-          <Badge role="ЛПЦ" />
-          <Badge role="ЦП" />
-          <Badge role="ПЦП" />
-        </div>
-
-        {/* края полузащиты */}
-        <div className="row-start-5 flex justify-between px-6">
-          <Badge role="ЛП" />
-          <Badge role="ПП" />
-        </div>
-
-        {/* атакующая тройка */}
-        <div className="row-start-5 mt-12 flex justify-center gap-3">
-          <Badge role="ЛАП" />
-          <Badge role="ЦАП" />
-          <Badge role="ПАП" />
-        </div>
-
-        {/* нападающие */}
-        <div className="row-start-6 flex justify-center gap-3">
-          <Badge role="ЛФД" />
-          <Badge role="ФРВ" />
-          <Badge role="ЦФД" />
-        </div>
-
-        {/* вратарь */}
-        <div className="row-start-6 mt-16 flex justify-center">
-          <Badge role="ВРТ" />
-        </div>
-      </div>
+    <div className="relative w-full max-w-[520px] aspect-[2/3] rounded-2xl border bg-emerald-50/40">
+      {/* фон поля можешь оставить свой */}
+      {filled.map(({ role, percent }) => {
+        const alpha = 0.25 + 0.75 * (percent / max); // 0.25..1.0
+        const bg = `rgba(16, 185, 129, ${alpha})`;   // tailwind emerald-500, но через rgba
+        const style = SLOT_STYLE[role] || { position:'absolute', left:'50%', top:'50%' };
+        return (
+          <div
+            key={role}
+            style={{ ...style, backgroundColor: bg }}
+            className="px-3 py-1 rounded-full shadow-sm text-sm font-medium text-white"
+            title={`${ROLE_LABELS[role]} — ${percent.toFixed(0)}%`}
+          >
+            {ROLE_LABELS[role]} · {percent.toFixed(0)}%
+          </div>
+        );
+      })}
     </div>
   );
 }
