@@ -27,6 +27,9 @@ const SLOT_STYLE: Record<RoleCode, React.CSSProperties> = {
   ФРВ: { position:'absolute', left:'50%', top:'70%', transform:'translateX(-50%)' },
   ЦФД: { position:'absolute', left:'43%', top:'70%' },
   ЛФД: { position:'absolute', right:'43%', top:'70%' },
+  ПФД: { position:'absolute', right:'38%', top:'66%' },  // зеркально ЛФД
+  ЛФА: { position:'absolute', left:'20%',  top:'64%' },  // широкие и чуть выше
+  ПФА: { position:'absolute', right:'20%', top:'64%' },
 
   // если используешь ЦЗ/ЛЦЗ/ПЦЗ — расставь их здесь
   ЛЦЗ: { position:'absolute', left:'35%', top:'28%' },
