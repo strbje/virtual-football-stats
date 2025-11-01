@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import PositionPitchHeatmap from "@/components/PositionPitchHeatmap";
+import RoleHeatmap from '@/components/players/RoleHeatmap';
+import RoleDistributionSection from '@/components/players/RoleDistributionSection';
 
 export const dynamic = "force-dynamic";
 
@@ -256,17 +258,13 @@ export default async function PlayerPage(props: any) {
       </section>
 
       {/* СГРУППИРОВАННОЕ распределение (как просил) */}
-      <section>
-        <h2 className="font-semibold mb-2">Распределение амплуа, % матчей</h2>
-        <ul className="list-disc pl-6 space-y-1">
-          {grouped.map((g) => (
-            <li key={g.group}>
-              {g.group}: {g.pct}%
-            </li>
-          ))}
-          {grouped.length === 0 && <li>Данных за выбранный период нет</li>}
-        </ul>
-      </section>
+      <section className="space-y-6">
+  <RoleDistributionSection data={rolePercents} />
+  <div>
+    <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
+    <RoleHeatmap data={rolePercents} />
+  </div>
+</section>
 
       {/* Тепловая карта по ВСЕМ амплуа (без группировки) */}
       <section className="mt-4">
