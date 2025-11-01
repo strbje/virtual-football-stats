@@ -1,36 +1,64 @@
-// Группировка амплуа — как ты просил
-export const ROLE_TO_GROUP: Record<string, 'ЦЗ'|'ВРТ'|'КЗ'|'ЦОП'|'ЦП'|'КП'|'ЦАП'|'ФРВ'> = {
-  // Центр. защитники
-  'ЦЗ':'ЦЗ','ЛЦЗ':'ЦЗ','ПЦЗ':'ЦЗ',
-  // Вратарь
-  'ВРТ':'ВРТ',
-  // Крайние защитники
-  'КЗ':'КЗ','ЛЗ':'КЗ','ПЗ':'КЗ',
-  // Опорники
-  'ЦОП':'ЦОП','ЛОП':'ЦОП','ПОП':'ЦОП',
-  // Центр поля
-  'ЦП':'ЦП','ЛПЦ':'ЦП','ПЦП':'ЦП',
-  // Крайние полузащитники / вингеры
-  'КП':'КП','ЛАП':'КП','ПАП':'КП','ЛП':'КП','ПП':'КП',
-  // Под нападающим
-  'ЦАП':'ЦАП',
-  // Форварды
-  'ФРВ':'ФРВ','ЦФД':'ФРВ','ЛФД':'ФРВ','ПФД':'ФРВ',
+// src/utils/roles.ts
+export type RoleCode =
+  | 'ВРТ'
+  | 'ЛЗ' | 'ПЗ'
+  | 'ЛОП' | 'ЦОП' | 'ПОП'
+  | 'ЦП' | 'ЛПЦ' | 'ПЦП'
+  | 'ЛАП' | 'ПАП' | 'ЛП' | 'ПП'
+  | 'ЦАП'
+  | 'ФРВ' | 'ЦФД' | 'ЛФД' | 'ЛФА' | 'ПФА'
+  | 'ЛЦЗ' | 'ПЦЗ' | 'ЦЗ'  // если в БД встречаются такие
+
+export type RolePercent = { role: RoleCode; percent: number };
+
+/** Человекочитаемые ярлыки (если надо поменять подписи — меняй здесь) */
+export const ROLE_LABELS: Record<RoleCode, string> = {
+  ВРТ: 'ВРТ',
+  ЛЗ: 'ЛЗ', ПЗ: 'ПЗ',
+  ЛОП: 'ЛОП', ЦОП: 'ЦОП', ПОП: 'ПОП',
+  ЦП: 'ЦП', ЛПЦ: 'ЛПЦ', ПЦП: 'ПЦП',
+  ЛАП: 'ЛАП', ПАП: 'ПАП', ЛП: 'ЛП', ПП: 'ПП',
+  ЦАП: 'ЦАП',
+  ФРВ: 'ФРВ', ЦФД: 'ЦФД', ЛФД: 'ЛФД', ЛФА: 'ЛФА', ПФА: 'ПФА', ПФД: 'ПФА',
+  ЛЦЗ: 'ЛЦЗ', ПЦЗ: 'ПЦЗ', ЦЗ: 'ЦЗ',
 };
 
-// Удобные типы
-export type RolePercent = { role: string; percent: number };
-export type GroupPercent = { group: keyof typeof ROLE_TO_GROUP | 'ВРТ' | 'ЦЗ' | 'КЗ' | 'ЦОП' | 'ЦП' | 'КП' | 'ЦАП' | 'ФРВ'; percent: number };
+/** Группировки для блока «Распределение амплуа» */
+export const ROLE_TO_GROUP: Record<RoleCode, 
+  'ВРТ' | 'КЗ' | 'ЦОП' | 'ЦП' | 'КП' | 'ЦАП' | 'ФРВ' | 'ЦЗ'> = {
+  ВРТ: 'ВРТ',
 
-// Агрегация «сырых» процентов по ролям в группы
-export function groupRolePercents(raw: RolePercent[]): GroupPercent[] {
-  const acc: Record<string, number> = {};
-  for (const { role, percent } of raw) {
-    const group = ROLE_TO_GROUP[role] ?? ROLE_TO_GROUP[role.toUpperCase()];
-    if (!group) continue; // неизвестные роли игнорируем
-    acc[group] = (acc[group] ?? 0) + percent;
+  ЛЗ: 'КЗ', ПЗ: 'КЗ',
+
+  ЛОП: 'ЦОП', ЦОП: 'ЦОП', ПОП: 'ЦОП',
+
+  ЦП: 'ЦП', ЛПЦ: 'ЦП', ПЦП: 'ЦП',
+
+  ЛАП: 'КП', ПАП: 'КП', ЛП: 'КП', ПП: 'КП',
+
+  ЦАП: 'ЦАП',
+
+  ФРВ: 'ФРВ', ЦФД: 'ФРВ', ЛФД: 'ФРВ', ПФД: 'ФРВ', ЛФА: 'ФРВ', ПФА: 'ФРВ',
+
+  // если у тебя в сырых данных бывают ЛЦЗ/ПЦЗ/ЦЗ — сгруппируй их в «ЦЗ»
+  ЛЦЗ: 'ЦЗ', ПЦЗ: 'ЦЗ', ЦЗ: 'ЦЗ',
+};
+
+export type GroupBucket = {
+  group: 'ВРТ' | 'КЗ' | 'ЦОП' | 'ЦП' | 'КП' | 'ЦАП' | 'ФРВ' | 'ЦЗ';
+  percent: number;
+};
+
+/** Суммируем проценты по группам, отбрасывая нули */
+export function groupRolePercents(rows: RolePercent[]): GroupBucket[] {
+  const acc = new Map<GroupBucket['group'], number>();
+  for (const r of rows) {
+    if (!r.percent) continue;
+    const g = ROLE_TO_GROUP[r.role];
+    acc.set(g, (acc.get(g) || 0) + r.percent);
   }
-  return Object.entries(acc)
-    .map(([group, percent]) => ({ group: group as GroupPercent['group'], percent }))
-    .sort((a,b) => b.percent - a.percent);
+  // сортировка по убыванию
+  return [...acc.entries()]
+    .map(([group, percent]) => ({ group, percent }))
+    .sort((a, b) => b.percent - a.percent);
 }
