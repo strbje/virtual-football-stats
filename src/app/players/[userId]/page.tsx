@@ -3,6 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
+import { RolePercent, groupRolePercents } from "@/utils/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -22,64 +23,6 @@ function parseRange(range?: string): { from?: string; to?: string } {
   };
 }
 
-/**
- * === ГРУППИРОВКА АМПЛУА (как «раньше было») ===
- * Если захочешь централизовать — перенеси GROUP_ORDER и GROUP_MAP в src/utils/roles.ts
- * и импортируй отсюда.
- */
-const GROUP_ORDER = ["ЦЗ", "ВРТ", "КЗ", "ЦОП", "ЦП", "КП", "ЦАП", "ФРВ"] as const;
-
-const GROUP_MAP: Record<(typeof GROUP_ORDER)[number], string[]> = {
-  ЦЗ: ["ЛЦЗ", "ПЦЗ", "ЦЗ"],
-  ВРТ: ["ВРТ"],
-  КЗ: ["ЛЗ", "ПЗ"],
-  ЦОП: ["ЦОП", "ЛОП", "ПОП"],
-  ЦП: ["ЦП", "ЛПЦ", "ПЦП"],
-  КП: ["ЛАП", "ПАП", "ЛП", "ПП"],
-  ЦАП: ["ЦАП"],
-  // ФРВ-группа: центр и фланговые форварды
-  ФРВ: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"], // <- добавил ПФД/ЛФА/ПФА
-};
-
-function groupRoles(
-  rows: { role: string; cnt: number }[],
-  totalCnt: number
-): { group: string; pct: number }[] {
-  const byRole = new Map<string, number>();
-  for (const r of rows) byRole.set(r.role, (byRole.get(r.role) ?? 0) + Number(r.cnt));
-
-  const used = new Set<string>();
-  const out: { group: string; pct: number }[] = [];
-
-  // фиксированные группы по порядку
-  for (const g of GROUP_ORDER) {
-    const members = GROUP_MAP[g];
-    const sum = members.reduce((s, m) => {
-      const v = byRole.get(m);
-      if (v) used.add(m);
-      return s + (v ?? 0);
-    }, 0);
-    if (sum > 0) out.push({ group: g, pct: Math.round((sum * 100) / Math.max(totalCnt, 1)) });
-  }
-
-  // «прочие» роли, не вошедшие в карту
-  for (const [role, cnt] of byRole.entries()) {
-    if (used.has(role)) continue;
-    out.push({ group: role, pct: Math.round((cnt * 100) / Math.max(totalCnt, 1)) });
-  }
-
-  // сортировка: сперва фикс-группы по порядку, затем «прочие» по убыванию %
-  const orderIndex = new Map<string, number>();
-  GROUP_ORDER.forEach((g, i) => orderIndex.set(g, i));
-  out.sort((a, b) => {
-    const ia = orderIndex.has(a.group) ? orderIndex.get(a.group)! : 999;
-    const ib = orderIndex.has(b.group) ? orderIndex.get(b.group)! : 999;
-    return ia === ib ? b.pct - a.pct : ia - ib;
-  });
-
-  return out;
-}
-
 export default async function PlayerPage(props: any) {
   const params = (props?.params ?? {}) as { userId?: string };
   const searchParams = (props?.searchParams ?? {}) as SearchParamsDict;
@@ -97,11 +40,11 @@ export default async function PlayerPage(props: any) {
     );
   }
 
-  // диапазон дат ?range=YYYY-MM-DD:YYYY-MM-DD
+  // ?range=YYYY-MM-DD:YYYY-MM-DD
   const range = getVal(searchParams, "range");
   const { from, to } = parseRange(range);
   const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
-  const toTs = to ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000; // ~3000 год
+  const toTs = to ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000;
 
   // базовая инфа
   const user = await prisma.$queryRawUnsafe<
@@ -200,17 +143,16 @@ export default async function PlayerPage(props: any) {
 
   const totalCnt = rolesRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
 
-  // 1) Данные для СЕКЦИИ распределения (сгруппированные)
-  const groupedPercents = groupRoles(rolesRows, totalCnt);
-
-  // 2) Данные для ТЕПЛОКАРТЫ (по всем амплуа, без группировки, 0% скрываем)
-  const heatmapPercents = rolesRows
+  // формируем RolePercent[] (0% отбрасываем)
+  const rolePercents: RolePercent[] = rolesRows
     .map((r) => ({
-      role: r.role,
-      count: Number(r.cnt),
-      pct: Math.round((Number(r.cnt) * 100) / totalCnt),
+      role: r.role as RolePercent["role"],
+      percent: Math.round((Number(r.cnt) * 100) / totalCnt),
     }))
-    .filter((x) => x.pct > 0);
+    .filter((x) => x.percent > 0);
+
+  // сгруппированное распределение для списка
+  const grouped = groupRolePercents(rolePercents);
 
   return (
     <div className="p-6 space-y-6">
@@ -249,15 +191,15 @@ export default async function PlayerPage(props: any) {
         </div>
       </section>
 
-      {/* 1) СГРУППИРОВАННОЕ РАСПРЕДЕЛЕНИЕ */}
+      {/* распределение (сгруппированное) */}
       <section>
-        <RoleDistributionSection data={groupedPercents} />
+        <RoleDistributionSection data={grouped} />
       </section>
 
-      {/* 2) ТЕПЛОВАЯ КАРТА ПО ВСЕМ АМПЛУА */}
+      {/* тепловая карта по конкретным амплуа */}
       <section>
         <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
-        <RoleHeatmap data={heatmapPercents} />
+        <RoleHeatmap data={rolePercents} />
       </section>
     </div>
   );
