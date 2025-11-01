@@ -1,6 +1,8 @@
 // src/components/players/RoleHeatmap.tsx
 import React from 'react';
+import clsx from "clsx";
 import { ROLE_LABELS, type RolePercent, type RoleCode } from '@/utils/roles';
+
 
 // позиции на поле остаются твоими — ключи должны совпадать с RoleCode из БД
 const SLOT_STYLE: Record<RoleCode, React.CSSProperties> = {
@@ -44,25 +46,28 @@ export default function RoleHeatmap({ data, showBadges = false }: Props) {
   const filled = data.filter(d => d.percent > 0);
   if (!filled.length) return null;
 
-  const max = Math.max(...filled.map(d => d.percent));
+  const map = new Map<string, number>(data.map((d) => [d.role, d.percent]));
+  const max = Math.max(1, ...data.map((d) => d.percent));
 
   return (
     <div className="relative w-full max-w-[520px] aspect-[2/3] rounded-2xl border bg-emerald-50/40">
       {/* фон поля можешь оставить свой */}
-      {filled.map(({ role, percent }) => {
-        const alpha = 0.25 + 0.75 * (percent / max); // 0.25..1.0
-        const bg = `rgba(16, 185, 129, ${alpha})`;   // tailwind emerald-500, но через rgba
-        const style = SLOT_STYLE[role] || { position:'absolute', left:'50%', top:'50%' };
-        return (
-          <div
-            key={role}
-            style={{ ...style, backgroundColor: bg }}
-            className="px-3 py-1 rounded-full shadow-sm text-sm font-medium text-white"
-            title={`${ROLE_LABELS[role]} — ${percent.toFixed(0)}%`}
-          >
-            {ROLE_LABELS[role]} · {percent.toFixed(0)}%
-          </div>
-        );
+      {Object.entries(ROLE_COORDS).map(([role, pos]) => {
+       const val = map.get(role) ?? 0;
+          if (val <= 0) return null; // скрываем 0%
+          // Градиент: чем больше % тем насыщеннее метка
+          const intensity = Math.max(0.15, val / max); // 0.15..1
+          const bg = `hsla(160, 80%, 35%, ${intensity})`; // изумрудный, регулируем прозрачность
+          return (
+            <div
+              key={role}
+              className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full px-3 py-1 text-sm font-semibold text-white shadow-sm"
+              style={{ left: `${pos.x}%`, top: `${pos.y}%`, background: bg }}
+              title={`${role} • ${Math.round(val)}%`}
+            >
+              {role} • {Math.round(val)}%
+            </div>
+          );
       })}
     </div>
   );
