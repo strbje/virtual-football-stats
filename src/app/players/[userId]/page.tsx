@@ -267,10 +267,10 @@ export default async function PlayerPage(props: any) {
 </section>
 
       {/* Тепловая карта по ВСЕМ амплуа (без группировки) */}
-      <section className="mt-4">
-        <h2 className="font-semibold mb-2">Тепловая карта амплуа</h2>
-        <PositionPitchHeatmap data={heatmapData} />
-      </section>
+     <section>
+      <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
+      <RoleHeatmap data={rolePercents} />
+    </section>
     </div>
   );
 }
