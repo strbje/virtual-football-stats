@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+<#!/usr/bin/env bash
 set -Eeuo pipefail
 
 APP_DIR="$HOME/virtual-football-stats"
@@ -74,3 +74,4 @@ log "start pm2"
 NODE_ENV=production pm2 start "$APP_DIR/ecosystem.config.js" --only "$APP_NAME" --update-env
 pm2 save
 pm2 status
+>
