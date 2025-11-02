@@ -3,7 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
-import { RolePercent, groupRolePercents } from "@/utils/roles";
+import { RolePercent } from "@/utils/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -151,9 +151,6 @@ export default async function PlayerPage(props: any) {
     }))
     .filter((x) => x.percent > 0);
 
-  // сгруппированное распределение для списка
-  const grouped = groupRolePercents(rolePercents);
-
   return (
     <div className="p-6 space-y-6">
       <header className="flex items-center justify-between">
@@ -191,9 +188,9 @@ export default async function PlayerPage(props: any) {
         </div>
       </section>
 
-      {/* распределение (сгруппированное) */}
+      {/* распределение (плоское, как ожидает компонент) */}
       <section>
-        <RoleDistributionSection data={grouped} />
+        <RoleDistributionSection data={rolePercents} />
       </section>
 
       {/* тепловая карта по конкретным амплуа */}
