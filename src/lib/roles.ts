@@ -1,27 +1,69 @@
 // src/lib/roles.ts
-export const ROLE_TO_GROUP: Record<string,'ЦЗ'|'ВРТ'|'КЗ'|'ЦОП'|'ЦП'|'КП'|'ЦАП'|'ФРВ'> = {
-  'ЦЗ':'ЦЗ','ЛЦЗ':'ЦЗ','ПЦЗ':'ЦЗ',
-  'ВРТ':'ВРТ',
-  'КЗ':'КЗ','ЛЗ':'КЗ','ПЗ':'КЗ',
-  'ЦОП':'ЦОП','ЛОП':'ЦОП','ПОП':'ЦОП',
-  'ЦП':'ЦП','ЛПЦ':'ЦП','ПЦП':'ЦП',
-  'КП':'КП','ЛАП':'КП','ПАП':'КП','ЛП':'КП','ПП':'КП',
-  'ЦАП':'ЦАП',
-  'ФРВ':'ФРВ','ЦФД':'ФРВ','ЛФД':'ФРВ','ПФД':'ФРВ',
+
+import type { RoleCode, RolePercent } from '@/utils/roles';
+
+/** Группы, к которым сводим амплуа */
+export type RoleGroup = 'ЦЗ' | 'ВРТ' | 'КЗ' | 'ЦОП' | 'ЦП' | 'КП' | 'ЦАП' | 'ФРВ';
+
+/** Маппинг амплуа -> укрупнённая группа */
+export const ROLE_TO_GROUP: Record<RoleCode, RoleGroup> = {
+  // Защита (центральные)
+  ЛЦЗ: 'ЦЗ',
+  ЦЗ:  'ЦЗ',
+  ПЦЗ: 'ЦЗ',
+
+  // Вратарь
+  ВРТ: 'ВРТ',
+
+  // Края защиты
+  ЛЗ: 'КЗ',
+  ПЗ: 'КЗ',
+
+  // Опорные
+  ЛОП: 'ЦОП',
+  ЦОП: 'ЦОП',
+  ПОП: 'ЦОП',
+
+  // Центр поля
+  ЛПЦ: 'ЦП',
+  ЦП:  'ЦП',
+  ПЦП: 'ЦП',
+
+  // Крылья/полуфланги (укрупняем как «крылья полузащиты»)
+  ЛАП: 'КП',
+  ПАП: 'КП',
+  ЛП:  'КП',
+  ПП:  'КП',
+
+  // Атакующий центр
+  ЦАП: 'ЦАП',
+
+  // Атака (форварды всех типов)
+  ФРВ: 'ФРВ',
+  ЦФД: 'ФРВ',
+  ЛФД: 'ФРВ',
+  ПФД: 'ФРВ',
+  ЛФА: 'ФРВ', // добавлено
+  ПФА: 'ФРВ', // добавлено
 };
 
-export type RolePercent = { role: string; percent: number };
-export type GroupPercent = { group: keyof typeof ROLE_TO_GROUP; percent: number };
+export type GroupPercent = { group: RoleGroup; percent: number };
 
+/**
+ * Суммируем проценты по ролям в укрупнённые группы.
+ * Ожидает массив уже-нормированных процентов (0..100) по RoleCode.
+ */
 export function groupRolePercents(raw: RolePercent[]): GroupPercent[] {
-  const acc: Record<string, number> = {};
+  const acc = new Map<RoleGroup, number>();
+
   for (const item of raw) {
-    const key = (item.role || '').toUpperCase();
-    const group = ROLE_TO_GROUP[key];
+    const role = item.role;
+    const group = ROLE_TO_GROUP[role];
     if (!group) continue;
-    acc[group] = (acc[group] ?? 0) + (item.percent ?? 0);
+    acc.set(group, (acc.get(group) ?? 0) + (item.percent ?? 0));
   }
-  return Object.entries(acc)
-    .map(([group, percent]) => ({ group: group as GroupPercent['group'], percent }))
-    .sort((a,b) => b.percent - a.percent);
+
+  return [...acc.entries()]
+    .map(([group, percent]) => ({ group, percent }))
+    .sort((a, b) => b.percent - a.percent);
 }
