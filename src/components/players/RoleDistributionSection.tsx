@@ -3,13 +3,13 @@
 import React from 'react';
 import type { RolePercent, RoleCode } from '@/utils/roles';
 import { ROLE_LABELS } from '@/utils/roles';
-import { ROLE_TO_GROUP, type RoleGroup } from '@/lib/roles';
+import { ROLE_TO_GROUP, GROUP_LABELS, type RoleGroup } from '@/lib/roles';
 
 // Фиксированный порядок групп, как ты просил
 const GROUP_ORDER: RoleGroup[] = ['ФРВ', 'ЦАП', 'КП', 'ЦП', 'ЦОП', 'ЦЗ', 'КЗ', 'ВРТ'];
 
 // Человекочитаемая подпись группы (оставляем код, но в нижнем регистре)
-const groupLabel = (g: RoleGroup) => g.toLowerCase();
+const label = GROUP_LABELS[r.group];
 
 type Props = { data: RolePercent[] };
 
