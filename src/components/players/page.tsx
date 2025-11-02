@@ -1,34 +1,31 @@
 // src/components/players/page.tsx
+import React from 'react';
 import RoleHeatmap from '@/components/players/RoleHeatmap';
-import { groupRolePercents, type RolePercent } from '@/utils/roles';
+import RoleDistributionSection from '@/components/players/RoleDistributionSection';
+import type { RolePercent } from '@/utils/roles';
 
 type Props = {
-  data: RolePercent[]; // [{ role: 'ЦАП', percent: 21 }, ...] — уже агрегированные % по амплуа
-  showBadges?: boolean;
+  /** Уже агрегированные проценты по амплуа: [{ role: 'ЦАП', percent: 21 }, ...] */
+  data: RolePercent[];
+  title?: string;
 };
 
-export default function RoleDistributionSection({ data, showBadges = false }: Props) {
-  const grouped = groupRolePercents(data);
+export default function PlayersRolesBlock({ data, title = 'Распределение по амплуа' }: Props) {
+  // оставляем только ненулевые роли и сортируем по убыванию
+  const rows = [...data].filter(d => d.percent > 0).sort((a, b) => b.percent - a.percent);
 
   return (
-    <section className="space-y-6">
-      {/* Сверху — сгруппированное распределение */}
-      <div>
-        <h3 className="font-semibold mb-2">Распределение амплуа, % матчей</h3>
-        <ul className="list-disc pl-5 space-y-1">
-          {grouped.map((g) => (
-            <li key={g.group}>
-              {g.group}: {Math.round(g.percent)}%
-            </li>
-          ))}
-        </ul>
-      </div>
+    <div className="space-y-6">
+      <h3 className="font-semibold text-lg">{title}</h3>
 
-      {/* Ниже — тепловая карта по ВСЕМ амплуа */}
+      {/* Прогресс-бары по амплуа */}
+      <RoleDistributionSection data={rows} />
+
+      {/* Тепловая карта амплуа */}
       <div>
-        <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
-        <RoleHeatmap data={data} showBadges={showBadges} />
+        <h4 className="font-medium mb-2">Тепловая карта</h4>
+        <RoleHeatmap data={rows} />
       </div>
-    </section>
+    </div>
   );
 }
