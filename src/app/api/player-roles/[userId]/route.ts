@@ -18,7 +18,7 @@ export async function GET(_req: Request, ctx: any) {
   // Поля подставлены по твоему примеру (match_participants.position_short_name, user_id).
   const rows = await prisma.match_participants.groupBy({
     by: ['position_short_name'],
-    where: { user_id: userId },
+    where: { user_id: 50734 },
     _count: { _all: true },
   });
 
