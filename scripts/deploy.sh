@@ -18,12 +18,16 @@ echo ">>> clean build artifacts"
 rm -rf .next .turbo .cache
 
 echo ">>> clean install (fresh node_modules)"
-rm -rf node_modules
-npm cache clean --force
-# критично: не подсовывать production-омит на этапе сборки
-unset NPM_CONFIG_PRODUCTION
-unset NODE_ENV
-npm ci
+# Корректно чистим node_modules, включая скрытые файлы
+if [ -d node_modules ]; then
+  # иногда права “залипают” — возвращаем доступ на удаление
+  chmod -R u+rw node_modules 2>/dev/null || true
+  # удаляем содержимое (включая скрытые), затем сам каталог
+  bash -lc 'shopt -s dotglob nullglob; rm -rf node_modules/* node_modules/.* 2>/dev/null || true'
+  rmdir node_modules 2>/dev/null || true
+fi
+
+npm ci --no-audit --omit=optional
 
 echo ">>> verify next internals"
 test -f node_modules/next/dist/compiled/@napi-rs/triples/index.js || { echo "next compiled missing"; exit 1; }
