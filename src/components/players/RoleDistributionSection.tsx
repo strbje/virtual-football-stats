@@ -1,70 +1,129 @@
+// src/components/players/RoleDistributionSection.tsx
 'use client';
 
 import React from 'react';
-import type { RolePercent, RoleCode } from '@/utils/roles';
-import { ROLE_TO_GROUP, GROUP_LABELS, type RoleGroup } from '@/lib/roles';
+import {
+  ROLE_TO_GROUP,
+  GROUP_LABELS,
+  groupRolePercents,
+  type RolePercent,
+  type RoleGroup,
+} from '@/lib/roles';
 
-// Фиксированный порядок групп (то, что должно быть на экране)
-const GROUP_ORDER: RoleGroup[] = ['ФРВ', 'ЦАП', 'КП', 'ЦП', 'ЦОП', 'ЦЗ', 'КЗ', 'ВРТ'];
+/** --- ПАРАМЕТРЫ ВНЕШНЕГО ВИДА (меняй смело) --- */
+const BAR_HEIGHT = 14;     // высота зелёной полосы
+const ROW_GAP = 12;        // вертикальный отступ между строками
+const LABEL_WIDTH = 180;   // ширина колонки с подписями слева
+const PCT_WIDTH = 48;      // ширина колонки с процентом справа
 
-// Хелпер для подписей групп
-const groupLabel = (g: RoleGroup) => GROUP_LABELS[g];
+/** Обратный индекс: группа -> список коротких ролей, которые в неё входят */
+const GROUP_ROLES: Record<RoleGroup, string[]> = Object.entries(ROLE_TO_GROUP).reduce(
+  (acc, [role, group]) => {
+    (acc[group as RoleGroup] ??= []).push(role);
+    return acc;
+  },
+  {} as Record<RoleGroup, string[]>
+);
 
-type Props = { data: RolePercent[] };
-
-export default function RoleDistributionSection({ data }: Props) {
-  // Аккумулируем проценты по укрупнённым группам
-  const acc = new Map<RoleGroup, number>();
-
-  for (const item of data) {
-    const role = (item.role || '').toUpperCase() as RoleCode; // нормализация регистра
-    const group = ROLE_TO_GROUP[role];
-    if (!group) continue;
-    acc.set(group, (acc.get(group) ?? 0) + Number(item.percent ?? 0));
+/** Утилита: карта процента по короткой роли из сырых данных */
+function buildPctByRole(raw: RolePercent[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const { role, percent } of raw) {
+    const code = (role ?? '').toUpperCase().trim();
+    if (!code) continue;
+    map.set(code, (map.get(code) ?? 0) + (percent ?? 0));
   }
+  return map;
+}
 
-  // Строим строки в нужном порядке и отсекаем нули
-  const rows: { group: RoleGroup; percent: number }[] = GROUP_ORDER
-    .map((g) => ({ group: g, percent: Math.round(acc.get(g) ?? 0) }))
-    .filter((r) => r.percent > 0);
-
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-2xl border p-4 text-sm text-gray-500">
-        Нет данных по амплуа за выбранный период
-      </div>
-    );
-  }
-
-  const max = Math.max(1, ...rows.map((r) => r.percent));
+export default function RoleDistributionSection({
+  data,
+  debug = false,
+  title = 'Распределение по амплуа',
+}: {
+  /** Сырые проценты по коротким ролям: [{ role:'ЦАП', percent: 21 }, ...] */
+  data: RolePercent[];
+  /** Включить подсказки: какие короткие роли сложились в каждую группу */
+  debug?: boolean;
+  /** Заголовок секции */
+  title?: string;
+}) {
+  // агрегаты по группам (используют ROLE_TO_GROUP из lib/roles.ts)
+  const grouped = groupRolePercents(data);
+  // карта % по коротким ролям — для отладки/подсказок под полосами
+  const pctByRole = buildPctByRole(data);
 
   return (
-    <div className="rounded-2xl border p-4">
-      <h3 className="font-semibold mb-3">Распределение по амплуа</h3>
-      <div className="space-y-2">
-        {rows.map((r) => {
-          const width = Math.max(6, Math.round((r.percent / max) * 100));
+    <section className="rounded-2xl border p-4">
+      <h3 className="mb-4 text-sm font-medium text-gray-600">{title}</h3>
+
+      <div className="flex flex-col" style={{ gap: ROW_GAP }}>
+        {grouped.map(({ group, percent }) => {
+          const label = GROUP_LABELS[group]; // человекочитаемая подпись
+          const pct = Math.max(0, Math.min(100, Math.round(percent)));
+
+          // роли, которые входят в эту группу и реально присутствуют (>0)
+          const members =
+            (GROUP_ROLES[group] ?? [])
+              .map((r) => ({ role: r, pct: Math.round(pctByRole.get(r) ?? 0) }))
+              .filter((x) => x.pct > 0)
+              .sort((a, b) => b.pct - a.pct);
+
           return (
-            <div key={r.group} className="flex items-center gap-3">
-              <div className="w-40 shrink-0 text-sm text-gray-700">
-                {groupLabel(r.group)}
-              </div>
-              <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden">
+            <div key={group}>
+              <div className="flex items-center">
+                {/* колонка: подпись группы */}
                 <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${width}%`,
-                    background: 'linear-gradient(90deg, #10b981, #059669)',
-                  }}
-                />
+                  className="pr-3 text-[13px] text-gray-800 truncate"
+                  style={{ width: LABEL_WIDTH }}
+                  title={label}
+                >
+                  {label}
+                </div>
+
+                {/* колонка: фон и зелёная полоса */}
+                <div className="relative flex-1 h-[1px]">
+                  <div className="h-[10px] w-full rounded-full bg-emerald-100/60" />
+                  <div
+                    className="absolute left-0 top-0 h-[10px] rounded-full bg-emerald-600"
+                    style={{ width: `${pct}%`, height: BAR_HEIGHT }}
+                  />
+                </div>
+
+                {/* колонка: значение % */}
+                <div
+                  className="pl-3 text-[13px] font-medium text-gray-700 text-right tabular-nums"
+                  style={{ width: PCT_WIDTH }}
+                >
+                  {pct}%
+                </div>
               </div>
-              <div className="w-10 shrink-0 text-right text-sm font-medium">
-                {r.percent}%
-              </div>
+
+              {/* Подсказки: какие короткие роли вошли в группу (видно, откуда берётся процент) */}
+              {debug && members.length > 0 && (
+                <div className="mt-2 ml-[calc(var(--label-w,0px))]" style={{ '--label-w': `${LABEL_WIDTH}px` } as React.CSSProperties}>
+                  <div className="flex flex-wrap gap-6 pl-3">
+                    {members.map((m) => (
+                      <div
+                        key={m.role}
+                        className="text-[12px] text-gray-600"
+                        title={`Короткая роль: ${m.role} — ${m.pct}%`}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          <span className="inline-block rounded-md bg-gray-100 px-1.5 py-[1px] text-gray-800">
+                            {m.role}
+                          </span>
+                          <span className="tabular-nums">{m.pct}%</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }
