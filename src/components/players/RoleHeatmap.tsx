@@ -1,6 +1,6 @@
 // src/components/players/RoleHeatmap.tsx
 import React from 'react';
-import { ROLE_COORDS, type RolePercent, type RoleCode } from '@/utils/roles';
+import { ROLE_COORDS, type RolePercent, type RoleCode } from "../../utils/roles";
 
 type Props = {
   data: RolePercent[];
