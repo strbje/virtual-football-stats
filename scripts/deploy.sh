@@ -2,42 +2,39 @@
 set -euo pipefail
 
 APP_DIR="$HOME/virtual-football-stats"
-
-log() { echo ">>> $*"; }
-
-export NODE_ENV=production
 export NEXT_TELEMETRY_DISABLED=1
 
 cd "$APP_DIR"
 
-log "repo: fetch/reset to origin/main"
+echo ">>> fetch/reset"
 git fetch --prune origin
 git reset --hard origin/main
-rm -f .git/index.lock .git/refs/remotes/origin/main.lock || true
+rm -f .git/*.lock || true
 
-log "node/npm versions"
-node -v || true
-npm -v  || true
-
-log "pm2 stop (best effort)"
+echo ">>> stop app"
 pm2 stop virtual-football-stats || true
 
-log "purge build artifacts (ONLY .next)"
-rm -rf .next .turbo .cache || true
+echo ">>> clean build artifacts"
+rm -rf .next .turbo .cache
 
-# НИЧЕГО не трогаем в node_modules
-# НЕ чистим next/dist/compiled, НЕ удаляем styled-jsx
+echo ">>> clean install (fresh node_modules)"
+rm -rf node_modules
+npm cache clean --force
+# критично: не подсовывать production-омит на этапе сборки
+unset NPM_CONFIG_PRODUCTION
+unset NODE_ENV
+npm ci
 
-log "install deps (npm ci)"
-npm ci --no-audit --no-fund
+echo ">>> verify next internals"
+test -f node_modules/next/dist/compiled/@napi-rs/triples/index.js || { echo "next compiled missing"; exit 1; }
 
-log "prisma generate (non-fatal)"
+echo ">>> prisma"
 npx prisma generate || true
 
-log "build"
+echo ">>> build"
 npm run build
 
-log "start via PM2"
-pm2 start "$APP_DIR/ecosystem.config.js" --update-env
+echo ">>> start"
+NODE_ENV=production pm2 start "$APP_DIR/ecosystem.config.js" --update-env
 pm2 save
 pm2 status
