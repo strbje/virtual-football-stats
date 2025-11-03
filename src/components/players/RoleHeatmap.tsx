@@ -1,5 +1,8 @@
+// src/components/players/RoleHeatmap.tsx
+'use client';
+
 import React from 'react';
-import { ROLE_COORDS, type RolePercent, type RoleCode } from '@/utils/roles';
+import { ROLE_COORDS, type RolePercent, type RoleCode } from '@/lib/roles';
 
 type Props = { data: RolePercent[] };
 
@@ -9,7 +12,7 @@ const hueBy = (value: number, max: number) => {
 };
 
 export default function RoleHeatmap({ data }: Props) {
-  // 1) нормализация: верхний регистр + аккумулируем проценты
+  // нормализация: UPCASE + аккумулируем проценты
   const acc = new Map<RoleCode, number>();
   for (const d of data) {
     const role = (d.role || '').toUpperCase() as RoleCode;
@@ -17,11 +20,11 @@ export default function RoleHeatmap({ data }: Props) {
     acc.set(role, (acc.get(role) ?? 0) + val);
   }
 
-  // 2) округляем до целого — скрываем только нули
+  // округляем до целого — скрываем только нули
   const rounded = new Map<RoleCode, number>();
   acc.forEach((v, k) => rounded.set(k, Math.round(v)));
 
-  // 3) роли, которые реально «играл» (после округления)
+  // роли, которые реально «играл» (после округления)
   const played = Array.from(rounded.entries()).filter(([, v]) => v > 0);
   if (!played.length) return null;
 
