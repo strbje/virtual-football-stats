@@ -2,19 +2,24 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 type Row = Record<string, unknown>;
-
 type Candidate = { table: string; userCol: string; roleCol: string };
 
 const CANDIDATES: Candidate[] = [
+  // Часто именно тут хранится «позиция в команде» (но бывает без user_id)
   { table: 'club_team_player_membership', userCol: 'user_id',  roleCol: 'field_position' },
+  // Частая связка «пользователь ↔ команда», иногда с позицией
   { table: 'tbl_membership',              userCol: 'user_id',  roleCol: 'field_position' },
+  // Карточка игрока в команде
   { table: 'club_team_player',            userCol: 'user_id',  roleCol: 'player_position' },
+  // Разные анкеты/достижения — иногда есть поле position
   { table: 'tbl_user_achievements',       userCol: 'user_id',  roleCol: 'position' },
+  // В таблице users иногда лежит «текущая роль», если проект так хранит
   { table: 'users',                       userCol: 'player_id',roleCol: 'role' },
 ];
 
 function toNum(v: unknown): number {
   if (typeof v === 'bigint') return Number(v);
+  if (typeof v === 'number') return v;
   return Number(v ?? 0);
 }
 
@@ -36,35 +41,33 @@ async function columnExists(table: string, column: string): Promise<boolean> {
       WHERE table_schema = DATABASE()
         AND table_name   = ?
         AND column_name  = ?`,
-    table,
-    column
+    table, column
   );
   return toNum(r?.[0]?.cnt) > 0;
 }
 
-async function hasRowsForUserWithRole(
-  table: string,
-  userCol: string,
-  roleCol: string,
-  userId: number
-): Promise<boolean> {
+async function countAllForUser(table: string, userCol: string, userId: number): Promise<number> {
+  const r = await prisma.$queryRawUnsafe<Row[]>(
+    `SELECT COUNT(*) AS cnt FROM ${table} WHERE ${userCol} = ?`,
+    userId
+  );
+  return toNum(r?.[0]?.cnt);
+}
+
+async function countWithRoleForUser(table: string, userCol: string, roleCol: string, userId: number): Promise<number> {
   const r = await prisma.$queryRawUnsafe<Row[]>(
     `SELECT COUNT(*) AS cnt
        FROM ${table}
       WHERE ${userCol} = ?
         AND ${roleCol} IS NOT NULL
-        AND ${roleCol} <> ''
-      LIMIT 1`,
+        AND ${roleCol} <> ''`,
     userId
   );
-  return toNum(r?.[0]?.cnt) > 0;
+  return toNum(r?.[0]?.cnt);
 }
 
 async function loadRoleCounts(
-  table: string,
-  userCol: string,
-  roleCol: string,
-  userId: number
+  table: string, userCol: string, roleCol: string, userId: number
 ): Promise<{ role: string; count: number }[]> {
   const rows = await prisma.$queryRawUnsafe<Row[]>(
     `SELECT ${roleCol} AS role, COUNT(*) AS cnt
@@ -76,18 +79,14 @@ async function loadRoleCounts(
       ORDER BY cnt DESC`,
     userId
   );
-
-  return (rows ?? []).map((r) => ({
+  return (rows ?? []).map(r => ({
     role: String((r as any).role ?? '').toUpperCase(),
-    count: toNum((r as any).cnt),
+    count: toNum((r as any).cnt)
   }));
 }
 
-async function sampleRows(
-  table: string,
-  userCol: string,
-  roleCol: string,
-  userId: number
+async function sampleAny(
+  table: string, userCol: string, roleCol: string, userId: number
 ): Promise<Row[]> {
   return prisma.$queryRawUnsafe<Row[]>(
     `SELECT ${userCol} AS user_id, ${roleCol} AS role_val
@@ -100,57 +99,79 @@ async function sampleRows(
 }
 
 export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const userId = Number(url.searchParams.get('userId'));
+  const dbg = url.searchParams.get('debug') === '1';
+
+  // Позволяет вручную проверить любую таблицу без деплоя:
+  const overrideTable   = url.searchParams.get('table')   || undefined;
+  const overrideUserCol = url.searchParams.get('userCol') || undefined;
+  const overrideRoleCol = url.searchParams.get('roleCol') || undefined;
+
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return NextResponse.json({ ok: false, error: 'Bad or missing userId' }, { status: 400 });
+  }
+
   try {
-    const url = new URL(req.url);
-    const userId = Number(url.searchParams.get('userId'));
-    const wantDebug = url.searchParams.get('debug') === '1';
+    const results: any[] = [];
 
-    if (!Number.isFinite(userId) || userId <= 0) {
-      return NextResponse.json({ ok: false, error: 'Bad or missing userId' }, { status: 400 });
-    }
+    const toCheck: Candidate[] = overrideTable && overrideUserCol && overrideRoleCol
+      ? [{ table: overrideTable, userCol: overrideUserCol, roleCol: overrideRoleCol }]
+      : CANDIDATES;
 
-    const viable: Candidate[] = [];
-    for (const c of CANDIDATES) {
-      if (!(await tableExists(c.table))) continue;
-      if (!(await columnExists(c.table, c.userCol))) continue;
-      if (!(await columnExists(c.table, c.roleCol))) continue;
-      if (!(await hasRowsForUserWithRole(c.table, c.userCol, c.roleCol, userId))) continue;
-      viable.push(c);
-    }
+    for (const c of toCheck) {
+      const exists = await tableExists(c.table);
+      const ucol   = exists && await columnExists(c.table, c.userCol);
+      const rcol   = exists && await columnExists(c.table, c.roleCol);
 
-    if (viable.length === 0) {
-      // для диагностики вернём по каждому кандидату, что именно не так
-      const diag = [];
-      for (const c of CANDIDATES) {
-        const exists = await tableExists(c.table);
-        const ucol = exists && (await columnExists(c.table, c.userCol));
-        const rcol = exists && (await columnExists(c.table, c.roleCol));
-        let hasData = false;
-        if (exists && ucol && rcol) {
-          hasData = await hasRowsForUserWithRole(c.table, c.userCol, c.roleCol, userId);
-        }
-        diag.push({ ...c, exists, ucol, rcol, hasData });
+      let total = 0;
+      let withRole = 0;
+      let sample: Row[] = [];
+      let roles: { role: string; count: number }[] = [];
+
+      if (exists && ucol && rcol) {
+        total    = await countAllForUser(c.table, c.userCol, userId);
+        withRole = await countWithRoleForUser(c.table, c.userCol, c.roleCol, userId);
+        sample   = dbg ? await sampleAny(c.table, c.userCol, c.roleCol, userId) : [];
+        roles    = withRole > 0 ? await loadRoleCounts(c.table, c.userCol, c.roleCol, userId) : [];
       }
-      return NextResponse.json(
-        { ok: false, error: 'Нет строк с ненулевыми ролями для данного userId', diag },
-        { status: 404 }
-      );
+
+      results.push({
+        ...c,
+        exists, ucol, rcol,
+        totalForUser: total,
+        withNonEmptyRole: withRole,
+        roles,
+        sample
+      });
     }
 
-    const src = viable[0];
-    const counts = await loadRoleCounts(src.table, src.userCol, src.roleCol, userId);
-    const total = counts.reduce((a, r) => a + r.count, 0);
-    const roles = counts.map((r) => ({
+    // Если есть хотя бы один источник с данными — выбираем первый
+    const hit = results.find(r => r.withNonEmptyRole > 0) ?? null;
+
+    if (!hit) {
+      return NextResponse.json({
+        ok: false,
+        error: 'Нет строк с ненулевыми ролями для данного userId',
+        diag: results
+      }, { status: 404 });
+    }
+
+    const total = hit.roles.reduce((a: number, r: any) => a + r.count, 0);
+    const roles = hit.roles.map((r: any) => ({
       role: r.role,
       count: r.count,
-      pct: total ? Math.round((r.count * 10000) / total) / 100 : 0,
+      pct: total ? Math.round((r.count * 10000) / total) / 100 : 0
     }));
 
-    const payload: any = { ok: true, source: src, total, roles };
-    if (wantDebug) {
-      payload.debug_sample = await sampleRows(src.table, src.userCol, src.roleCol, userId);
-    }
-    return NextResponse.json(payload);
+    return NextResponse.json({
+      ok: true,
+      source: { table: hit.table, userCol: hit.userCol, roleCol: hit.roleCol },
+      total,
+      roles,
+      debug_sample: dbg ? hit.sample : undefined
+    });
+
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
