@@ -5,16 +5,16 @@ import { prisma } from '@/lib/prisma';
  * GET /api/player-roles?userId=50734
  *
  * Диагност:
- *  - Ищет таблицы с (user_id|player_id|userid) + [текстовой ролью] И/ИЛИ [+ FK на tbl_field_positions(id)].
- *  - Для текстовых — берёт значения напрямую.
- *  - Для FK — делает JOIN на tbl_field_positions и берёт code.
- *  - Возвращает, какие таблицы реально отдали строки по userId, плюс сэмплы и частоты.
+ *  - Ищет таблицы с (user_id|player_id|userid) + ТЕКСТОВОЙ ролью
+ *  - И/ИЛИ таблицы с FK-колонкой (skill_position_id / position_id / field_position_id),
+ *    которые JOIN-ятся на tbl_field_positions(id) и дают code роли.
+ *  - Возвращает, какие таблицы реально отдали строки по userId, с сэмплами и частотами.
  */
 
 type Hit = {
   table: string;
   userCol: string;
-  roleCol: string;      // текстовая роль ИЛИ id-колонка (для FK варианта)
+  roleCol: string;      // текстовая роль ИЛИ id-колонка (для FK-варианта)
   via: 'text' | 'fk';
   sample: Array<{ role: string | null }>;
   counts: Array<{ role: string; count: number }>;
@@ -40,7 +40,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: 'Укажи ?userId=<число>' }, { status: 400 });
     }
 
-    // Есть ли вообще справочник позиций?
+    // Есть ли справочник позиций?
     const fpExists = await hasFieldPositions();
 
     // 1) Кандидаты с ТЕКСТОВОЙ ролью
@@ -66,33 +66,35 @@ export async function GET(req: Request) {
       ORDER BY cu.table_name
     `);
 
-    // 2) Кандидаты с ID-колонкой роли (FK на tbl_field_positions)
-    const idCandidates = fpExists ? await prisma.$queryRawUnsafe<{
-      tableName: string; userCol: string; roleCol: string;
-    }[]>(`
-      SELECT cu.table_name   AS tableName,
-             cu.column_name  AS userCol,
-             cr.column_name  AS roleCol
-      FROM information_schema.columns cu
-      JOIN information_schema.columns cr
-        ON cr.table_schema = cu.table_schema
-       AND cr.table_name   = cu.table_name
-      JOIN information_schema.tables t
-        ON t.table_schema = cu.table_schema
-       AND t.table_name   = cu.table_name
-      WHERE cu.table_schema = DATABASE()
-        AND cu.column_name IN (${USER_COLS.map(s => `'${s}'`).join(',')})
-        AND cr.column_name IN (${ID_ROLE_COLS.map(s => `'${s}'`).join(',')})
-        AND cr.data_type IN ('int','bigint','mediumint','smallint','tinyint')
-        AND t.table_type = 'BASE TABLE'
-      GROUP BY cu.table_name, cu.column_name, cr.column_name
-      ORDER BY cu.table_name
-    `) : [] : [];
+    // 2) Кандидаты с FK-колонкой на tbl_field_positions
+    const idCandidates = fpExists
+      ? await prisma.$queryRawUnsafe<{
+          tableName: string; userCol: string; roleCol: string;
+        }[]>(`
+          SELECT cu.table_name   AS tableName,
+                 cu.column_name  AS userCol,
+                 cr.column_name  AS roleCol
+          FROM information_schema.columns cu
+          JOIN information_schema.columns cr
+            ON cr.table_schema = cu.table_schema
+           AND cr.table_name   = cu.table_name
+          JOIN information_schema.tables t
+            ON t.table_schema = cu.table_schema
+           AND t.table_name   = cu.table_name
+          WHERE cu.table_schema = DATABASE()
+            AND cu.column_name IN (${USER_COLS.map(s => `'${s}'`).join(',')})
+            AND cr.column_name IN (${ID_ROLE_COLS.map(s => `'${s}'`).join(',')})
+            AND cr.data_type IN ('int','bigint','mediumint','smallint','tinyint')
+            AND t.table_type = 'BASE TABLE'
+          GROUP BY cu.table_name, cu.column_name, cr.column_name
+          ORDER BY cu.table_name
+        `)
+      : [];
 
     // Проверяем кандидатов и собираем результаты
     const hits: Hit[] = [];
 
-    // Текстовые
+    // ТЕКСТОВЫЕ роли
     for (const c of textCandidates) {
       if (!isSafe(c.tableName) || !isSafe(c.userCol) || !isSafe(c.roleCol)) continue;
 
@@ -105,8 +107,10 @@ export async function GET(req: Request) {
       );
       if (!sample?.length) continue;
 
-      const freq = countFreq(sample.map(r => (r.role == null ? null : String(r.role).trim())).filter(Boolean) as string[]);
-      if (!freq.length) continue;
+      const roles = sample
+        .map(r => (r.role == null ? null : String(r.role).trim()))
+        .filter(Boolean) as string[];
+      if (!roles.length) continue;
 
       hits.push({
         table: c.tableName,
@@ -114,15 +118,14 @@ export async function GET(req: Request) {
         roleCol: c.roleCol,
         via: 'text',
         sample: sample.map(s => ({ role: s.role == null ? null : String(s.role) })),
-        counts: freq
+        counts: countFreq(roles)
       });
     }
 
-    // Через FK на tbl_field_positions
+    // FK → JOIN tbl_field_positions
     for (const c of idCandidates) {
       if (!isSafe(c.tableName) || !isSafe(c.userCol) || !isSafe(c.roleCol)) continue;
 
-      // Берём code из справочника
       const sample = await prisma.$queryRawUnsafe<{ role: any }[]>(
         `SELECT fp.code AS role
            FROM ${c.tableName} t
@@ -133,8 +136,10 @@ export async function GET(req: Request) {
       );
       if (!sample?.length) continue;
 
-      const freq = countFreq(sample.map(r => (r.role == null ? null : String(r.role).trim())).filter(Boolean) as string[]);
-      if (!freq.length) continue;
+      const roles = sample
+        .map(r => (r.role == null ? null : String(r.role).trim()))
+        .filter(Boolean) as string[];
+      if (!roles.length) continue;
 
       hits.push({
         table: c.tableName,
@@ -142,7 +147,7 @@ export async function GET(req: Request) {
         roleCol: c.roleCol,
         via: 'fk',
         sample: sample.map(s => ({ role: s.role == null ? null : String(s.role) })),
-        counts: freq
+        counts: countFreq(roles)
       });
     }
 
