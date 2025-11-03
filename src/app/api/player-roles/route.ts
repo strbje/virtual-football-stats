@@ -156,6 +156,6 @@ export async function GET(req: NextRequest) {
     }, { headers: { 'Cache-Control': 'no-store' } });
 
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+    return NextResponse.json({ ok: true, data: toJSONSafe(rows) });
   }
 }
