@@ -10,7 +10,7 @@ import {
   type RoleGroup,
 } from '@/lib/roles';
 
-/** --- ПАРАМЕТРЫ ВНЕШНЕГО ВИДА (меняй смело) --- */
+/** --- ПАРАМЕТРЫ ВНЕШНЕГО ВИДА --- */
 const BAR_HEIGHT = 14;     // высота зелёной полосы
 const ROW_GAP = 12;        // вертикальный отступ между строками
 const LABEL_WIDTH = 180;   // ширина колонки с подписями слева
@@ -25,7 +25,7 @@ const GROUP_ROLES: Record<RoleGroup, string[]> = Object.entries(ROLE_TO_GROUP).r
   {} as Record<RoleGroup, string[]>
 );
 
-/** Утилита: карта процента по короткой роли из сырых данных */
+/** Карта процента по короткой роли из сырых данных */
 function buildPctByRole(raw: RolePercent[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const { role, percent } of raw) {
@@ -40,6 +40,7 @@ export default function RoleDistributionSection({
   data,
   debug = false,
   title = 'Распределение по амплуа',
+  footnote = 'Без учёта матчей национальных сборных (ЧМ/ЧЕ).',
 }: {
   /** Сырые проценты по коротким ролям: [{ role:'ЦАП', percent: 21 }, ...] */
   data: RolePercent[];
@@ -47,10 +48,10 @@ export default function RoleDistributionSection({
   debug?: boolean;
   /** Заголовок секции */
   title?: string;
+  /** Сноска под блоком (оставь пустым, если не нужна) */
+  footnote?: string | null;
 }) {
-  // агрегаты по группам (используют ROLE_TO_GROUP из lib/roles.ts)
   const grouped = groupRolePercents(data);
-  // карта % по коротким ролям — для отладки/подсказок под полосами
   const pctByRole = buildPctByRole(data);
 
   return (
@@ -59,7 +60,7 @@ export default function RoleDistributionSection({
 
       <div className="flex flex-col" style={{ gap: ROW_GAP }}>
         {grouped.map(({ group, percent }) => {
-          const label = GROUP_LABELS[group]; // человекочитаемая подпись
+          const label = GROUP_LABELS[group];
           const pct = Math.max(0, Math.min(100, Math.round(percent)));
 
           // роли, которые входят в эту группу и реально присутствуют (>0)
@@ -72,7 +73,7 @@ export default function RoleDistributionSection({
           return (
             <div key={group}>
               <div className="flex items-center">
-                {/* колонка: подпись группы */}
+                {/* подпись группы */}
                 <div
                   className="pr-3 text-[13px] text-gray-800 truncate"
                   style={{ width: LABEL_WIDTH }}
@@ -81,7 +82,7 @@ export default function RoleDistributionSection({
                   {label}
                 </div>
 
-                {/* колонка: фон и зелёная полоса */}
+                {/* фон + зелёная полоса */}
                 <div className="relative flex-1 h-[1px]">
                   <div className="h-[10px] w-full rounded-full bg-emerald-100/60" />
                   <div
@@ -90,7 +91,7 @@ export default function RoleDistributionSection({
                   />
                 </div>
 
-                {/* колонка: значение % */}
+                {/* значение % */}
                 <div
                   className="pl-3 text-[13px] font-medium text-gray-700 text-right tabular-nums"
                   style={{ width: PCT_WIDTH }}
@@ -99,7 +100,7 @@ export default function RoleDistributionSection({
                 </div>
               </div>
 
-              {/* Подсказки: какие короткие роли вошли в группу (видно, откуда берётся процент) */}
+              {/* подсказки: какие короткие роли вошли в группу */}
               {debug && members.length > 0 && (
                 <div className="mt-2 ml-[calc(var(--label-w,0px))]" style={{ '--label-w': `${LABEL_WIDTH}px` } as React.CSSProperties}>
                   <div className="flex flex-wrap gap-6 pl-3">
@@ -124,6 +125,10 @@ export default function RoleDistributionSection({
           );
         })}
       </div>
+
+      {footnote && (
+        <div className="mt-3 text-[12px] text-gray-500">{footnote}</div>
+      )}
     </section>
   );
 }
