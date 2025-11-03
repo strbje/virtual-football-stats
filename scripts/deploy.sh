@@ -11,6 +11,7 @@ log(){ printf "\n>>> %s\n" "$*"; }
 
 cd "$APP_DIR"
 
+rm -rf node_modules.__old__* || true
 log "fetch/reset"
 git fetch --prune origin
 git reset --hard origin/main
