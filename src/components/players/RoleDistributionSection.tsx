@@ -7,7 +7,7 @@ import {
   ROLE_LABELS,
   ROLE_TO_GROUP,
   type RoleCode,
-} from './roles';
+} from '@/components/players/roles'; // 👈 абсолютный импорт
 
 type ApiRole = { role: string; count: number; pct: number };
 type ApiResponse = {
@@ -40,7 +40,6 @@ const ORDER: GroupKey[] = [
 ];
 
 function fmtPct(n: number) {
-  // те же визуальные «целые» проценты, что и раньше
   return `${Math.round(n)}%`;
 }
 
@@ -65,7 +64,6 @@ export default function RoleDistributionSection() {
         const json: ApiResponse = await r.json();
         if (!json.ok) throw new Error(json.error || 'failed to load');
 
-        // Сохраняем тотал и мапу ролей -> count
         const map: Record<RoleCode, number> = {} as any;
         json.roles.forEach((it) => {
           const code = it.role.toUpperCase() as RoleCode;
@@ -89,18 +87,15 @@ export default function RoleDistributionSection() {
     };
   }, [userId]);
 
-  // Подготовка данных по группам
   const groups = React.useMemo(() => {
-    // структура для каждой группы
     const result = ORDER.map((g) => ({
       name: g as GroupKey,
-      value: 0, // % от общего тотала
+      value: 0,
       chips: [] as { role: RoleCode; pct: number }[],
     }));
 
     if (!total) return result;
 
-    // суммируем по ролям, используя ROLE_TO_GROUP и ROLE_GROUPS
     (Object.keys(roles) as RoleCode[]).forEach((rc) => {
       const group = ROLE_TO_GROUP[rc];
       if (!group) return;
@@ -115,22 +110,14 @@ export default function RoleDistributionSection() {
       result[idx].chips.push({ role: rc, pct: overallPct });
     });
 
-    // сортируем чипы внутри группы по убыванию процента
     result.forEach((g) => g.chips.sort((a, b) => b.pct - a.pct));
-
     return result;
   }, [roles, total]);
 
   return (
     <div className="space-y-5">
-      {loading && (
-        <div className="text-sm text-gray-500">Загружаем распределение по амплуа…</div>
-      )}
-      {err && (
-        <div className="text-sm text-red-500">
-          Ошибка загрузки распределения: {err}
-        </div>
-      )}
+      {loading && <div className="text-sm text-gray-500">Загружаем распределение по амплуа…</div>}
+      {err && <div className="text-sm text-red-500">Ошибка загрузки распределения: {err}</div>}
 
       {!loading &&
         !err &&
@@ -138,7 +125,6 @@ export default function RoleDistributionSection() {
           <div key={g.name} className="grid grid-cols-[200px_1fr_64px] items-center gap-3">
             <div className="text-sm text-gray-700">{g.name}</div>
 
-            {/* бар */}
             <div className="relative h-3 rounded-full bg-emerald-50">
               <div
                 className="absolute left-0 top-0 h-3 rounded-full bg-emerald-600 transition-[width]"
@@ -146,7 +132,6 @@ export default function RoleDistributionSection() {
                 aria-label={`${g.name}: ${fmtPct(g.value)}`}
                 title={`${g.name}: ${fmtPct(g.value)}`}
               />
-              {/* чипы с ролями поверх бара */}
               <div className="mt-2 flex flex-wrap gap-1">
                 {g.chips.map((c) => (
                   <span
@@ -164,9 +149,7 @@ export default function RoleDistributionSection() {
           </div>
         ))}
 
-      <div className="text-xs text-gray-500">
-        Без учёта матчей национальных сборных (ЧМ/ЧЕ).
-      </div>
+      <div className="text-xs text-gray-500">Без учёта матчей национальных сборных (ЧМ/ЧЕ).</div>
     </div>
   );
 }
