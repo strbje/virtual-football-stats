@@ -191,7 +191,7 @@ export default async function PlayerPage(props: any) {
 
       {/* распределение (плоское, как ожидает компонент) */}
       <section>
-        <RoleDistributionSection data={rolePercents} debug />
+        <RoleDistributionSection />
       </section>
 
       {/* тепловая карта по конкретным амплуа */}
