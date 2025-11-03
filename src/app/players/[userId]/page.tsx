@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import { RolePercent } from "@/utils/roles";
+import RoleHeatmapFromApi from '@/app/players/_components/RoleHeatmapFromApi';
 
 export const dynamic = "force-dynamic";
 
@@ -196,7 +197,7 @@ export default async function PlayerPage(props: any) {
       {/* тепловая карта по конкретным амплуа */}
       <section>
         <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
-        <RoleHeatmap data={rolePercents} />
+        <RoleHeatmapFromApi userId={Number(params.userId)} />
       </section>
     </div>
   );
