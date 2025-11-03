@@ -10,7 +10,7 @@ export type RoleCode =
   // Опорная/центр
   | 'ЛОП' | 'ЦОП' | 'ПОП'
   | 'ЛЦП' | 'ЦП' | 'ПЦП'
-  // Край и «десятка»
+  // Края и «десятка»
   | 'ЛП' | 'ПП'
   | 'ЛАП' | 'ЦАП' | 'ПАП'
   // Форварды (включая фланговых и центральных)
@@ -50,6 +50,7 @@ export const GROUP_ORDER: RoleGroup[] = [
 ];
 
 // Карта: короткая роль → агрегированная группа
+// ВАЖНО: ЛАП/ПАП — это WIDE_MID (крайние полузащитники), ЦАП — ATT_MID.
 export const ROLE_TO_GROUP: Record<RoleCode, RoleGroup> = {
   // Вратарь
   'ВРТ': 'GOALKEEPER',
@@ -68,9 +69,10 @@ export const ROLE_TO_GROUP: Record<RoleCode, RoleGroup> = {
 
   // Крайние полузащитники
   'ЛП': 'WIDE_MID', 'ПП': 'WIDE_MID',
+  'ЛАП': 'WIDE_MID', 'ПАП': 'WIDE_MID', // ← перенос из ATT_MID
 
-  // Атакующая тройка полузащиты
-  'ЛАП': 'ATT_MID', 'ЦАП': 'ATT_MID', 'ПАП': 'ATT_MID',
+  // Атакующая «десятка»
+  'ЦАП': 'ATT_MID',
 
   // Форварды (включая фланговых)
   'ФРВ': 'FORWARD', 'ЦФД': 'FORWARD',
@@ -95,7 +97,6 @@ export type GroupPercent = {
  * - если входная сумма ≠ 100 — мягко нормализуем к 100.
  */
 export function groupRolePercents(raw: RolePercent[]): GroupPercent[] {
-  // Собираем суммы по группам
   const sums = new Map<RoleGroup, number>();
   let inputSum = 0;
 
@@ -111,12 +112,10 @@ export function groupRolePercents(raw: RolePercent[]): GroupPercent[] {
     inputSum += val;
   }
 
-  // Если совсем пусто — вернём нули по порядку
   if (sums.size === 0) {
     return GROUP_ORDER.map((g) => ({ group: g, percent: 0 }));
   }
 
-  // Нормализация (чтобы полосы сходились к 100% визуально)
   const norm = inputSum > 0 ? (100 / inputSum) : 1;
 
   const result = GROUP_ORDER.map((g) => ({
@@ -124,12 +123,10 @@ export function groupRolePercents(raw: RolePercent[]): GroupPercent[] {
     percent: round1((sums.get(g) ?? 0) * norm),
   }));
 
-  // Из-за округлений сумма может быть 99/101 — это нормально.
   return result;
 }
 
 function round1(x: number) {
-  // Округление до целого (как на макете), но не даём уйти за [0,100]
   const v = Math.round(x);
   return Math.max(0, Math.min(100, v));
 }
