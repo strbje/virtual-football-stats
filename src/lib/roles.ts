@@ -1,112 +1,135 @@
 // src/lib/roles.ts
-// Единая схема ролей, групп и координат на поле.
-// Важно: распределение НЕ включает матчи национальных сборных (ЧМ/ЧЕ).
+// Единая типизация и группировка амплуа (короткие коды → агрегированные группы)
 
 export type RoleCode =
+  // Вратарь
   | 'ВРТ'
+  // Защита
   | 'ЛЗ' | 'ПЗ'
   | 'ЛЦЗ' | 'ЦЗ' | 'ПЦЗ'
+  // Опорная/центр
   | 'ЛОП' | 'ЦОП' | 'ПОП'
-  | 'ЛП' | 'ЛЦП' | 'ЦП' | 'ПЦП' | 'ПП'
+  | 'ЛЦП' | 'ЦП' | 'ПЦП'
+  // Край и «десятка»
+  | 'ЛП' | 'ПП'
   | 'ЛАП' | 'ЦАП' | 'ПАП'
-  | 'ЛФА' | 'ЛФД' | 'ЦФД' | 'ПФД' | 'ПФА' | 'ФРВ';
-
-export type RolePercent = { role: string; percent: number };
+  // Форварды (включая фланговых и центральных)
+  | 'ФРВ' | 'ЦФД' | 'ЛФД' | 'ПФД' | 'ЛФА' | 'ПФА';
 
 export type RoleGroup =
-  | 'FW'   // форварды
-  | 'AM'   // атакующие ПЗ
-  | 'WM'   // крайние ПЗ
-  | 'CM'   // центральные ПЗ
-  | 'DM'   // опорники
-  | 'FB'   // крайние защитники
-  | 'CB'   // центральные защитники
-  | 'GK';  // вратарь
+  | 'FORWARD'
+  | 'ATT_MID'
+  | 'WIDE_MID'
+  | 'CENT_MID'
+  | 'DEF_MID'
+  | 'FULLBACK'
+  | 'CENTER_BACK'
+  | 'GOALKEEPER';
 
 export const GROUP_LABELS: Record<RoleGroup, string> = {
-  FW: 'Форвард',
-  AM: 'Атакующий полузащитник',
-  WM: 'Крайний полузащитник',
-  CM: 'Центральный полузащитник',
-  DM: 'Опорный полузащитник',
-  FB: 'Крайний защитник',
-  CB: 'Центральный защитник',
-  GK: 'Вратарь',
+  FORWARD:      'Форвард',
+  ATT_MID:      'Атакующий полузащитник',
+  WIDE_MID:     'Крайний полузащитник',
+  CENT_MID:     'Центральный полузащитник',
+  DEF_MID:      'Опорный полузащитник',
+  FULLBACK:     'Крайний защитник',
+  CENTER_BACK:  'Центральный защитник',
+  GOALKEEPER:   'Вратарь',
 };
 
-// Маппинг короткой роли → группа
+// Фиксированный порядок строк в секции
+export const GROUP_ORDER: RoleGroup[] = [
+  'FORWARD',
+  'ATT_MID',
+  'WIDE_MID',
+  'CENT_MID',
+  'DEF_MID',
+  'FULLBACK',
+  'CENTER_BACK',
+  'GOALKEEPER',
+];
+
+// Карта: короткая роль → агрегированная группа
 export const ROLE_TO_GROUP: Record<RoleCode, RoleGroup> = {
-  // GK
-  ВРТ: 'GK',
+  // Вратарь
+  'ВРТ': 'GOALKEEPER',
 
-  // Defence
-  ЛЗ: 'FB', ПЗ: 'FB',
-  ЛЦЗ: 'CB', ЦЗ: 'CB', ПЦЗ: 'CB',
+  // Крайние защитники
+  'ЛЗ': 'FULLBACK', 'ПЗ': 'FULLBACK',
 
-  // DM
-  ЛОП: 'DM', ЦОП: 'DM', ПОП: 'DM',
+  // Центральные защитники
+  'ЛЦЗ': 'CENTER_BACK', 'ЦЗ': 'CENTER_BACK', 'ПЦЗ': 'CENTER_BACK',
 
-  // Mid
-  ЛП: 'WM', ПП: 'WM',
-  ЛЦП: 'CM', ЦП: 'CM', ПЦП: 'CM',
+  // Опорные
+  'ЛОП': 'DEF_MID', 'ЦОП': 'DEF_MID', 'ПОП': 'DEF_MID',
 
-  // AM (полузащита)
-  ЛАП: 'AM', ЦАП: 'AM', ПАП: 'AM',
+  // Центральные полузащитники
+  'ЛЦП': 'CENT_MID', 'ЦП': 'CENT_MID', 'ПЦП': 'CENT_MID',
 
-  // Forwards (включая ЛФА/ПФА)
-  ЛФА: 'FW', ЛФД: 'FW', ЦФД: 'FW', ПФД: 'FW', ПФА: 'FW', ФРВ: 'FW',
+  // Крайние полузащитники
+  'ЛП': 'WIDE_MID', 'ПП': 'WIDE_MID',
+
+  // Атакующая тройка полузащиты
+  'ЛАП': 'ATT_MID', 'ЦАП': 'ATT_MID', 'ПАП': 'ATT_MID',
+
+  // Форварды (включая фланговых)
+  'ФРВ': 'FORWARD', 'ЦФД': 'FORWARD',
+  'ЛФД': 'FORWARD', 'ПФД': 'FORWARD',
+  'ЛФА': 'FORWARD', 'ПФА': 'FORWARD',
 };
 
-// Координаты бабблов на схеме поля
-export const ROLE_COORDS: Record<RoleCode, { x: number; y: number }> = {
-  // GK
-  ВРТ: { x: 50, y: 90 },
-
-  // Defence
-  ЛЗ: { x: 28, y: 74 }, ЛЦЗ: { x: 42, y: 74 }, ЦЗ: { x: 50, y: 74 }, ПЦЗ: { x: 58, y: 74 }, ПЗ: { x: 72, y: 74 },
-
-  // DM
-  ЛОП: { x: 42, y: 58 }, ЦОП: { x: 50, y: 60 }, ПОП: { x: 58, y: 58 },
-
-  // Mid
-  ЛП: { x: 30, y: 44 }, ЛЦП: { x: 42, y: 50 }, ЦП: { x: 50, y: 50 }, ПЦП: { x: 58, y: 50 }, ПП: { x: 70, y: 44 },
-
-  // AM
-  ЛАП: { x: 38, y: 28 }, ЦАП: { x: 50, y: 30 }, ПАП: { x: 62, y: 28 },
-
-  // Forwards (wide forwards добавил ЛФА/ПФА)
-  ЛФД: { x: 32, y: 18 }, ЛФА: { x: 38, y: 20 },
-  ЦФД: { x: 50, y: 18 }, ФРВ: { x: 50, y: 14 },
-  ПФА: { x: 62, y: 20 }, ПФД: { x: 68, y: 18 },
+export type RolePercent = {
+  role: string;    // короткий код, например 'ЦАП'
+  percent: number; // доля (0..100); может быть не нормирована суммарно
 };
 
-// --- Утилиты ---
+export type GroupPercent = {
+  group: RoleGroup;
+  percent: number; // 0..100 после нормализации
+};
 
-export function normalizeRolePercents(raw: RolePercent[]): Map<RoleCode, number> {
-  const acc = new Map<RoleCode, number>();
-  for (const r of raw) {
+/**
+ * Группирует сырые проценты по коротким ролям в агрегированные группы.
+ * - неизвестные коды и нулевые доли пропускаем;
+ * - суммируем по группе;
+ * - если входная сумма ≠ 100 — мягко нормализуем к 100.
+ */
+export function groupRolePercents(raw: RolePercent[]): GroupPercent[] {
+  // Собираем суммы по группам
+  const sums = new Map<RoleGroup, number>();
+  let inputSum = 0;
+
+  for (const r of raw ?? []) {
     const code = (r.role ?? '').toUpperCase().trim() as RoleCode;
-    if (!code) continue;
     const val = Number(r.percent ?? 0);
-    acc.set(code, (acc.get(code) ?? 0) + val);
+    if (!code || !isFinite(val) || val <= 0) continue;
+
+    const group = ROLE_TO_GROUP[code];
+    if (!group) continue;
+
+    sums.set(group, (sums.get(group) ?? 0) + val);
+    inputSum += val;
   }
-  return acc;
+
+  // Если совсем пусто — вернём нули по порядку
+  if (sums.size === 0) {
+    return GROUP_ORDER.map((g) => ({ group: g, percent: 0 }));
+  }
+
+  // Нормализация (чтобы полосы сходились к 100% визуально)
+  const norm = inputSum > 0 ? (100 / inputSum) : 1;
+
+  const result = GROUP_ORDER.map((g) => ({
+    group: g,
+    percent: round1((sums.get(g) ?? 0) * norm),
+  }));
+
+  // Из-за округлений сумма может быть 99/101 — это нормально.
+  return result;
 }
 
-export type GroupedPercent = { group: RoleGroup; percent: number };
-
-export function groupRolePercents(raw: RolePercent[]): GroupedPercent[] {
-  const byRole = normalizeRolePercents(raw);
-  const byGroup = new Map<RoleGroup, number>();
-
-  byRole.forEach((pct, role) => {
-    const group = ROLE_TO_GROUP[role];
-    if (!group) return;
-    byGroup.set(group, (byGroup.get(group) ?? 0) + pct);
-  });
-
-  return (Object.keys(GROUP_LABELS) as RoleGroup[]).map((g) => ({
-    group: g,
-    percent: byGroup.get(g) ?? 0,
-  }));
+function round1(x: number) {
+  // Округление до целого (как на макете), но не даём уйти за [0,100]
+  const v = Math.round(x);
+  return Math.max(0, Math.min(100, v));
 }
