@@ -77,8 +77,8 @@ export default function RoleHeatmap({ data, scale = 1 }: Props) {
     if (POS[code]) map.set(code, (map.get(code) ?? 0) + val);
   }
 
-  const W = 1000 * scale;
-  const H = 1400 * scale;
+  const W = 500 * scale;
+  const H = 700 * scale;
 
   return (
     <div className="relative rounded-xl bg-emerald-50" style={{ width: W, height: H }}>
