@@ -10,7 +10,7 @@ import {
   type RoleGroup,
 } from '@/lib/roles';
 
-type ApiRole = { role: string; count: number; pct: number };
+type ApiRole = { role: string; count?: number; pct?: number };
 type ApiResponse = {
   ok: boolean;
   total: number;
@@ -19,82 +19,139 @@ type ApiResponse = {
   error?: string;
 };
 
+// Пропсы делаем опциональными, чтобы не ломать существующие места вызова
+type Props = {
+  data?: { role: string; percent?: number; pct?: number; count?: number }[];
+  debug?: boolean;
+};
+
 type GroupRow = {
   key: RoleGroup;
   value: number; // суммарный % по группе
-  chips: { role: RoleCode; pct: number }[]; // расшифровка по коротким кодам
+  chips: { role: RoleCode; pct: number }[];
 };
 
 const ORDER: RoleGroup[] = GROUP_ORDER;
-
 const fmtPct = (v: number) => `${Math.round(v)}%`;
 
-export default function RoleDistributionSection() {
+/** Подсчёт процентов по группам из массива "коротких ролей" с их долями */
+function computeFromList(
+  list: { role: string; percent?: number; pct?: number; count?: number }[],
+  totalCount?: number
+): { rows: GroupRow[]; total: number } {
+  const rows: GroupRow[] = ORDER.map((g) => ({ key: g, value: 0, chips: [] }));
+  // total: если есть «count», можно нормировать по матчам
+  let total = Number(totalCount ?? 0);
+
+  // Если в данных есть count — посчитаем total как сумму count
+  if (!total) {
+    const sumCount = list.reduce((s, x) => s + (Number(x.count) || 0), 0);
+    if (sumCount > 0) total = sumCount;
+  }
+
+  // Если total неизвестен, нормализуем по сумме процентов
+  let sumPct = 0;
+
+  list.forEach((x) => {
+    const code = (x.role ?? '').toUpperCase().trim() as RoleCode;
+    const grp = ROLE_TO_GROUP[code];
+    if (!grp) return;
+
+    const pctFromPercent = Number.isFinite(Number(x.percent))
+      ? Number(x.percent)
+      : Number.isFinite(Number(x.pct))
+      ? Number(x.pct)
+      : undefined;
+
+    let pct: number | undefined = pctFromPercent;
+
+    if (pct === undefined && total > 0 && Number(x.count) > 0) {
+      pct = (Number(x.count) / total) * 100;
+    }
+
+    if (!Number.isFinite(pct) || (pct as number) <= 0) return;
+
+    const idx = ORDER.indexOf(grp);
+    rows[idx].value += pct as number;
+    rows[idx].chips.push({ role: code, pct: pct as number });
+
+    sumPct += pct as number;
+  });
+
+  // Нормализация, если вход не суммируется к 100
+  if (sumPct > 0 && Math.abs(sumPct - 100) > 0.5) {
+    const k = 100 / sumPct;
+    rows.forEach((r) => {
+      r.value *= k;
+      r.chips.forEach((c) => (c.pct *= k));
+    });
+  }
+
+  rows.forEach((r) => r.chips.sort((a, b) => b.pct - a.pct));
+  return { rows, total };
+}
+
+export default function RoleDistributionSection(props: Props) {
   const params = useParams<{ userId: string }>();
   const userId = params?.userId;
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [total, setTotal] = React.useState(0);
-  const [byRole, setByRole] = React.useState<Record<RoleCode, number>>({} as any);
+  const [rows, setRows] = React.useState<GroupRow[]>(
+    ORDER.map((g) => ({ key: g, value: 0, chips: [] }))
+  );
 
   React.useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
         setLoading(true);
         setError(null);
 
+        // 1) основной источник — API
         if (!userId) throw new Error('userId not found in route');
         const r = await fetch(`/api/player-roles?userId=${userId}`, { cache: 'no-store' });
         const json: ApiResponse = await r.json();
-        if (!json.ok) throw new Error(json.error || 'failed to load');
 
-        const m: Record<RoleCode, number> = {} as any;
-        json.roles.forEach((it) => {
-          const code = (it.role ?? '').toUpperCase() as RoleCode;
-          const cnt = Number(it.count ?? 0);
-          if (!code || !isFinite(cnt) || cnt <= 0) return;
-          m[code] = (m[code] ?? 0) + cnt;
-        });
-
-        if (alive) {
-          setTotal(json.total);
-          setByRole(m);
+        if (json.ok && Array.isArray(json.roles)) {
+          const list = json.roles.map((it) => ({
+            role: (it.role ?? '').toUpperCase(),
+            count: Number(it.count ?? 0),
+            pct: Number(it.pct ?? 0),
+          }));
+          const { rows } = computeFromList(list, json.total);
+          if (alive) setRows(rows);
+          return;
         }
+
+        // 2) запасной вариант — то, что пришло пропсом data (если передают)
+        if (props.data && props.data.length) {
+          const { rows } = computeFromList(props.data);
+          if (alive) setRows(rows);
+          return;
+        }
+
+        throw new Error(json.error || 'failed to load');
       } catch (e: any) {
-        if (alive) setError(e?.message || String(e));
+        // если API упал, но есть props.data — попробуем из них
+        if (props.data && props.data.length) {
+          const { rows } = computeFromList(props.data);
+          setRows(rows);
+          setError(null);
+        } else {
+          setError(e?.message || String(e));
+        }
       } finally {
         if (alive) setLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
-
-  const rows: GroupRow[] = React.useMemo(() => {
-    const res: GroupRow[] = ORDER.map((g) => ({ key: g, value: 0, chips: [] }));
-
-    if (!total) return res;
-
-    (Object.keys(byRole) as RoleCode[]).forEach((rc) => {
-      const group = ROLE_TO_GROUP[rc];
-      if (!group) return;
-      const idx = ORDER.indexOf(group);
-      if (idx < 0) return;
-
-      const count = byRole[rc] ?? 0;
-      if (count <= 0) return;
-
-      const share = (count / total) * 100;
-      res[idx].value += share;
-      res[idx].chips.push({ role: rc, pct: share });
-    });
-
-    res.forEach((g) => g.chips.sort((a, b) => b.pct - a.pct));
-    return res;
-  }, [byRole, total]);
 
   return (
     <div className="space-y-5">
