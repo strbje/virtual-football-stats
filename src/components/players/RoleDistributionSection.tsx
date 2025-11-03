@@ -1,134 +1,172 @@
-// src/components/players/RoleDistributionSection.tsx
 'use client';
 
 import React from 'react';
+import { useParams } from 'next/navigation';
 import {
+  ROLE_GROUPS,
+  ROLE_LABELS,
   ROLE_TO_GROUP,
-  GROUP_LABELS,
-  groupRolePercents,
-  type RolePercent,
-  type RoleGroup,
-} from '@/lib/roles';
+  type RoleCode,
+} from './roles';
 
-/** --- ПАРАМЕТРЫ ВНЕШНЕГО ВИДА --- */
-const BAR_HEIGHT = 14;     // высота зелёной полосы
-const ROW_GAP = 12;        // вертикальный отступ между строками
-const LABEL_WIDTH = 180;   // ширина колонки с подписями слева
-const PCT_WIDTH = 48;      // ширина колонки с процентом справа
+type ApiRole = { role: string; count: number; pct: number };
+type ApiResponse = {
+  ok: boolean;
+  total: number;
+  roles: ApiRole[];
+  source?: string;
+  error?: string;
+};
 
-/** Обратный индекс: группа -> список коротких ролей, которые в неё входят */
-const GROUP_ROLES: Record<RoleGroup, string[]> = Object.entries(ROLE_TO_GROUP).reduce(
-  (acc, [role, group]) => {
-    (acc[group as RoleGroup] ??= []).push(role);
-    return acc;
-  },
-  {} as Record<RoleGroup, string[]>
-);
+type GroupKey =
+  | 'Форвард'
+  | 'Атакующий полузащитник'
+  | 'Крайний полузащитник'
+  | 'Центральный полузащитник'
+  | 'Опорный полузащитник'
+  | 'Крайний защитник'
+  | 'Центральный защитник'
+  | 'Вратарь';
 
-/** Карта процента по короткой роли из сырых данных */
-function buildPctByRole(raw: RolePercent[]): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const { role, percent } of raw) {
-    const code = (role ?? '').toUpperCase().trim();
-    if (!code) continue;
-    map.set(code, (map.get(code) ?? 0) + (percent ?? 0));
-  }
-  return map;
+const ORDER: GroupKey[] = [
+  'Форвард',
+  'Атакующий полузащитник',
+  'Крайний полузащитник',
+  'Центральный полузащитник',
+  'Опорный полузащитник',
+  'Крайний защитник',
+  'Центральный защитник',
+  'Вратарь',
+];
+
+function fmtPct(n: number) {
+  // те же визуальные «целые» проценты, что и раньше
+  return `${Math.round(n)}%`;
 }
 
-export default function RoleDistributionSection({
-  data,
-  debug = false,
-  title = 'Распределение по амплуа',
-  footnote = 'Без учёта матчей национальных сборных (ЧМ/ЧЕ).',
-}: {
-  /** Сырые проценты по коротким ролям: [{ role:'ЦАП', percent: 21 }, ...] */
-  data: RolePercent[];
-  /** Включить подсказки: какие короткие роли сложились в каждую группу */
-  debug?: boolean;
-  /** Заголовок секции */
-  title?: string;
-  /** Сноска под блоком (оставь пустым, если не нужна) */
-  footnote?: string | null;
-}) {
-  const grouped = groupRolePercents(data);
-  const pctByRole = buildPctByRole(data);
+export default function RoleDistributionSection() {
+  const params = useParams<{ userId: string }>();
+  const userId = params?.userId;
+
+  const [loading, setLoading] = React.useState(true);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [total, setTotal] = React.useState(0);
+  const [roles, setRoles] = React.useState<Record<RoleCode, number>>({} as any);
+
+  React.useEffect(() => {
+    let alive = true;
+
+    async function load() {
+      setLoading(true);
+      setErr(null);
+      try {
+        if (!userId) throw new Error('userId not found in route');
+        const r = await fetch(`/api/player-roles?userId=${userId}`, { cache: 'no-store' });
+        const json: ApiResponse = await r.json();
+        if (!json.ok) throw new Error(json.error || 'failed to load');
+
+        // Сохраняем тотал и мапу ролей -> count
+        const map: Record<RoleCode, number> = {} as any;
+        json.roles.forEach((it) => {
+          const code = it.role.toUpperCase() as RoleCode;
+          map[code] = (map[code] ?? 0) + it.count;
+        });
+
+        if (alive) {
+          setTotal(json.total);
+          setRoles(map);
+        }
+      } catch (e: any) {
+        if (alive) setErr(e?.message || String(e));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  // Подготовка данных по группам
+  const groups = React.useMemo(() => {
+    // структура для каждой группы
+    const result = ORDER.map((g) => ({
+      name: g as GroupKey,
+      value: 0, // % от общего тотала
+      chips: [] as { role: RoleCode; pct: number }[],
+    }));
+
+    if (!total) return result;
+
+    // суммируем по ролям, используя ROLE_TO_GROUP и ROLE_GROUPS
+    (Object.keys(roles) as RoleCode[]).forEach((rc) => {
+      const group = ROLE_TO_GROUP[rc];
+      if (!group) return;
+      const idx = ORDER.indexOf(group as GroupKey);
+      if (idx < 0) return;
+
+      const count = roles[rc] ?? 0;
+      if (count <= 0) return;
+
+      const overallPct = (count / total) * 100;
+      result[idx].value += overallPct;
+      result[idx].chips.push({ role: rc, pct: overallPct });
+    });
+
+    // сортируем чипы внутри группы по убыванию процента
+    result.forEach((g) => g.chips.sort((a, b) => b.pct - a.pct));
+
+    return result;
+  }, [roles, total]);
 
   return (
-    <section className="rounded-2xl border p-4">
-      <h3 className="mb-4 text-sm font-medium text-gray-600">{title}</h3>
-
-      <div className="flex flex-col" style={{ gap: ROW_GAP }}>
-        {grouped.map(({ group, percent }) => {
-          const label = GROUP_LABELS[group];
-          const pct = Math.max(0, Math.min(100, Math.round(percent)));
-
-          // роли, которые входят в эту группу и реально присутствуют (>0)
-          const members =
-            (GROUP_ROLES[group] ?? [])
-              .map((r) => ({ role: r, pct: Math.round(pctByRole.get(r) ?? 0) }))
-              .filter((x) => x.pct > 0)
-              .sort((a, b) => b.pct - a.pct);
-
-          return (
-            <div key={group}>
-              <div className="flex items-center">
-                {/* подпись группы */}
-                <div
-                  className="pr-3 text-[13px] text-gray-800 truncate"
-                  style={{ width: LABEL_WIDTH }}
-                  title={label}
-                >
-                  {label}
-                </div>
-
-                {/* фон + зелёная полоса */}
-                <div className="relative flex-1 h-[1px]">
-                  <div className="h-[10px] w-full rounded-full bg-emerald-100/60" />
-                  <div
-                    className="absolute left-0 top-0 h-[10px] rounded-full bg-emerald-600"
-                    style={{ width: `${pct}%`, height: BAR_HEIGHT }}
-                  />
-                </div>
-
-                {/* значение % */}
-                <div
-                  className="pl-3 text-[13px] font-medium text-gray-700 text-right tabular-nums"
-                  style={{ width: PCT_WIDTH }}
-                >
-                  {pct}%
-                </div>
-              </div>
-
-              {/* подсказки: какие короткие роли вошли в группу */}
-              {debug && members.length > 0 && (
-                <div className="mt-2 ml-[calc(var(--label-w,0px))]" style={{ '--label-w': `${LABEL_WIDTH}px` } as React.CSSProperties}>
-                  <div className="flex flex-wrap gap-6 pl-3">
-                    {members.map((m) => (
-                      <div
-                        key={m.role}
-                        className="text-[12px] text-gray-600"
-                        title={`Короткая роль: ${m.role} — ${m.pct}%`}
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          <span className="inline-block rounded-md bg-gray-100 px-1.5 py-[1px] text-gray-800">
-                            {m.role}
-                          </span>
-                          <span className="tabular-nums">{m.pct}%</span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {footnote && (
-        <div className="mt-3 text-[12px] text-gray-500">{footnote}</div>
+    <div className="space-y-5">
+      {loading && (
+        <div className="text-sm text-gray-500">Загружаем распределение по амплуа…</div>
       )}
-    </section>
+      {err && (
+        <div className="text-sm text-red-500">
+          Ошибка загрузки распределения: {err}
+        </div>
+      )}
+
+      {!loading &&
+        !err &&
+        groups.map((g) => (
+          <div key={g.name} className="grid grid-cols-[200px_1fr_64px] items-center gap-3">
+            <div className="text-sm text-gray-700">{g.name}</div>
+
+            {/* бар */}
+            <div className="relative h-3 rounded-full bg-emerald-50">
+              <div
+                className="absolute left-0 top-0 h-3 rounded-full bg-emerald-600 transition-[width]"
+                style={{ width: `${Math.min(100, Math.max(0, g.value))}%` }}
+                aria-label={`${g.name}: ${fmtPct(g.value)}`}
+                title={`${g.name}: ${fmtPct(g.value)}`}
+              />
+              {/* чипы с ролями поверх бара */}
+              <div className="mt-2 flex flex-wrap gap-1">
+                {g.chips.map((c) => (
+                  <span
+                    key={c.role}
+                    className="text-[11px] px-2 py-[2px] rounded-md bg-gray-100 text-gray-800"
+                    title={`${ROLE_LABELS[c.role]} — ${fmtPct(c.pct)}`}
+                  >
+                    {c.role} <span className="opacity-70">{fmtPct(c.pct)}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-right text-sm text-gray-600">{fmtPct(g.value)}</div>
+          </div>
+        ))}
+
+      <div className="text-xs text-gray-500">
+        Без учёта матчей национальных сборных (ЧМ/ЧЕ).
+      </div>
+    </div>
   );
 }
