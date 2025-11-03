@@ -1,30 +1,23 @@
-// src/app/api/player-roles/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 type Row = Record<string, unknown>;
 
-type Candidate = {
-  table: string;
-  userCol: string;
-  roleCol: string;
-};
+type Candidate = { table: string; userCol: string; roleCol: string };
 
-// Кандидаты-источники (имена жёстко заданы — безопасно для raw SQL)
 const CANDIDATES: Candidate[] = [
-  { table: 'club_team_player',     userCol: 'user_id',  roleCol: 'player_position' },
-  { table: 'tbl_membership',       userCol: 'user_id',  roleCol: 'field_position'  },
-  { table: 'tbl_user_achievements',userCol: 'user_id',  roleCol: 'position'        },
-  { table: 'users',                userCol: 'player_id',roleCol: 'role'            },
+  { table: 'club_team_player_membership', userCol: 'user_id',  roleCol: 'field_position' },
+  { table: 'tbl_membership',              userCol: 'user_id',  roleCol: 'field_position' },
+  { table: 'club_team_player',            userCol: 'user_id',  roleCol: 'player_position' },
+  { table: 'tbl_user_achievements',       userCol: 'user_id',  roleCol: 'position' },
+  { table: 'users',                       userCol: 'player_id',roleCol: 'role' },
 ];
 
-// Безопасное приведение числа (MySQL часто отдаёт BigInt)
 function toNum(v: unknown): number {
   if (typeof v === 'bigint') return Number(v);
   return Number(v ?? 0);
 }
 
-// Проверка, что таблица существует в текущей БД
 async function tableExists(table: string): Promise<boolean> {
   const r = await prisma.$queryRawUnsafe<Row[]>(
     `SELECT COUNT(*) AS cnt
@@ -33,11 +26,9 @@ async function tableExists(table: string): Promise<boolean> {
         AND table_name   = ?`,
     table
   );
-  const cnt = toNum(r?.[0]?.cnt);
-  return cnt > 0;
+  return toNum(r?.[0]?.cnt) > 0;
 }
 
-// Проверка, что колонка существует в таблице
 async function columnExists(table: string, column: string): Promise<boolean> {
   const r = await prisma.$queryRawUnsafe<Row[]>(
     `SELECT COUNT(*) AS cnt
@@ -48,25 +39,27 @@ async function columnExists(table: string, column: string): Promise<boolean> {
     table,
     column
   );
-  const cnt = toNum(r?.[0]?.cnt);
-  return cnt > 0;
+  return toNum(r?.[0]?.cnt) > 0;
 }
 
-// Есть ли в таблице строки для данного пользователя
-async function hasRowsForUser(table: string, userCol: string, userId: number): Promise<boolean> {
-  // table/userCol приходят из белого списка CANDIDATES — инъекций нет
+async function hasRowsForUserWithRole(
+  table: string,
+  userCol: string,
+  roleCol: string,
+  userId: number
+): Promise<boolean> {
   const r = await prisma.$queryRawUnsafe<Row[]>(
     `SELECT COUNT(*) AS cnt
        FROM ${table}
       WHERE ${userCol} = ?
+        AND ${roleCol} IS NOT NULL
+        AND ${roleCol} <> ''
       LIMIT 1`,
     userId
   );
-  const cnt = toNum(r?.[0]?.cnt);
-  return cnt > 0;
+  return toNum(r?.[0]?.cnt) > 0;
 }
 
-// Агрегация по ролям
 async function loadRoleCounts(
   table: string,
   userCol: string,
@@ -90,54 +83,74 @@ async function loadRoleCounts(
   }));
 }
 
+async function sampleRows(
+  table: string,
+  userCol: string,
+  roleCol: string,
+  userId: number
+): Promise<Row[]> {
+  return prisma.$queryRawUnsafe<Row[]>(
+    `SELECT ${userCol} AS user_id, ${roleCol} AS role_val
+       FROM ${table}
+      WHERE ${userCol} = ?
+      ORDER BY 1
+      LIMIT 5`,
+    userId
+  );
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const userId = Number(url.searchParams.get('userId'));
+    const wantDebug = url.searchParams.get('debug') === '1';
 
     if (!Number.isFinite(userId) || userId <= 0) {
       return NextResponse.json({ ok: false, error: 'Bad or missing userId' }, { status: 400 });
     }
 
-    // 1) Ищем подходящий источник
     const viable: Candidate[] = [];
     for (const c of CANDIDATES) {
       if (!(await tableExists(c.table))) continue;
       if (!(await columnExists(c.table, c.userCol))) continue;
       if (!(await columnExists(c.table, c.roleCol))) continue;
-      if (!(await hasRowsForUser(c.table, c.userCol, userId))) continue;
+      if (!(await hasRowsForUserWithRole(c.table, c.userCol, c.roleCol, userId))) continue;
       viable.push(c);
     }
 
     if (viable.length === 0) {
+      // для диагностики вернём по каждому кандидату, что именно не так
+      const diag = [];
+      for (const c of CANDIDATES) {
+        const exists = await tableExists(c.table);
+        const ucol = exists && (await columnExists(c.table, c.userCol));
+        const rcol = exists && (await columnExists(c.table, c.roleCol));
+        let hasData = false;
+        if (exists && ucol && rcol) {
+          hasData = await hasRowsForUserWithRole(c.table, c.userCol, c.roleCol, userId);
+        }
+        diag.push({ ...c, exists, ucol, rcol, hasData });
+      }
       return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'Не найден источник: таблица/колонки отсутствуют или для этого userId нет строк',
-          tried: CANDIDATES,
-        },
+        { ok: false, error: 'Нет строк с ненулевыми ролями для данного userId', diag },
         { status: 404 }
       );
     }
 
-    // 2) Берём первый валидный источник и считаем роли
     const src = viable[0];
     const counts = await loadRoleCounts(src.table, src.userCol, src.roleCol, userId);
-    const total = counts.reduce((acc, r) => acc + r.count, 0);
-
-    const withPct = counts.map((r) => ({
+    const total = counts.reduce((a, r) => a + r.count, 0);
+    const roles = counts.map((r) => ({
       role: r.role,
       count: r.count,
       pct: total ? Math.round((r.count * 10000) / total) / 100 : 0,
     }));
 
-    return NextResponse.json({
-      ok: true,
-      source: src,
-      total,
-      roles: withPct, // «сырая правда» по ролям для диагностики
-    });
+    const payload: any = { ok: true, source: src, total, roles };
+    if (wantDebug) {
+      payload.debug_sample = await sampleRows(src.table, src.userCol, src.roleCol, userId);
+    }
+    return NextResponse.json(payload);
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
