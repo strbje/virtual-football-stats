@@ -2,43 +2,24 @@
 
 import React from 'react';
 import RoleHeatmap from '@/components/players/RoleHeatmap';
+import type { RolePercent } from '@/lib/roles';
 
-type ApiRole = { role: string; count: number; pct: number };
-type ApiResp =
-  | { ok: true; roles: ApiRole[] }
-  | { ok: false; error: string };
+// Формат ответа API может быть { role, pct } или { role, percent }.
+// Приводим к RolePercent и отбрасываем нули.
+type ApiRole = {
+  role?: string;
+  pct?: number;
+  percent?: number;
+};
 
-export default function RoleHeatmapFromApi({ userId }: { userId: number }) {
-  const [roles, setRoles] = React.useState<ApiRole[] | null>(null);
-  const [err, setErr] = React.useState<string | null>(null);
+export default function RoleHeatmapFromApi({ roles }: { roles: ApiRole[] }) {
+  const mapped: RolePercent[] = (roles ?? [])
+    .map((r) => ({
+      role: String(r.role ?? '').toUpperCase().trim(),
+      percent: Number(r.percent ?? r.pct ?? 0),
+    }))
+    .filter((r) => r.role && isFinite(r.percent) && r.percent > 0);
 
-  React.useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const res = await fetch(`/api/player-roles?userId=${userId}`, { cache: 'no-store' });
-        const json: ApiResp = await res.json();
-        if (!alive) return;
-        if ('ok' in json && json.ok) {
-          setRoles(json.roles);
-        } else {
-          setErr((json as any).error ?? 'Unknown error');
-        }
-      } catch (e: any) {
-        if (!alive) return;
-        setErr(e?.message ?? 'Network error');
-      }
-    })();
-    return () => { alive = false; };
-  }, [userId]);
-
-  if (err) {
-    return <div className="text-sm text-red-500">Не удалось загрузить роли: {err}</div>;
-  }
-  if (!roles) {
-    return <div className="text-sm text-gray-500">Загружаю тепловую карту…</div>;
-  }
-
-  // RoleHeatmap принимает короткие коды и проценты — этого из API достаточно
-  return <RoleHeatmap data={roles} caption="Тепловая карта амплуа" />;
+  // Никаких лишних пропов (caption и т.п. здесь не нужен)
+  return <RoleHeatmap data={mapped} />;
 }
