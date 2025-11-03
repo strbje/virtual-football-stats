@@ -73,7 +73,14 @@ export default function RoleHeatmap({ data, total, caption }: Props) {
     <div className="rounded-2xl border p-4">
       {caption && <div className="mb-3 text-sm text-gray-500">{caption}</div>}
 
-      <div className="relative w-full" style={{ aspectRatio: '2 / 3' }}>
+      <div
+  className="relative mx-auto origin-top"
+  style={{
+    aspectRatio: '2 / 3',
+    transform: 'scale(0.17)',   // 1/6 ≈ 0.17
+    transformOrigin: 'top center',
+  }}
+>
         {/* поле */}
         <svg viewBox="0 0 100 150" className="absolute inset-0 w-full h-full">
           <rect x="0" y="0" width="100" height="150" fill="transparent" />
