@@ -1,190 +1,144 @@
+// src/app/api/player-roles/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-/**
- * GET /api/player-roles?userId=50734
- *
- * Диагност:
- *  - Ищет таблицы с (user_id|player_id|userid) + ТЕКСТОВОЙ ролью
- *  - И/ИЛИ таблицы с FK-колонкой (skill_position_id / position_id / field_position_id),
- *    которые JOIN-ятся на tbl_field_positions(id) и дают code роли.
- *  - Возвращает, какие таблицы реально отдали строки по userId, с сэмплами и частотами.
- */
+type Row = Record<string, unknown>;
 
-type Hit = {
+type Candidate = {
   table: string;
   userCol: string;
-  roleCol: string;      // текстовая роль ИЛИ id-колонка (для FK-варианта)
-  via: 'text' | 'fk';
-  sample: Array<{ role: string | null }>;
-  counts: Array<{ role: string; count: number }>;
+  roleCol: string;
 };
 
-const USER_COLS = ['user_id', 'player_id', 'userid'];
-const TEXT_ROLE_COLS = [
-  'player_position', 'field_position', 'position',
-  'role', 'pos', 'position_short_name', 'short_name'
+// Кандидаты-источники (имена жёстко заданы — безопасно для raw SQL)
+const CANDIDATES: Candidate[] = [
+  { table: 'club_team_player',     userCol: 'user_id',  roleCol: 'player_position' },
+  { table: 'tbl_membership',       userCol: 'user_id',  roleCol: 'field_position'  },
+  { table: 'tbl_user_achievements',userCol: 'user_id',  roleCol: 'position'        },
+  { table: 'users',                userCol: 'player_id',roleCol: 'role'            },
 ];
-const ID_ROLE_COLS = [
-  'skill_position_id', 'position_id', 'field_position_id', 'skill_position'
-];
 
-const SAFE_IDENT = /^[A-Za-z0-9_]+$/;
-const isSafe = (s: string) => SAFE_IDENT.test(s);
-
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const userId = Number(searchParams.get('userId'));
-    if (!Number.isFinite(userId)) {
-      return NextResponse.json({ ok: false, error: 'Укажи ?userId=<число>' }, { status: 400 });
-    }
-
-    // Есть ли справочник позиций?
-    const fpExists = await hasFieldPositions();
-
-    // 1) Кандидаты с ТЕКСТОВОЙ ролью
-    const textCandidates = await prisma.$queryRawUnsafe<{
-      tableName: string; userCol: string; roleCol: string;
-    }[]>(`
-      SELECT cu.table_name   AS tableName,
-             cu.column_name  AS userCol,
-             cr.column_name  AS roleCol
-      FROM information_schema.columns cu
-      JOIN information_schema.columns cr
-        ON cr.table_schema = cu.table_schema
-       AND cr.table_name   = cu.table_name
-      JOIN information_schema.tables t
-        ON t.table_schema = cu.table_schema
-       AND t.table_name   = cu.table_name
-      WHERE cu.table_schema = DATABASE()
-        AND cu.column_name IN (${USER_COLS.map(s => `'${s}'`).join(',')})
-        AND cr.column_name IN (${TEXT_ROLE_COLS.map(s => `'${s}'`).join(',')})
-        AND cr.data_type IN ('varchar','char','text')
-        AND t.table_type = 'BASE TABLE'
-      GROUP BY cu.table_name, cu.column_name, cr.column_name
-      ORDER BY cu.table_name
-    `);
-
-    // 2) Кандидаты с FK-колонкой на tbl_field_positions
-    const idCandidates = fpExists
-      ? await prisma.$queryRawUnsafe<{
-          tableName: string; userCol: string; roleCol: string;
-        }[]>(`
-          SELECT cu.table_name   AS tableName,
-                 cu.column_name  AS userCol,
-                 cr.column_name  AS roleCol
-          FROM information_schema.columns cu
-          JOIN information_schema.columns cr
-            ON cr.table_schema = cu.table_schema
-           AND cr.table_name   = cu.table_name
-          JOIN information_schema.tables t
-            ON t.table_schema = cu.table_schema
-           AND t.table_name   = cu.table_name
-          WHERE cu.table_schema = DATABASE()
-            AND cu.column_name IN (${USER_COLS.map(s => `'${s}'`).join(',')})
-            AND cr.column_name IN (${ID_ROLE_COLS.map(s => `'${s}'`).join(',')})
-            AND cr.data_type IN ('int','bigint','mediumint','smallint','tinyint')
-            AND t.table_type = 'BASE TABLE'
-          GROUP BY cu.table_name, cu.column_name, cr.column_name
-          ORDER BY cu.table_name
-        `)
-      : [];
-
-    // Проверяем кандидатов и собираем результаты
-    const hits: Hit[] = [];
-
-    // ТЕКСТОВЫЕ роли
-    for (const c of textCandidates) {
-      if (!isSafe(c.tableName) || !isSafe(c.userCol) || !isSafe(c.roleCol)) continue;
-
-      const sample = await prisma.$queryRawUnsafe<{ role: any }[]>(
-        `SELECT ${c.roleCol} AS role
-           FROM ${c.tableName}
-          WHERE ${c.userCol} = ?
-            AND ${c.roleCol} IS NOT NULL
-          LIMIT 50`, userId
-      );
-      if (!sample?.length) continue;
-
-      const roles = sample
-        .map(r => (r.role == null ? null : String(r.role).trim()))
-        .filter(Boolean) as string[];
-      if (!roles.length) continue;
-
-      hits.push({
-        table: c.tableName,
-        userCol: c.userCol,
-        roleCol: c.roleCol,
-        via: 'text',
-        sample: sample.map(s => ({ role: s.role == null ? null : String(s.role) })),
-        counts: countFreq(roles)
-      });
-    }
-
-    // FK → JOIN tbl_field_positions
-    for (const c of idCandidates) {
-      if (!isSafe(c.tableName) || !isSafe(c.userCol) || !isSafe(c.roleCol)) continue;
-
-      const sample = await prisma.$queryRawUnsafe<{ role: any }[]>(
-        `SELECT fp.code AS role
-           FROM ${c.tableName} t
-           JOIN tbl_field_positions fp ON fp.id = t.${c.roleCol}
-          WHERE t.${c.userCol} = ?
-            AND t.${c.roleCol} IS NOT NULL
-          LIMIT 50`, userId
-      );
-      if (!sample?.length) continue;
-
-      const roles = sample
-        .map(r => (r.role == null ? null : String(r.role).trim()))
-        .filter(Boolean) as string[];
-      if (!roles.length) continue;
-
-      hits.push({
-        table: c.tableName,
-        userCol: c.userCol,
-        roleCol: c.roleCol,
-        via: 'fk',
-        sample: sample.map(s => ({ role: s.role == null ? null : String(s.role) })),
-        counts: countFreq(roles)
-      });
-    }
-
-    if (!hits.length) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Кандидаты найдены, но ни одна таблица не вернула строки для этого userId (или роли пустые/NULL).',
-        candidates: [
-          ...textCandidates.map(c => ({ table: c.tableName, userCol: c.userCol, roleCol: c.roleCol, via: 'text' })),
-          ...idCandidates.map(c => ({ table: c.tableName, userCol: c.userCol, roleCol: c.roleCol, via: 'fk' })),
-        ],
-        fpExists
-      }, { status: 404 });
-    }
-
-    return NextResponse.json({ ok: true, userId, fpExists, hits }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
-  }
+// Безопасное приведение числа (MySQL часто отдаёт BigInt)
+function toNum(v: unknown): number {
+  if (typeof v === 'bigint') return Number(v);
+  return Number(v ?? 0);
 }
 
-function countFreq(values: string[]) {
-  const m = new Map<string, number>();
-  for (const v of values) m.set(v, (m.get(v) ?? 0) + 1);
-  return Array.from(m.entries())
-    .map(([role, count]) => ({ role, count }))
-    .sort((a, b) => b.count - a.count);
-}
-
-async function hasFieldPositions() {
-  const r = await prisma.$queryRawUnsafe<{ cnt: bigint }[]>(
+// Проверка, что таблица существует в текущей БД
+async function tableExists(table: string): Promise<boolean> {
+  const r = await prisma.$queryRawUnsafe<Row[]>(
     `SELECT COUNT(*) AS cnt
        FROM information_schema.tables
       WHERE table_schema = DATABASE()
-        AND table_name   = 'tbl_field_positions'
-        AND table_type   = 'BASE TABLE'`
+        AND table_name   = ?`,
+    table
   );
-  const cnt = r?.[0]?.cnt ?? 0n;
-  return Number(cnt) > 0;
+  const cnt = toNum(r?.[0]?.cnt);
+  return cnt > 0;
+}
+
+// Проверка, что колонка существует в таблице
+async function columnExists(table: string, column: string): Promise<boolean> {
+  const r = await prisma.$queryRawUnsafe<Row[]>(
+    `SELECT COUNT(*) AS cnt
+       FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name   = ?
+        AND column_name  = ?`,
+    table,
+    column
+  );
+  const cnt = toNum(r?.[0]?.cnt);
+  return cnt > 0;
+}
+
+// Есть ли в таблице строки для данного пользователя
+async function hasRowsForUser(table: string, userCol: string, userId: number): Promise<boolean> {
+  // table/userCol приходят из белого списка CANDIDATES — инъекций нет
+  const r = await prisma.$queryRawUnsafe<Row[]>(
+    `SELECT COUNT(*) AS cnt
+       FROM ${table}
+      WHERE ${userCol} = ?
+      LIMIT 1`,
+    userId
+  );
+  const cnt = toNum(r?.[0]?.cnt);
+  return cnt > 0;
+}
+
+// Агрегация по ролям
+async function loadRoleCounts(
+  table: string,
+  userCol: string,
+  roleCol: string,
+  userId: number
+): Promise<{ role: string; count: number }[]> {
+  const rows = await prisma.$queryRawUnsafe<Row[]>(
+    `SELECT ${roleCol} AS role, COUNT(*) AS cnt
+       FROM ${table}
+      WHERE ${userCol} = ?
+        AND ${roleCol} IS NOT NULL
+        AND ${roleCol} <> ''
+      GROUP BY ${roleCol}
+      ORDER BY cnt DESC`,
+    userId
+  );
+
+  return (rows ?? []).map((r) => ({
+    role: String((r as any).role ?? '').toUpperCase(),
+    count: toNum((r as any).cnt),
+  }));
+}
+
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const userId = Number(url.searchParams.get('userId'));
+
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return NextResponse.json({ ok: false, error: 'Bad or missing userId' }, { status: 400 });
+    }
+
+    // 1) Ищем подходящий источник
+    const viable: Candidate[] = [];
+    for (const c of CANDIDATES) {
+      if (!(await tableExists(c.table))) continue;
+      if (!(await columnExists(c.table, c.userCol))) continue;
+      if (!(await columnExists(c.table, c.roleCol))) continue;
+      if (!(await hasRowsForUser(c.table, c.userCol, userId))) continue;
+      viable.push(c);
+    }
+
+    if (viable.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Не найден источник: таблица/колонки отсутствуют или для этого userId нет строк',
+          tried: CANDIDATES,
+        },
+        { status: 404 }
+      );
+    }
+
+    // 2) Берём первый валидный источник и считаем роли
+    const src = viable[0];
+    const counts = await loadRoleCounts(src.table, src.userCol, src.roleCol, userId);
+    const total = counts.reduce((acc, r) => acc + r.count, 0);
+
+    const withPct = counts.map((r) => ({
+      role: r.role,
+      count: r.count,
+      pct: total ? Math.round((r.count * 10000) / total) / 100 : 0,
+    }));
+
+    return NextResponse.json({
+      ok: true,
+      source: src,
+      total,
+      roles: withPct, // «сырая правда» по ролям для диагностики
+    });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
+  }
 }
