@@ -49,7 +49,7 @@ type Props = {
   scale?: number;
 };
 
-export default function RoleHeatmap({ data, caption, scale = 1 / 3 }: Props) {
+export default function RoleHeatmap({ data, caption, scale = 1 / 1 }: Props) {
   // словарь процентов по ролям (отсутствующие роли = 0)
   const pctByRole: Record<string, number> = {};
   Object.keys(ROLE_POINTS).forEach((r) => (pctByRole[r] = 0));
