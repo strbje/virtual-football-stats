@@ -35,8 +35,8 @@ mkdir -p "$HOME/.npm/_cacache/tmp" || true
 npm config set fund false
 npm config set audit false
 
-echo ">>> npm ci"
-npm ci --no-audit --no-fund
+echo ">>> npm ci (or fallback to install)"
+npm ci || npm install --no-audit --no-fund
 
 echo ">>> prisma generate (best-effort)"
 # Не роняем деплой, если prisma schema вдруг не поменялась
