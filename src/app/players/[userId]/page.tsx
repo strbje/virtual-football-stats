@@ -28,8 +28,9 @@ type ApiRolesResp = {
 
 type UserRow = { id: number; gamertag: string | null; username: string | null };
 
-function buildBaseURL() {
-  const h = headers();
+// --- helpers ---
+async function buildBaseURL() {
+  const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
   return `${proto}://${host}`;
@@ -41,15 +42,16 @@ function pickCurrentRole(roles: RolePercent[]): string {
   return ROLE_LABELS?.[top] ?? top;
 }
 
+// --- page ---
 export default async function PlayerProfile({
   params,
 }: {
   params: { userId: string };
 }) {
   const userId = params.userId;
-  const base = buildBaseURL();
+  const base = await buildBaseURL();
 
-  // имя игрока
+  // 1) имя игрока (чтобы не было User #NaN)
   const userRes = await fetch(
     `${base}/api/sql?query=${encodeURIComponent(
       `SELECT id, gamertag, username FROM tbl_users WHERE id = ${Number(
@@ -66,7 +68,7 @@ export default async function PlayerProfile({
     if (u) title = u.gamertag || u.username || title;
   }
 
-  // распределение по амплуа
+  // 2) распределение по амплуа (рабочий API — без BigInt)
   const rolesResp = await fetch(
     `${base}/api/player-roles?userId=${encodeURIComponent(userId)}`,
     { cache: "no-store" }
@@ -78,16 +80,16 @@ export default async function PlayerProfile({
     percent: r.percent,
   }));
 
-  // группировка для барчарта
+  // 3) сгруппировать для барчарта
   const groupedRoles = groupRolePercents(rolePercents);
 
-  // тепловая карта по фиксированному порядку
+  // 4) тепловая карта по фиксированному порядку
   const heatmapData = HEATMAP_ROLES_ORDER.map((code) => {
     const found = rolePercents.find((x) => x.role === code);
     return { role: code, percent: found ? found.percent : 0 };
   });
 
-  // пока пустая подложка лиг (вставим реальные — подадим массив в toLeagueBuckets)
+  // 5) лиги (подложка; подставим реальные — отдавай массив, упакуем через toLeagueBuckets)
   const leagues = toLeagueBuckets([]);
 
   return (
