@@ -5,14 +5,13 @@ import RoleHeatmap from '@/components/players/RoleHeatmap';
 
 type RolePercent = { role: string; percent: number };
 
-// Подстрой под фактическую форму ответа твоего API:
-type ApiResponse =
-  | { ok: true; roles: RolePercent[] }
-  | { ok: false; error: string };
+type ApiOk = { ok: true; roles: RolePercent[] };
+type ApiErr = { ok: false; error: string };
+type ApiResponse = ApiOk | ApiErr;
 
 type Props = {
   userId: number;
-  /** строка вида "dd.mm.yyyy:dd.mm.yyyy" или пустая */
+  /** "dd.mm.yyyy:dd.mm.yyyy" или пустая строка */
   range?: string;
 };
 
@@ -27,6 +26,7 @@ export default function RoleHeatmapFromApi({ userId, range }: Props) {
     range && range.trim().length > 0
       ? `?range=${encodeURIComponent(range)}`
       : '';
+
   const { data, error, isLoading } = useSWR<ApiResponse>(
     `/api/player-roles/${userId}${qs}`,
     fetcher,
@@ -43,15 +43,21 @@ export default function RoleHeatmapFromApi({ userId, range }: Props) {
   if (!data || isLoading) {
     return <div className="text-sm text-muted-foreground">Загрузка…</div>;
   }
-  if ('ok' in data && data.ok === false) {
+  if (!('ok' in data) || data.ok === false) {
     return (
       <div className="text-red-500 text-sm">
-        {data.error || 'Ошибка API'}
+        {('error' in data && data.error) || 'Ошибка API'}
       </div>
     );
   }
 
-  // Если у твоего RoleHeatmap обязательные пропы widthPx/heightPx — можно передать их здесь,
-  // но сейчас оставляю только роли, т.к. контейнер на странице уже фиксирует 500×700.
-  return <RoleHeatmap roles={('ok' in data ? data.roles : [])} />;
+  // ВАЖНО: RoleHeatmap ожидает prop `rolePercents`, а не `roles`.
+  return (
+    <RoleHeatmap
+      rolePercents={data.roles}
+      widthPx={500}
+      heightPx={700}
+      tooltip
+    />
+  );
 }
