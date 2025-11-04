@@ -5,15 +5,16 @@ import Link from "next/link";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 
-// ВАЖНО: берём агрегации и справочники из src/lib/roles.ts (как ты просил)
+// Агрегации берём из lib (твоя «корректная» логика)
+import { groupRolePercents, toLeagueBuckets } from "@/lib/roles";
+
+// Справочники и типы берём из utils (здесь они и лежат)
 import {
   ROLE_LABELS,
   HEATMAP_ROLES_ORDER,
   type RoleCode,
   type RolePercent,
-  groupRolePercents,     // корректная группировка по ролям
-  toLeagueBuckets,       // подготовка «распределения по лигам»
-} from "@/lib/roles";
+} from "@/utils/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,7 @@ type ApiRolesResp = {
 
 type UserRow = { id: number; gamertag: string | null; username: string | null };
 
-// --- утилиты
-
+// ---------- helpers ----------
 function buildBaseURL() {
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -35,15 +35,13 @@ function buildBaseURL() {
   return `${proto}://${host}`;
 }
 
-// «текущее амплуа» — просто топ-роль по доле (как было до начальной возни).
 function pickCurrentRole(roles: RolePercent[]): string {
   if (!roles.length) return "—";
   const top = roles.slice().sort((a, b) => b.percent - a.percent)[0].role;
-  return ROLE_LABELS[top] ?? top;
+  return ROLE_LABELS?.[top] ?? top; // если мапы нет — покажем код
 }
 
-// --- страница
-
+// ---------- page ----------
 export default async function PlayerProfile({
   params,
 }: {
@@ -52,7 +50,7 @@ export default async function PlayerProfile({
   const userId = params.userId;
   const base = buildBaseURL();
 
-  // 1) базовая инфа игрока (чтобы убрать User #NaN)
+  // 1) имя игрока (чтобы не было User #NaN)
   const userRes = await fetch(
     `${base}/api/sql?query=${encodeURIComponent(
       `SELECT id, gamertag, username FROM tbl_users WHERE id = ${Number(
@@ -69,7 +67,7 @@ export default async function PlayerProfile({
     if (u) title = u.gamertag || u.username || title;
   }
 
-  // 2) распределение по амплуа (наш рабочий API, уже без BigInt)
+  // 2) распределение по амплуа (рабочий API — без BigInt)
   const rolesResp = await fetch(
     `${base}/api/player-roles?userId=${encodeURIComponent(userId)}`,
     { cache: "no-store" }
@@ -81,22 +79,21 @@ export default async function PlayerProfile({
     percent: r.percent,
   }));
 
-  // 3) сгруппировать амплуа для бар-чарта по группам (форвард/полузащита/защита/вратарь)
+  // 3) сгруппировать для барчарта амплуа (агрегация из lib/roles)
   const groupedRoles = groupRolePercents(rolePercents);
 
-  // 4) тепловая карта: фиксированный порядок всех позиций из справочника
+  // 4) тепловая карта по фиксированному порядку (из utils/roles)
   const heatmapData = HEATMAP_ROLES_ORDER.map((code) => {
     const found = rolePercents.find((x) => x.role === code);
     return { role: code, percent: found ? found.percent : 0 };
   });
 
-  // 5) распределение по лигам — оставляем заглушку (как раньше), чтобы не ломать.
-  // Если у тебя уже есть реальные проценты по лигам — просто подай сюда массив и toLeagueBuckets их упакует.
+  // 5) распределение по лигам — пока пустая подложка (как было до барчарта лиг)
   const leagues = toLeagueBuckets([]);
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
-      {/* хедер */}
+      {/* header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{title}</h1>
@@ -106,7 +103,7 @@ export default async function PlayerProfile({
         </Link>
       </div>
 
-      {/* карточки метрик */}
+      {/* cards */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl border p-4">
           <div className="text-sm text-zinc-500">Матчи</div>
@@ -116,16 +113,23 @@ export default async function PlayerProfile({
         </div>
         <div className="rounded-xl border p-4">
           <div className="text-sm text-zinc-500">Актуальное амплуа</div>
-          <div className="text-2xl font-semibold">{pickCurrentRole(rolePercents)}</div>
+          <div className="text-2xl font-semibold">
+            {pickCurrentRole(rolePercents)}
+          </div>
         </div>
       </section>
 
-      {/* распределения: слева амплуа, справа лиги (как просили) */}
+      {/* distributions */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
-        <RoleDistributionSection roles={groupedRoles} leagues={leagues} widthPx={500} tooltip />
+        <RoleDistributionSection
+          roles={groupedRoles}
+          leagues={leagues}
+          widthPx={500}
+          tooltip
+        />
       </section>
 
-      {/* тепловая карта — БЕЗ BigInt, из уже нормализованных процентов */}
+      {/* heatmap */}
       <section className="md:max-w-[1100px]">
         <div className="text-sm font-semibold mb-2">Тепловая карта амплуа</div>
         <RoleHeatmap data={heatmapData} />
