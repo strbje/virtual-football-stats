@@ -40,7 +40,7 @@ export default async function PlayerPage(props: any) {
   const range = getVal(searchParams, "range");
   const { fromTs, toTs } = parseRange(range);
 
-  // 1) Игрок
+  // 1) Игрок (для заголовка)
   const user = await prisma.$queryRaw<
     { id: number; gamertag: string | null; username: string | null }[]
   >`SELECT u.id, u.gamertag, u.username
@@ -56,12 +56,13 @@ export default async function PlayerPage(props: any) {
     );
   }
 
-  // 2) Матчи (тот же источник, что бары/теплокарта)
+  // 2) Сумма матчей (тот же источник, что бары/теплокарта)
   const matchesRow = await prisma.$queryRaw<{ matches: bigint }[]>`
     SELECT COUNT(*) AS matches
     FROM tbl_users_match_stats ums
     JOIN tournament_match tm ON tm.id = ums.match_id
-    WHERE ums.user_id = ${userId} AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
+    WHERE ums.user_id = ${userId}
+      AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
   `;
   const totalMatches = Number(matchesRow?.[0]?.matches ?? 0);
 
@@ -87,7 +88,7 @@ export default async function PlayerPage(props: any) {
   `;
   const currentRole = currentRoleRow?.[0]?.role ?? "—";
 
-  // 4) Распределение по амплуа
+  // 4) Распределение по амплуа (проценты)
   const rolesRows = await prisma.$queryRaw<{ role: string; cnt: bigint }[]>`
     SELECT COALESCE(fp.code, sp.short_name) AS role, COUNT(*) AS cnt
     FROM tbl_users_match_stats ums
@@ -107,7 +108,7 @@ export default async function PlayerPage(props: any) {
     }))
     .filter((x) => x.percent > 0);
 
-  // 5) Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ)
+  // 5) Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) — проценты
   const leaguesRow = await prisma.$queryRaw<
     { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
   >`
@@ -157,12 +158,12 @@ export default async function PlayerPage(props: any) {
         </div>
       </section>
 
-      {/* Два барчарта: роли и лиги */}
+      {/* Два барчарта: роли и лиги — в ширину теплокарты */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[700px]">
         <RoleDistributionSection
           roles={rolePercents}
           leagues={leagues}
-          widthPx={500}  // синхронизировано с шириной теплокарты
+          widthPx={500}     // синхронизировано с шириной теплокарты
           tooltip
         />
       </section>
