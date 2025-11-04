@@ -1,75 +1,160 @@
-import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-import type { RoleCode } from "@/utils/roles";
+// src/app/api/player-roles/route.ts
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
-/** rows -> проценты */
-function toPercents(rows: Array<{ role: RoleCode; c: number }>) {
-  const total = rows.reduce((s, r) => s + r.c, 0);
-  if (total === 0) return { matches: 0, roles: [] as { role: RoleCode; percent: number }[] };
-  const roles = rows
-    .map((r) => ({ role: r.role, percent: +((r.c * 100) / total).toFixed(2) }))
-    .sort((a, b) => b.percent - a.percent);
-  return { matches: total, roles };
-}
+/** Маппинг позиций (skill_id/position_id -> короткий код RoleCode) — как у тебя в utils/roles */
+const ROLE_CODE_FROM_POSITION = {
+  // ключи = tbl_field_positions.code
+  "ВР": "ВРТ",
+  "ЦЗ": "ЦЗ",
+  "ЛЦЗ": "ЛЦЗ",
+  "ПЦЗ": "ПЦЗ",
+  "ЛЗ": "ЛЗ",
+  "ПЗ": "ПЗ",
+  "ЦОП": "ЦОП",
+  "ЛОП": "ЛОП",
+  "ПОП": "ПОП",
+  "ЦП": "ЦП",
+  "ЛЦП": "ЛЦП",
+  "ПЦП": "ПЦП",
+  "ЦАП": "ЦАП",
+  "ЛАП": "ЛАП",
+  "ПАП": "ПАП",
+  "ЛФД": "ЛФД",
+  "ПФД": "ПФД",
+  "ЦФД": "ЦФД",
+  "ЛФА": "ЛФА",
+  "ПФА": "ПФА",
+  "ФРВ": "ФРВ",
+} as const;
 
-export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get("userId");
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "userId is required" }, { status: 400 });
+type RoleCode = (typeof ROLE_CODE_FROM_POSITION)[keyof typeof ROLE_CODE_FROM_POSITION] | string;
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const userIdParam = url.searchParams.get("userId");
+  const userId = Number(userIdParam);
+  if (!userIdParam || Number.isNaN(userId)) {
+    return NextResponse.json({ ok: false, error: "userId query param is required" }, { status: 400 });
   }
 
-  const prisma = new PrismaClient();
   try {
-    // 1) Основной путь — JOIN по position_id -> tbl_field_positions.id
-    const joined = await prisma.$queryRaw<
-      Array<{ role: RoleCode; c: bigint }>
+    // 1) все матчи игрока с позицией
+    const rows = await prisma.$queryRaw<
+      { position_code: string | null }[]
     >`
-      SELECT p.code AS role, COUNT(*) AS c
-      FROM tbl_users_match_stats AS ms
-      JOIN tbl_field_positions AS p ON p.id = ms.position_id
-      WHERE ms.user_id = ${userId}
-      GROUP BY p.code
+      SELECT fp.code AS position_code
+      FROM tbl_users_match_stats ums
+      LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
+      WHERE ums.user_id = ${userId}
     `;
 
-    let rows: Array<{ role: RoleCode; c: number }> = (joined ?? []).map(r => ({
-      role: r.role,
-      c: Number(r.c),
-    }));
-
-    // 2) Фолбэк: если вдруг джойн ничего не вернул, пробуем посчитать по position_id,
-    //    а затем подтянуть code для этих id одним IN-запросом. Это спасает случаи,
-    //    когда тип user_id/приведение могло «молчаливо» не совпасть.
-    if (rows.length === 0) {
-      const agg = await prisma.$queryRaw<Array<{ position_id: number; c: bigint }>>`
-        SELECT ms.position_id, COUNT(*) AS c
-        FROM tbl_users_match_stats AS ms
-        WHERE ms.user_id = ${userId}
-        GROUP BY ms.position_id
-      `;
-
-      if (agg.length > 0) {
-        const posIds = agg.map(a => Number(a.position_id)).filter(n => Number.isFinite(n));
-        // подтягиваем коды для всех position_id
-        const pos = await prisma.$queryRaw<Array<{ id: number; code: RoleCode }>>`
-          SELECT id, code
-          FROM tbl_field_positions
-          WHERE id IN (${prisma.$queryRaw`${posIds}`})
-        `;
-        const idToCode = new Map<number, RoleCode>(pos.map(p => [Number(p.id), p.code]));
-        rows = agg
-          .map(a => {
-            const code = idToCode.get(Number(a.position_id));
-            return code ? { role: code, c: Number(a.c) } : null;
-          })
-          .filter(Boolean) as Array<{ role: RoleCode; c: number }>;
-      }
+    const total = rows.length;
+    // агрегация по RoleCode
+    const counts = new Map<RoleCode, number>();
+    for (const r of rows) {
+      const code = r.position_code ?? "";
+      const role: RoleCode = (ROLE_CODE_FROM_POSITION as any)[code] ?? code;
+      if (!role) continue;
+      counts.set(role, (counts.get(role) ?? 0) + 1);
     }
+    const roles = Array.from(counts.entries())
+      .map(([role, cnt]) => ({ role, percent: total ? +(cnt * 100 / total).toFixed(2) : 0 }))
+      .sort((a, b) => b.percent - a.percent);
 
-    const { matches, roles } = toPercents(rows);
-    return NextResponse.json({ ok: true, matches, roles });
+    // 2) «Актуальное амплуа»: мода по последним 30 матчам
+    const last30 = await prisma.$queryRaw<{ role_code: string | null; cnt: bigint }[]>`
+      WITH last_matches AS (
+        SELECT DISTINCT ums.match_id, tm.timestamp
+        FROM tbl_users_match_stats ums
+        JOIN tournament_match tm ON tm.id = ums.match_id
+        WHERE ums.user_id = ${userId}
+        ORDER BY tm.timestamp DESC
+        LIMIT 30
+      ),
+      per_match_roles AS (
+        SELECT lm.match_id,
+               fp.code AS role_code,
+               COUNT(*) AS freq
+        FROM last_matches lm
+        JOIN tbl_users_match_stats ums
+          ON ums.match_id = lm.match_id AND ums.user_id = ${userId}
+        LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
+        GROUP BY lm.match_id, fp.code
+      ),
+      pick_role AS (
+        SELECT pmr.match_id, pmr.role_code
+        FROM per_match_roles pmr
+        JOIN (
+          SELECT match_id, MAX(freq) AS m
+          FROM per_match_roles
+          GROUP BY match_id
+        ) mx ON mx.match_id = pmr.match_id AND mx.m = pmr.freq
+        GROUP BY pmr.match_id, pmr.role_code
+      )
+      SELECT role_code, COUNT(*) AS cnt
+      FROM pick_role
+      GROUP BY role_code
+      ORDER BY cnt DESC
+      LIMIT 1
+    `;
+    const last30Code = last30[0]?.role_code ?? null;
+    const currentRoleLast30: RoleCode | null =
+      last30Code ? ((ROLE_CODE_FROM_POSITION as any)[last30Code] ?? last30Code) : null;
+
+    // 3) проценты матчей по лигам
+    const leagueAgg = await prisma.$queryRaw<
+      { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
+    >`
+      SELECT
+        COUNT(DISTINCT ums.match_id) AS total,
+        COUNT(DISTINCT CASE
+          WHEN (LOWER(t.name) LIKE '%премьер%' OR UPPER(t.name) LIKE '%ПЛ%')
+          THEN ums.match_id END) AS pl,
+        COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ФНЛ%' THEN ums.match_id END) AS fnl,
+        COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ПФЛ%' THEN ums.match_id END) AS pfl,
+        COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ЛФЛ%' THEN ums.match_id END) AS lfl
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      JOIN tournament t        ON t.id  = tm.tournament_id
+      WHERE ums.user_id = ${userId}
+    `;
+    const a = leagueAgg[0];
+    const leagues = a
+      ? [
+          { label: "ПЛ",  pct: Math.round((Number(a.pl)  * 100) / Math.max(1, Number(a.total))) },
+          { label: "ФНЛ", pct: Math.round((Number(a.fnl) * 100) / Math.max(1, Number(a.total))) },
+          { label: "ПФЛ", pct: Math.round((Number(a.pfl) * 100) / Math.max(1, Number(a.total))) },
+          { label: "ЛФЛ", pct: Math.round((Number(a.lfl) * 100) / Math.max(1, Number(a.total))) },
+        ].filter(x => x.pct > 0)
+      : [];
+
+    // 4) ник и актуальный клуб (для шапки)
+    const [userRow] = await prisma.$queryRaw<
+      { gamertag: string | null; username: string | null }[]
+    >`SELECT gamertag, username FROM tbl_users WHERE id = ${userId} LIMIT 1`;
+    const [teamRow] = await prisma.$queryRaw<{ team_name: string | null }[]>`
+      SELECT c.team_name
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      JOIN teams c ON c.id = ums.team_id
+      WHERE ums.user_id = ${userId}
+      ORDER BY tm.timestamp DESC
+      LIMIT 1
+    `;
+
+    return NextResponse.json({
+      ok: true,
+      matches: total,
+      roles,
+      currentRoleLast30,            // NEW
+      leagues,                      // NEW
+      user: {                       // NEW
+        nickname: userRow?.gamertag || userRow?.username || `User #${userId}`,
+        team: teamRow?.team_name ?? null,
+      },
+    });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unexpected error" }, { status: 500 });
-  } finally {
-    await prisma.$disconnect().catch(() => {});
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
