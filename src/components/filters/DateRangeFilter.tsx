@@ -1,13 +1,18 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 export default function DateRangeFilter({ initialRange }: { initialRange: string }) {
-  const sp = useSearchParams();
   const router = useRouter();
+  const sp = useSearchParams();
+  const pathname = usePathname();
+
   const [from, setFrom] = useState<string>("");
-  const [to, setTo]   = useState<string>("");
+  const [to, setTo] = useState<string>("");
+
+  const fromRef = useRef<HTMLInputElement>(null);
+  const toRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!initialRange) return;
@@ -16,19 +21,51 @@ export default function DateRangeFilter({ initialRange }: { initialRange: string
     setTo(b || "");
   }, [initialRange]);
 
-  function apply() {
-    const r = [from || "", to || ""].join(":");
-    const q = new URLSearchParams(sp?.toString() || "");
-    if (from || to) q.set("range", r); else q.delete("range");
-    router.replace(`?${q.toString()}`);
-  }
+  const apply = () => {
+    const params = new URLSearchParams(sp?.toString());
+    const hasFrom = from.trim().length > 0;
+    const hasTo = to.trim().length > 0;
+    if (hasFrom || hasTo) {
+      params.set("range", `${hasFrom ? from : ""}:${hasTo ? to : ""}`);
+    } else {
+      params.delete("range");
+    }
+    router.replace(`${pathname}?${params.toString()}`);
+  };
+
+  const reset = () => {
+    setFrom("");
+    setTo("");
+    const params = new URLSearchParams(sp?.toString());
+    params.delete("range");
+    router.replace(`${pathname}?${params.toString()}`);
+  };
 
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border rounded px-2 py-1"/>
-      <span>—</span>
-      <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border rounded px-2 py-1"/>
-      <button onClick={apply} className="border rounded px-3 py-1 hover:bg-gray-50">OK</button>
+    <div className="flex items-center gap-2">
+      <input
+        ref={fromRef}
+        type="text"
+        placeholder="ДД.ММ.ГГГГ"
+        className="rounded border px-2 py-1 text-sm w-28"
+        value={from}
+        onChange={(e) => setFrom(e.target.value)}
+      />
+      <span className="text-gray-400">—</span>
+      <input
+        ref={toRef}
+        type="text"
+        placeholder="ДД.ММ.ГГГГ"
+        className="rounded border px-2 py-1 text-sm w-28"
+        value={to}
+        onChange={(e) => setTo(e.target.value)}
+      />
+      <button onClick={apply} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">
+        OK
+      </button>
+      <button onClick={reset} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">
+        Сброс
+      </button>
     </div>
   );
 }
