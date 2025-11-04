@@ -8,9 +8,7 @@ PORT="${PORT:-3000}"
 
 echo ">>> restore .env"
 mkdir -p "$(dirname "$SECRETS_ENV")"
-if [[ ! -f "$SECRETS_ENV" ]]; then
-  echo "ERROR: $SECRETS_ENV not found. Put your env there."; exit 42
-fi
+[[ -f "$SECRETS_ENV" ]] || { echo "ERROR: $SECRETS_ENV not found"; exit 42; }
 ln -sf "$SECRETS_ENV" "$APP_DIR/.env"
 
 echo ">>> fetch/reset"
@@ -23,37 +21,34 @@ pm2 delete "$APP_NAME" 2>/dev/null || true
 
 echo ">>> purge build artifacts"
 rm -rf .next
-# иногда node_modules «держится» — снесём как угодно
-if [[ -d node_modules ]]; then
-  rm -rf node_modules 2>/dev/null || true
-  mv node_modules "node_modules.trash.$RANDOM" 2>/dev/null || true
-fi
+
+echo ">>> drop node_modules atomically"
+rm -rf node_modules
 
 echo ">>> npm cache bootstrap"
 mkdir -p "$HOME/.npm/_cacache/tmp" || true
 npm config set fund false
 npm config set audit false
 
-echo ">>> npm ci (fallback to install)"
-if ! npm ci; then
-  echo "npm ci failed, fallback to npm install"
-  npm install --no-audit --no-fund
-fi
+echo ">>> npm ci (or fallback to install)"
+npm ci || npm install --no-audit --no-fund
+
+# На всякий — выключаем телеметрию next, и убеждаемся что бинарь доступен
+npx -y next@15.3.3 telemetry disable >/dev/null 2>&1 || true
 
 echo ">>> prisma generate (best-effort)"
 npx prisma generate || true
 
 echo ">>> build"
-# на случай редких PATH-проблем
-export PATH="$APP_DIR/node_modules/.bin:$PATH"
 npm run build
 
-echo ">>> free port if busy"
+echo ">>> start app"
+# освобождаем порт, если вдруг
 if ss -lntp 2>/dev/null | grep -q ":$PORT "; then
+  echo ">>> free port $PORT"
   fuser -k "$PORT/tcp" 2>/dev/null || true
 fi
 
-echo ">>> start app"
 PORT="$PORT" pm2 start npm --name "$APP_NAME" -- start
 pm2 save
 
