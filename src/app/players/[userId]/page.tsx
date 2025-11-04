@@ -15,7 +15,7 @@ function getVal(d: SearchParamsDict, k: string): string {
 }
 
 function parseRange(range?: string): { fromTs: number; toTs: number } {
-  if (!range) return { fromTs: 0, toTs: 32503680000 }; // до 3000 года 🙂
+  if (!range) return { fromTs: 0, toTs: 32503680000 }; // до 3000 года
   const [start, end] = range.split(":").map((s) => s?.trim()).filter(Boolean);
   const fromTs = start ? Math.floor(new Date(`${start} 00:00:00`).getTime() / 1000) : 0;
   const toTs = end ? Math.floor(new Date(`${end} 23:59:59`).getTime() / 1000) : 32503680000;
@@ -32,51 +32,41 @@ export default async function PlayerPage(props: any) {
     return (
       <div className="p-6">
         <h1 className="text-xl font-semibold">Неверный ID игрока</h1>
-        <Link href="/players" className="text-blue-600 hover:underline">
-          ← Вернуться к списку игроков
-        </Link>
+        <Link href="/players" className="text-blue-600 hover:underline">← Вернуться к списку игроков</Link>
       </div>
     );
   }
 
-  // ?range=YYYY-MM-DD:YYYY-MM-DD — общий диапазон, чтобы все секции были синхронны
   const range = getVal(searchParams, "range");
   const { fromTs, toTs } = parseRange(range);
 
-  // 1) Базовая информация об игроке
-  const user = await prisma.$queryRawUnsafe<
+  // 1) Игрок
+  const user = await prisma.$queryRaw<
     { id: number; gamertag: string | null; username: string | null }[]
-  >(
-    `SELECT u.id, u.gamertag, u.username
+  >`SELECT u.id, u.gamertag, u.username
      FROM tbl_users u
-     WHERE u.id = ? LIMIT 1`,
-    userId
-  );
+     WHERE u.id = ${userId}
+     LIMIT 1`;
   if (!user.length) {
     return (
       <div className="p-6">
         <h1 className="text-xl font-semibold">Игрок не найден</h1>
-        <Link href="/players" className="text-blue-600 hover:underline">
-          ← Вернуться к списку игроков
-        </Link>
+        <Link href="/players" className="text-blue-600 hover:underline">← Вернуться к списку игроков</Link>
       </div>
     );
   }
 
-  // 2) Общее количество матчей (в том же источнике, что и бары/теплокарта)
-  const matchesRow = await prisma.$queryRawUnsafe<{ matches: bigint }[]>(
-    `SELECT COUNT(*) AS matches
-     FROM tbl_users_match_stats ums
-     JOIN tournament_match tm ON tm.id = ums.match_id
-     WHERE ums.user_id = ? AND tm.timestamp BETWEEN ? AND ?`,
-    userId, fromTs, toTs
-  );
+  // 2) Матчи (тот же источник, что бары/теплокарта)
+  const matchesRow = await prisma.$queryRaw<{ matches: bigint }[]>`
+    SELECT COUNT(*) AS matches
+    FROM tbl_users_match_stats ums
+    JOIN tournament_match tm ON tm.id = ums.match_id
+    WHERE ums.user_id = ${userId} AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
+  `;
   const totalMatches = Number(matchesRow?.[0]?.matches ?? 0);
 
-  // 3) «Актуальное амплуа» = топ-роль за последние 30 матчей
-  //   Берём 30 самых последних матчей по timestamp, затем считаем моду по ролям.
-  const currentRoleRow = await prisma.$queryRawUnsafe<{ role: string | null }[]>(
-    `
+  // 3) «Актуальное амплуа» — мода по последним 30 матчам
+  const currentRoleRow = await prisma.$queryRaw<{ role: string | null }[]>`
     WITH last30 AS (
       SELECT ums.match_id, tm.timestamp,
              COALESCE(fp.code, sp.short_name) AS role_code
@@ -84,8 +74,8 @@ export default async function PlayerPage(props: any) {
       JOIN tournament_match tm         ON tm.id = ums.match_id
       JOIN skills_positions  sp        ON sp.id = ums.skill_id
       LEFT JOIN tbl_field_positions fp ON fp.skill_id = sp.id
-      WHERE ums.user_id = ?
-        AND tm.timestamp BETWEEN ? AND ?
+      WHERE ums.user_id = ${userId}
+        AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
       ORDER BY tm.timestamp DESC
       LIMIT 30
     )
@@ -94,26 +84,21 @@ export default async function PlayerPage(props: any) {
     GROUP BY role_code
     ORDER BY COUNT(*) DESC, MAX(timestamp) DESC
     LIMIT 1
-    `,
-    userId, fromTs, toTs
-  );
+  `;
   const currentRole = currentRoleRow?.[0]?.role ?? "—";
 
-  // 4) Распределение по амплуа (плоские коды для RoleHeatmap/баров)
-  const rolesRows = await prisma.$queryRawUnsafe<{ role: string; cnt: bigint }[]>(
-    `
+  // 4) Распределение по амплуа
+  const rolesRows = await prisma.$queryRaw<{ role: string; cnt: bigint }[]>`
     SELECT COALESCE(fp.code, sp.short_name) AS role, COUNT(*) AS cnt
     FROM tbl_users_match_stats ums
     JOIN tournament_match tm         ON tm.id = ums.match_id
     JOIN skills_positions  sp        ON sp.id = ums.skill_id
     LEFT JOIN tbl_field_positions fp ON fp.skill_id = sp.id
-    WHERE ums.user_id = ?
-      AND tm.timestamp BETWEEN ? AND ?
+    WHERE ums.user_id = ${userId}
+      AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
     GROUP BY COALESCE(fp.code, sp.short_name)
     ORDER BY cnt DESC
-    `,
-    userId, fromTs, toTs
-  );
+  `;
   const rolesTotal = rolesRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
   const rolePercents: RolePercent[] = rolesRows
     .map((r) => ({
@@ -122,12 +107,10 @@ export default async function PlayerPage(props: any) {
     }))
     .filter((x) => x.percent > 0);
 
-  // 5) Распределение матчей по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) — по имени турнира
-  //    Считаем в одном запросе суммами CASE.
-  const leaguesRow = await prisma.$queryRawUnsafe<
+  // 5) Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ)
+  const leaguesRow = await prisma.$queryRaw<
     { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
-  >(
-    `
+  >`
     SELECT
       COUNT(*) AS total,
       SUM(CASE WHEN LOWER(t.name) LIKE '%премьер%' OR UPPER(t.name) LIKE '%ПЛ%'  THEN 1 ELSE 0 END) AS pl,
@@ -137,11 +120,9 @@ export default async function PlayerPage(props: any) {
     FROM tbl_users_match_stats ums
     JOIN tournament_match tm ON tm.id = ums.match_id
     JOIN tournament t        ON t.id  = tm.tournament_id
-    WHERE ums.user_id = ?
-      AND tm.timestamp BETWEEN ? AND ?
-    `,
-    userId, fromTs, toTs
-  );
+    WHERE ums.user_id = ${userId}
+      AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
+  `;
   const L = leaguesRow?.[0];
   const leaguesTotal = Math.max(1, Number(L?.total ?? 0));
   const leagues = [
@@ -153,17 +134,13 @@ export default async function PlayerPage(props: any) {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Заголовок */}
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">
             {user[0]?.gamertag || user[0]?.username || `User #${userId}`}
           </h1>
-          {/* здесь можно будет подставить текущую команду, если понадобится */}
         </div>
-        <Link href="/players" className="text-blue-600 hover:underline text-sm">
-          ← Ко всем игрокам
-        </Link>
+        <Link href="/players" className="text-blue-600 hover:underline text-sm">← Ко всем игрокам</Link>
       </header>
 
       {/* Плитки: Матчи + Актуальное амплуа */}
@@ -185,15 +162,14 @@ export default async function PlayerPage(props: any) {
         <RoleDistributionSection
           roles={rolePercents}
           leagues={leagues}
-          widthPx={500}          // чтобы визуально соотнести с 500px шириной теплокарты
+          widthPx={500}  // синхронизировано с шириной теплокарты
           tooltip
         />
       </section>
 
-      {/* Тепловая карта (API-версия) */}
+      {/* Тепловая карта */}
       <section className="md:max-w-[700px]">
         <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
-        {/* сам компонент уже масштабируемый; в стилях контейнера можно задать высоту */}
         <div style={{ width: 500, height: 700 }}>
           <RoleHeatmapFromApi userId={userId} />
         </div>
