@@ -1,119 +1,142 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
-type Row = Record<string, unknown>;
-const toNum = (v: unknown) =>
-  typeof v === 'bigint' ? Number(v) : typeof v === 'number' ? v : Number(v ?? 0);
-
-/** Основная агрегация по position_id -> tbl_field_positions.id */
-async function queryByPositionId(userId: number) {
-  const rows = await prisma.$queryRawUnsafe<Row[]>(
-    `
-    SELECT fp.code AS role, COUNT(*) AS cnt
-    FROM tbl_users_match_stats ums
-    JOIN tbl_field_positions fp ON fp.id = ums.position_id
-    WHERE ums.user_id = ?
-      AND ums.position_id IS NOT NULL
-      AND ums.position_id <> 0
-    GROUP BY fp.code
-    ORDER BY cnt DESC
-    `,
-    userId
-  );
-  return rows ?? [];
+/** Безопасный парсер дат "ДД.ММ.ГГГГ" или "ДД.ММ.ГГГГ ЧЧ:ММ:СС" -> ms */
+function parseTs(s?: string | null): number | null {
+  if (!s) return null;
+  const parts = s.trim().split(' ');
+  const [d, m, y] = (parts[0] || '').split('.').map(Number);
+  if (!d || !m || !y) return null;
+  const time = parts[1] || '00:00:00';
+  const [hh, mm, ss] = time.split(':').map(v => Number(v || 0));
+  const js = new Date(y, m - 1, d, hh, mm, ss).getTime();
+  return Number.isFinite(js) ? js : null;
 }
 
-/** Запасной путь: агрегация по skill_id -> tbl_field_positions.skill_id */
-async function queryBySkillId(userId: number) {
-  const rows = await prisma.$queryRawUnsafe<Row[]>(
-    `
-    SELECT fp.code AS role, COUNT(*) AS cnt
-    FROM tbl_users_match_stats ums
-    JOIN tbl_field_positions fp ON fp.skill_id = ums.skill_id
-    WHERE ums.user_id = ?
-      AND ums.skill_id IS NOT NULL
-      AND ums.skill_id <> 0
-    GROUP BY fp.code
-    ORDER BY cnt DESC
-    `,
-    userId
-  );
-  return rows ?? [];
-}
+/** Приводим любые bigint из MySQL к number */
+const toNum = (v: any) => (typeof v === 'bigint' ? Number(v) : Number(v ?? 0));
 
-async function sampleDebug(userId: number, limit = 8) {
-  const rows = await prisma.$queryRawUnsafe<Row[]>(
-    `
-    SELECT
-      ums.match_id,
-      ums.team_id,
-      ums.position_id,
-      ums.skill_id,
-      fp.code AS role_code
-    FROM tbl_users_match_stats ums
-    LEFT JOIN tbl_field_positions fp
-      ON fp.id = ums.position_id
-    WHERE ums.user_id = ?
-    ORDER BY ums.match_id DESC
-    LIMIT ?
-    `,
-    userId,
-    limit
-  );
-  return rows ?? [];
-}
-
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const userId = Number(url.searchParams.get('userId'));
-  const debug = url.searchParams.get('debug') === '1';
-
-  if (!Number.isFinite(userId) || userId <= 0) {
-    return NextResponse.json({ ok: false, error: 'Bad or missing userId' }, { status: 400 });
-  }
-
+/** GET /api/player-roles/[userId]?range=DD.MM.YYYY:DD.MM.YYYY */
+export async function GET(
+  req: Request,
+  { params }: { params: { userId: string } }
+) {
   try {
-    // 1) пробуем по position_id
-    let rows = await queryByPositionId(userId);
+    const url = new URL(req.url);
+    const range = url.searchParams.get('range') || '';
 
-    // 2) если пусто — пробуем по skill_id
-    if (!rows.length) {
-      rows = await queryBySkillId(userId);
+    // Диапазон дат
+    const [fromRaw, toRaw] = range.split(':');
+    const fromTs = parseTs(fromRaw) ?? 0;
+    const toTs = parseTs(toRaw ? `${toRaw} 23:59:59` : '') ?? 32503680000; // 01.01.3000
+
+    const userId = Number(params.userId);
+    if (!Number.isFinite(userId)) {
+      return NextResponse.json({ ok: false, error: 'Bad userId' }, { status: 400 });
     }
 
-    if (!rows.length) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'Нет данных о позициях для этого userId ни по position_id, ни по skill_id. ' +
-            'Проверь, что в tbl_users_match_stats реально есть строки с ненулевыми position_id/skill_id для этого пользователя.',
-          diag: debug ? await sampleDebug(userId) : undefined,
-        },
-        { status: 404 }
-      );
+    // --- 1) Распределение по ролям ---
+    // таблицы по твоему запросу из дашборда:
+    // tbl_users_match_stats ums
+    // tournament_match tm
+    // skills_positions sp
+    // tournament t (ниже пригодится для лиг)
+    type RoleRow = { role_code: string; cnt: bigint | number };
+    const rolesRows = await prisma.$queryRaw<RoleRow[]>(Prisma.sql`
+      SELECT sp.short_name AS role_code, COUNT(*) AS cnt
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON ums.match_id = tm.id
+      JOIN skills_positions sp ON ums.skill_id = sp.id
+      WHERE ums.user_id = ${userId}
+        AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
+      GROUP BY sp.short_name
+    `);
+
+    const totalMatchesRow = await prisma.$queryRaw<{ total: bigint | number }[]>(
+      Prisma.sql`
+        SELECT COUNT(*) AS total
+        FROM tbl_users_match_stats ums
+        JOIN tournament_match tm ON ums.match_id = tm.id
+        WHERE ums.user_id = ${userId}
+          AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
+      `
+    );
+    const totalMatches = toNum(totalMatchesRow[0]?.total ?? 0);
+
+    const roles = rolesRows.map(r => ({
+      role: r.role_code,
+      count: toNum(r.cnt),
+      percent: totalMatches ? Math.round((toNum(r.cnt) * 10000) / totalMatches) / 100 : 0,
+    }));
+
+    // --- 2) Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) ---
+    // используем название турнира t.name
+    type LeagueRow = { bucket: string; cnt: bigint | number };
+    const leaguesRows = await prisma.$queryRaw<LeagueRow[]>(Prisma.sql`
+      SELECT
+        CASE
+          WHEN t.name LIKE '%Премьер%' OR t.name LIKE '%ПЛ%' THEN 'pl'
+          WHEN t.name LIKE '%ФНЛ%' THEN 'fnl'
+          WHEN t.name LIKE '%ПФЛ%' THEN 'pfl'
+          WHEN t.name LIKE '%ЛФЛ%' THEN 'lfl'
+          ELSE 'other'
+        END AS bucket,
+        COUNT(*) AS cnt
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON ums.match_id = tm.id
+      JOIN tournament t ON tm.tournament_id = t.id
+      WHERE ums.user_id = ${userId}
+        AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
+      GROUP BY bucket
+    `);
+
+    const leaguesAgg = { pl: 0, fnl: 0, pfl: 0, lfl: 0, other: 0, total: 0 };
+    for (const row of leaguesRows) {
+      const k = (row.bucket as keyof typeof leaguesAgg) || 'other';
+      const v = toNum(row.cnt);
+      leaguesAgg[k] = (leaguesAgg[k] || 0) + v;
+      leaguesAgg.total += v;
     }
+    const leagues = [
+      { label: 'ПЛ',  percent: leaguesAgg.total ? Math.round((leaguesAgg.pl  * 10000) / leaguesAgg.total) / 100 : 0 },
+      { label: 'ФНЛ', percent: leaguesAgg.total ? Math.round((leaguesAgg.fnl * 10000) / leaguesAgg.total) / 100 : 0 },
+      { label: 'ПФЛ', percent: leaguesAgg.total ? Math.round((leaguesAgg.pfl * 10000) / leaguesAgg.total) / 100 : 0 },
+      { label: 'ЛФЛ', percent: leaguesAgg.total ? Math.round((leaguesAgg.lfl * 10000) / leaguesAgg.total) / 100 : 0 },
+    ];
 
-    const mapped = rows.map((r) => ({
-      role: String((r as any).role ?? '').toUpperCase(),
-      count: toNum((r as any).cnt),
-    }));
-
-    const total = mapped.reduce((a, b) => a + b.count, 0);
-    const roles = mapped.map((r) => ({
-      role: r.role,
-      count: r.count,
-      pct: total ? Math.round((r.count * 10000) / total) / 100 : 0,
-    }));
+    // --- 3) Актуальное амплуа (по последним 30 матчам пользователя) ---
+    type LastRow = { role_code: string; cnt: bigint | number };
+    const last30Rows = await prisma.$queryRaw<LastRow[]>(Prisma.sql`
+      SELECT A.role_code, COUNT(*) AS cnt
+      FROM (
+        SELECT sp.short_name AS role_code
+        FROM tbl_users_match_stats ums
+        JOIN tournament_match tm ON ums.match_id = tm.id
+        JOIN skills_positions sp ON ums.skill_id = sp.id
+        WHERE ums.user_id = ${userId}
+        ORDER BY tm.timestamp DESC
+        LIMIT 30
+      ) AS A
+      GROUP BY A.role_code
+      ORDER BY cnt DESC
+    `);
+    const topRoleLast30 = last30Rows.length ? last30Rows.reduce((a, b) => (toNum(b.cnt) > toNum(a.cnt) ? b : a)).role_code : null;
 
     return NextResponse.json({
       ok: true,
-      source: 'tbl_users_match_stats + tbl_field_positions',
-      total,
+      total: totalMatches,
       roles,
-      debug_sample: debug ? await sampleDebug(userId) : undefined,
+      leagues,
+      topRoleLast30,
+      range: { fromTs, toTs },
     });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
+  } catch (err: any) {
+    // даём короткий ответ + техническую деталь для логов
+    return NextResponse.json(
+      { ok: false, error: err?.message || 'Internal error' },
+      { status: 500 }
+    );
   }
 }
