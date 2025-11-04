@@ -1,23 +1,23 @@
-// src/app/players/[userId]/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import RoleHeatmapFromApi from "@/app/players/_components/RoleHeatmapFromApi";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import DateRangeFilter from "@/components/filters/DateRangeFilter";
-import type { RolePercent } from "@/utils/roles";
 import { ROLE_LABELS } from "@/utils/roles";
+import type { RolePercent } from "@/utils/roles";
+import type { RoleItem, LeagueBucket } from "@/components/players/types";
 
 export const dynamic = "force-dynamic";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-function getOne(sp: SearchParams, k: string) {
+function one(sp: SearchParams, k: string) {
   const v = sp[k];
   return Array.isArray(v) ? v[0] : v ?? "";
 }
 
 function parseRange(range?: string) {
-  if (!range) return { fromTs: 0, toTs: 32503680000 }; // до 01.01.3000
+  if (!range) return { fromTs: 0, toTs: 32503680000 };
   const [a, b] = range.split(":");
   const fromTs = a ? Math.floor(new Date(`${a} 00:00:00`).getTime() / 1000) : 0;
   const toTs = b ? Math.floor(new Date(`${b} 23:59:59`).getTime() / 1000) : 32503680000;
@@ -34,10 +34,10 @@ export default async function PlayerPage({
   const userId = Number(params.userId);
   if (!Number.isFinite(userId)) return <div className="p-6">Неверный ID</div>;
 
-  const rangeParam = getOne(searchParams, "range");
+  const rangeParam = one(searchParams, "range");
   const { fromTs, toTs } = parseRange(rangeParam);
 
-  // --- Игрок (заголовок)
+  // Заголовок
   const user = await prisma.$queryRaw<
     { id: number; gamertag: string | null; username: string | null }[]
   >`
@@ -48,7 +48,7 @@ export default async function PlayerPage({
   `;
   const title = user[0]?.gamertag || user[0]?.username || `User #${userId}`;
 
-  // --- Матчи игрока = DISTINCT match_id
+  // Счётчик матчей (DISTINCT по матчу)
   const played = await prisma.$queryRaw<{ matches: bigint }[]>`
     SELECT COUNT(DISTINCT ums.match_id) AS matches
     FROM tbl_users_match_stats ums
@@ -58,7 +58,7 @@ export default async function PlayerPage({
   `;
   const totalMatches = Number(played?.[0]?.matches ?? 0);
 
-  // --- Последние 30 уникальных матчей и актуальное амплуа (мода)
+  // Последние 30 матча и "Актуальное амплуа"
   const last30 = await prisma.$queryRaw<
     { match_id: number; ts: number; role_code: string | null }[]
   >`
@@ -86,14 +86,9 @@ export default async function PlayerPage({
   }
   let currentRole = "—";
   let maxCnt = -1;
-  for (const [k, v] of roleCounts) {
-    if (v > maxCnt) {
-      maxCnt = v;
-      currentRole = k;
-    }
-  }
+  for (const [k, v] of roleCounts) if (v > maxCnt) { maxCnt = v; currentRole = k; }
 
-  // --- Распределение ролей (проценты по DISTINCT match_id)
+  // Распределение ролей (в процентах от DISTINCT матчей)
   const roleRows = await prisma.$queryRaw<{ role: string; cnt: bigint }[]>`
     SELECT COALESCE(fp.code, sp.short_name) AS role,
            COUNT(DISTINCT ums.match_id)     AS cnt
@@ -111,14 +106,12 @@ export default async function PlayerPage({
     role: r.role as RolePercent["role"],
     percent: Math.round((Number(r.cnt) * 100) / rolesTotal),
   }));
-
-  // → для RoleDistributionSection нужны {label, value}
-  const roleItems = rolePercents.map((r) => ({
+  const roleItems: RoleItem[] = rolePercents.map((r) => ({
     label: ROLE_LABELS[r.role] ?? r.role,
     value: r.percent,
   }));
 
-  // --- Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) — проценты по DISTINCT match_id
+  // Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) — именно {label,pct}
   const leaguesAgg = await prisma.$queryRaw<
     { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
   >`
@@ -136,22 +129,13 @@ export default async function PlayerPage({
     WHERE ums.user_id = ${userId}
       AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
   `;
-  const Lraw = leaguesAgg[0];
-  const L = {
-    total: Number(Lraw?.total ?? 0),
-    pl: Number(Lraw?.pl ?? 0),
-    fnl: Number(Lraw?.fnl ?? 0),
-    pfl: Number(Lraw?.pfl ?? 0),
-    lfl: Number(Lraw?.lfl ?? 0),
-  };
-  const leaguesTotal = Math.max(1, L.total);
-
-  // ВНИМАНИЕ: RoleDistributionSection ждёт { label, pct }
-  const leagues = [
-    { label: "ПЛ",  pct: Math.round((L.pl  * 100) / leaguesTotal) },
-    { label: "ФНЛ", pct: Math.round((L.fnl * 100) / leaguesTotal) },
-    { label: "ПФЛ", pct: Math.round((L.pfl * 100) / leaguesTotal) },
-    { label: "ЛФЛ", pct: Math.round((L.lfl * 100) / leaguesTotal) },
+  const Lr = leaguesAgg[0] ?? { total: 0n, pl: 0n, fnl: 0n, pfl: 0n, lfl: 0n };
+  const total = Number(Lr.total ?? 0) || 1;
+  const leagues: LeagueBucket[] = [
+    { label: "ПЛ",  pct: Math.round((Number(Lr.pl  ?? 0) * 100) / total) },
+    { label: "ФНЛ", pct: Math.round((Number(Lr.fnl ?? 0) * 100) / total) },
+    { label: "ПФЛ", pct: Math.round((Number(Lr.pfl ?? 0) * 100) / total) },
+    { label: "ЛФЛ", pct: Math.round((Number(Lr.lfl ?? 0) * 100) / total) },
   ].filter((x) => x.pct > 0);
 
   return (
@@ -182,12 +166,12 @@ export default async function PlayerPage({
         </div>
       </section>
 
-      {/* Два бара шириной как теплокарта */}
+      {/* Бары под ширину теплокарты */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[700px]">
         <RoleDistributionSection
           roles={roleItems}
           leagues={leagues}
-          widthPx={500}      // совпадает с шириной теплокарты
+          widthPx={500}
           tooltip
         />
       </section>
