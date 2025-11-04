@@ -1,6 +1,6 @@
 // src/utils/roles.ts
 
-/** Коды амплуа (то, что у тебя уже встречается в БД/файлах) */
+/** Коды амплуа (как встречаются в БД/файлах) */
 export type RoleCode =
   | 'ВРТ'
   | 'ЛЗ' | 'ПЗ'
@@ -11,7 +11,7 @@ export type RoleCode =
   | 'ФРВ' | 'ЦФД' | 'ЛФД' | 'ЛФА' | 'ПФА' | 'ПФД'
   | 'ЛЦЗ' | 'ПЦЗ' | 'ЦЗ';
 
-/** Подписи для фронта (если надо — меняются только здесь) */
+/** Подписи для UI */
 export const ROLE_LABELS: Record<RoleCode, string> = {
   ВРТ: 'ВРТ',
   ЛЗ: 'ЛЗ', ПЗ: 'ПЗ',
@@ -23,13 +23,72 @@ export const ROLE_LABELS: Record<RoleCode, string> = {
   ЛЦЗ: 'ЛЦЗ', ПЦЗ: 'ПЦЗ', ЦЗ: 'ЦЗ',
 };
 
-/** Элемент распределения по амплуа, % от 0 до 100 */
+/** Элемент распределения по амплуа: процент 0–100 */
 export type RoleItem = {
-  label: string;   // обычно ROLE_LABELS[role] или человекочитаемое имя группы
+  label: string;   // человекочитаемая метка (обычно ROLE_LABELS[role] или имя группы)
   value: number;   // доля/процент (0–100)
 };
 
-/** Элемент распределения по лигам (если показываешь вторую секцию) */
+/** Алиас для совместимости с существующим типом в page.tsx */
+export type GroupBucket = RoleItem;
+
+/** Проценты по конкретным ролям (вход функции агрегации) */
+export type RolePercent = { role: RoleCode; percent: number };
+
+/** Группы для агрегации распределения (можно переименовать при желании) */
+export type RoleGroup = 'Вратарь' | 'Защита' | 'Полузащита' | 'Атака';
+
+/** Порядок вывода групп (для стабильного UI) */
+export const GROUP_ORDER: RoleGroup[] = ['Вратарь', 'Защита', 'Полузащита', 'Атака'];
+
+/** Маппинг амплуа -> группа (используется в page.tsx) */
+export const ROLE_TO_GROUP: Record<RoleCode, RoleGroup> = {
+  // вратарь
+  ВРТ: 'Вратарь',
+
+  // защита
+  ЦЗ: 'Защита', ЛЦЗ: 'Защита', ПЦЗ: 'Защита',
+  ЛЗ: 'Защита',  ПЗ: 'Защита',
+
+  // полузащита (опорная, центральная, атакующая)
+  ЛОП: 'Полузащита', ЦОП: 'Полузащита', ПОП: 'Полузащита',
+  ЦП: 'Полузащита',  ЛПЦ: 'Полузащита', ПЦП: 'Полузащита',
+  ЦАП: 'Полузащита',
+
+  // атака (фланги/форварды)
+  ЛАП: 'Атака', ПАП: 'Атака', ЛП: 'Атака', ПП: 'Атака',
+  ФРВ: 'Атака', ЦФД: 'Атака', ЛФД: 'Атака', ЛФА: 'Атака', ПФА: 'Атака', ПФД: 'Атака',
+};
+
+/**
+ * Агрегация процентов по ролям в групповые ведра.
+ * На вход — массив { role, percent }, на выход — массив { label, value } по группам.
+ * Суммирование идёт по группам согласно ROLE_TO_GROUP.
+ */
+export function groupRolePercents(list: RolePercent[]): GroupBucket[] {
+  // аккумулируем проценты по группам
+  const acc = new Map<RoleGroup, number>();
+
+  for (const item of list) {
+    const group = ROLE_TO_GROUP[item.role];
+    if (!group) continue;
+    acc.set(group, (acc.get(group) ?? 0) + item.percent);
+  }
+
+  // формируем итог в стабильном порядке
+  const result: GroupBucket[] = [];
+  for (const g of GROUP_ORDER) {
+    const v = acc.get(g);
+    if (v === undefined) continue;
+    // нормализуем в диапазон 0..100 (на всякий случай)
+    const clamped = Math.max(0, Math.min(100, Number.isFinite(v) ? v : 0));
+    result.push({ label: g, value: Math.round(clamped * 100) / 100 });
+  }
+
+  return result;
+}
+
+/** Дополнительно: тип для распределения по лигам (если нужно в секции) */
 export type LeagueBucket = {
   label: string;   // название лиги
   pct: number;     // доля/процент (0–100)
