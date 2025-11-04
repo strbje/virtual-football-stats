@@ -4,12 +4,8 @@ import { rolePercentsFromAppearances } from "@/utils/roles";
 
 /**
  * GET /api/player-roles?userId=50734
- * Возвращает:
- * {
- *   ok: true,
- *   matches: number,                               // всего матчей (учтённых)
- *   roles: Array<{ role: RoleCode; percent: number }> // доли по амплуа, %
- * }
+ * Ответ:
+ * { ok: true, matches: number, roles: Array<{ role: RoleCode; percent: number }> }
  */
 export async function GET(req: NextRequest) {
   try {
@@ -21,53 +17,37 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 1) Пытаемся вызвать старую готовую логику, если она у тебя есть
-    //    (оставляет поведение "как было").
+    // --- Пытаемся прочитать роли из БД через Prisma (если доступен) ---
     try {
-      const mod: any = await import("@/lib/players");
-      if (mod && typeof mod.getPlayerRoles === "function") {
-        const data = await mod.getPlayerRoles(userId);
-        // ожидается структура { matches, roles }
-        return NextResponse.json({ ok: true, ...data });
-      }
-    } catch {
-      // нет модуля/функции — идём к Prisma
-    }
+      // Подключаем PrismaClient напрямую, чтобы не зависеть от "@/lib/..."
+      const { PrismaClient } = await import("@prisma/client");
+      const prisma = new PrismaClient();
 
-    // 2) Пытаемся достать появления по ролям через Prisma (универсальный путь).
-    //    Предполагаем таблицу match с полями userId (string|number) и role (RoleCode).
-    //    Если у тебя другая схема — твоя старая getPlayerRoles перекроет этот блок.
-    try {
-      const prismaMod: any = await import("@/lib/prisma");
-      const prisma = prismaMod?.prisma ?? prismaMod?.default ?? prismaMod;
-
-      // Если prisma не экспортирован как объект — пробуем prisma.default
-      if (!prisma || typeof prisma.match?.findMany !== "function") {
-        throw new Error("Prisma client not available");
-      }
-
-      // Загружаем все появления игрока по ролям.
-      // Если нужно исключать сборные — добавь соответствующий фильтр в where.
+      // Ниже предполагается, что есть таблица матчей с полями userId и role.
+      // Если у тебя другое имя таблицы/полей — поменяй только этот кусок.
       const rows: Array<{ role: string | null }> = await prisma.match.findMany({
         where: {
-          // userId может быть строкой в БД — приводим аккуратно
-          userId: isNaN(Number(userId)) ? (userId as any) : Number(userId),
-          // пример фильтра, если в схеме есть признак матчей сборных:
-          // isNational: false
+          // userId в БД может быть числом или строкой — пробуем оба варианта
+          OR: [
+            { userId: Number.isNaN(Number(userId)) ? undefined as any : Number(userId) },
+            { userId: userId as any },
+          ].filter(Boolean) as any,
         },
         select: { role: true },
       });
 
+      await prisma.$disconnect().catch(() => {});
+
       const rolesByMatch: RoleCode[] = rows
         .map((r) => (r.role ?? "").trim())
-        .filter((r) => r.length > 0) as RoleCode[];
+        .filter(Boolean) as RoleCode[];
 
       const matches = rolesByMatch.length;
       const roles = rolePercentsFromAppearances(rolesByMatch);
 
       return NextResponse.json({ ok: true, matches, roles });
     } catch {
-      // Prisma недоступен — не валим страницу, отдаём пустой результат
+      // Prisma недоступен или схема отличается — отдаём пустой, но валидный ответ
       return NextResponse.json({ ok: true, matches: 0, roles: [] });
     }
   } catch (e: any) {
