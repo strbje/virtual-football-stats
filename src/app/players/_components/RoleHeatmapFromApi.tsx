@@ -1,42 +1,57 @@
-// src/app/players/_components/RoleHeatmapFromApi.tsx
 'use client';
 
-import * as React from 'react';
-import RoleHeatmap, { type RolePercent } from '@/components/players/RoleHeatmap';
+import useSWR from 'swr';
+import RoleHeatmap from '@/components/players/RoleHeatmap';
+
+type RolePercent = { role: string; percent: number };
+
+// Подстрой под фактическую форму ответа твоего API:
+type ApiResponse =
+  | { ok: true; roles: RolePercent[] }
+  | { ok: false; error: string };
 
 type Props = {
   userId: number;
-  fromTs?: number | null;
-  toTs?: number | null;
-  caption?: string;
+  /** строка вида "dd.mm.yyyy:dd.mm.yyyy" или пустая */
+  range?: string;
 };
 
-export default function RoleHeatmapFromApi({ userId, fromTs, toTs, caption }: Props) {
-  const [data, setData] = React.useState<RolePercent[] | null>(null);
-  const [err, setErr] = React.useState<string | null>(null);
+const fetcher = (url: string) =>
+  fetch(url).then((r) => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  });
 
-  React.useEffect(() => {
-    const p = new URLSearchParams();
-    if (fromTs) p.set('fromTs', String(fromTs));
-    if (toTs) p.set('toTs', String(toTs));
+export default function RoleHeatmapFromApi({ userId, range }: Props) {
+  const qs =
+    range && range.trim().length > 0
+      ? `?range=${encodeURIComponent(range)}`
+      : '';
+  const { data, error, isLoading } = useSWR<ApiResponse>(
+    `/api/player-roles/${userId}${qs}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
 
-    fetch(`/api/player-roles/${userId}${p.toString() ? `?${p}` : ''}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then((j) => {
-        if (!j?.ok) throw new Error(j?.error || 'Failed to load');
-        // ожидаем массив объектов { role, percent }
-        setData(Array.isArray(j.data) ? j.data : []);
-        setErr(null);
-      })
-      .catch(e => setErr(e.message));
-  }, [userId, fromTs, toTs]);
-
-  if (err) {
-    return <div className="text-sm text-red-600">Не удалось загрузить тепловую карту: {err}</div>;
+  if (error) {
+    return (
+      <div className="text-red-500 text-sm">
+        Не удалось загрузить тепловую карту
+      </div>
+    );
   }
-  if (!data) {
-    return <div className="text-sm text-gray-500">Загрузка тепловой карты…</div>;
+  if (!data || isLoading) {
+    return <div className="text-sm text-muted-foreground">Загрузка…</div>;
+  }
+  if ('ok' in data && data.ok === false) {
+    return (
+      <div className="text-red-500 text-sm">
+        {data.error || 'Ошибка API'}
+      </div>
+    );
   }
 
-  return <RoleHeatmap data={data} caption={caption ?? 'Тепловая карта амплуа'} />;
+  // Если у твоего RoleHeatmap обязательные пропы widthPx/heightPx — можно передать их здесь,
+  // но сейчас оставляю только роли, т.к. контейнер на странице уже фиксирует 500×700.
+  return <RoleHeatmap roles={('ok' in data ? data.roles : [])} />;
 }
