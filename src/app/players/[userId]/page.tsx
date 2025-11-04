@@ -112,7 +112,7 @@ export default async function PlayerPage({
     percent: Math.round((Number(r.cnt) * 100) / rolesTotal),
   }));
 
-  // 🟢 Преобразуем RolePercent[] -> RoleItem[] ({label, value}) для RoleDistributionSection
+  // → для RoleDistributionSection нужны {label, value}
   const roleItems = rolePercents.map((r) => ({
     label: ROLE_LABELS[r.role] ?? r.role,
     value: r.percent,
@@ -145,12 +145,14 @@ export default async function PlayerPage({
     lfl: Number(Lraw?.lfl ?? 0),
   };
   const leaguesTotal = Math.max(1, L.total);
+
+  // ВНИМАНИЕ: RoleDistributionSection ждёт { label, pct }
   const leagues = [
-    { label: "ПЛ", percent: Math.round((L.pl * 100) / leaguesTotal) },
-    { label: "ФНЛ", percent: Math.round((L.fnl * 100) / leaguesTotal) },
-    { label: "ПФЛ", percent: Math.round((L.pfl * 100) / leaguesTotal) },
-    { label: "ЛФЛ", percent: Math.round((L.lfl * 100) / leaguesTotal) },
-  ].filter((x) => x.percent > 0);
+    { label: "ПЛ",  pct: Math.round((L.pl  * 100) / leaguesTotal) },
+    { label: "ФНЛ", pct: Math.round((L.fnl * 100) / leaguesTotal) },
+    { label: "ПФЛ", pct: Math.round((L.pfl * 100) / leaguesTotal) },
+    { label: "ЛФЛ", pct: Math.round((L.lfl * 100) / leaguesTotal) },
+  ].filter((x) => x.pct > 0);
 
   return (
     <div className="p-6 space-y-6">
@@ -183,9 +185,9 @@ export default async function PlayerPage({
       {/* Два бара шириной как теплокарта */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[700px]">
         <RoleDistributionSection
-          roles={roleItems}          // <-- здесь уже {label,value}
+          roles={roleItems}
           leagues={leagues}
-          widthPx={500}              // совпадает с шириной теплокарты
+          widthPx={500}      // совпадает с шириной теплокарты
           tooltip
         />
       </section>
