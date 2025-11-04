@@ -6,59 +6,55 @@ APP_DIR="$HOME/virtual-football-stats"
 SECRETS_ENV="$HOME/secrets/virtual-football-stats.env"
 PORT="${PORT:-3000}"
 
-log(){ echo ">>> $*"; }
-
-log "restore .env"
+echo ">>> restore .env"
 mkdir -p "$(dirname "$SECRETS_ENV")"
-[[ -f "$SECRETS_ENV" ]] || { echo "ERROR: $SECRETS_ENV not found"; exit 42; }
+if [[ ! -f "$SECRETS_ENV" ]]; then
+  echo "ERROR: $SECRETS_ENV not found. Put your env there."; exit 42
+fi
 ln -sf "$SECRETS_ENV" "$APP_DIR/.env"
 
+echo ">>> fetch/reset"
 cd "$APP_DIR"
-
-log "fetch/reset"
 git fetch origin main -q || true
 git reset --hard origin/main
 
-log "stop app (ignore if missing)"
+echo ">>> stop app (ignore if missing)"
 pm2 delete "$APP_NAME" 2>/dev/null || true
 
-log "purge build artifacts"
+echo ">>> purge build artifacts"
 rm -rf .next
-
-log "drop node_modules atomically"
+# иногда node_modules «держится» — снесём как угодно
 if [[ -d node_modules ]]; then
-  mv node_modules "node_modules.trash.$RANDOM" || true
+  rm -rf node_modules 2>/dev/null || true
+  mv node_modules "node_modules.trash.$RANDOM" 2>/dev/null || true
 fi
-rm -rf node_modules.trash.* >/dev/null 2>&1 || true
 
-log "npm cache bootstrap"
+echo ">>> npm cache bootstrap"
 mkdir -p "$HOME/.npm/_cacache/tmp" || true
 npm config set fund false
 npm config set audit false
 
-log "npm ci (or fallback to install)"
+echo ">>> npm ci (fallback to install)"
 if ! npm ci; then
+  echo "npm ci failed, fallback to npm install"
   npm install --no-audit --no-fund
 fi
 
-log "ensure styled-jsx present (next require-hook)"
-if ! node -e "require('styled-jsx/package.json')" >/dev/null 2>&1; then
-  npm i -D styled-jsx
-fi
-
-log "prisma generate (best-effort)"
+echo ">>> prisma generate (best-effort)"
 npx prisma generate || true
 
-log "build"
+echo ">>> build"
+# на случай редких PATH-проблем
+export PATH="$APP_DIR/node_modules/.bin:$PATH"
 npm run build
 
-log "free port $PORT if busy"
+echo ">>> free port if busy"
 if ss -lntp 2>/dev/null | grep -q ":$PORT "; then
   fuser -k "$PORT/tcp" 2>/dev/null || true
 fi
 
-log "start app"
+echo ">>> start app"
 PORT="$PORT" pm2 start npm --name "$APP_NAME" -- start
 pm2 save
 
-log "done"
+echo ">>> done"
