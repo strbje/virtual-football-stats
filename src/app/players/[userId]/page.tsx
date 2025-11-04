@@ -5,13 +5,14 @@ import Link from "next/link";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 
-// Агрегации берём из lib (твоя «корректная» логика)
-import { groupRolePercents, toLeagueBuckets } from "@/lib/roles";
+// Агрегация (правильная) — из lib
+import { groupRolePercents } from "@/lib/roles";
 
-// Справочники и типы берём из utils (здесь они и лежат)
+// Справочники, типы и упаковка «лиг» — из utils
 import {
   ROLE_LABELS,
   HEATMAP_ROLES_ORDER,
+  toLeagueBuckets,
   type RoleCode,
   type RolePercent,
 } from "@/utils/roles";
@@ -27,7 +28,6 @@ type ApiRolesResp = {
 
 type UserRow = { id: number; gamertag: string | null; username: string | null };
 
-// ---------- helpers ----------
 function buildBaseURL() {
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -38,10 +38,9 @@ function buildBaseURL() {
 function pickCurrentRole(roles: RolePercent[]): string {
   if (!roles.length) return "—";
   const top = roles.slice().sort((a, b) => b.percent - a.percent)[0].role;
-  return ROLE_LABELS?.[top] ?? top; // если мапы нет — покажем код
+  return ROLE_LABELS?.[top] ?? top;
 }
 
-// ---------- page ----------
 export default async function PlayerProfile({
   params,
 }: {
@@ -50,7 +49,7 @@ export default async function PlayerProfile({
   const userId = params.userId;
   const base = buildBaseURL();
 
-  // 1) имя игрока (чтобы не было User #NaN)
+  // имя игрока
   const userRes = await fetch(
     `${base}/api/sql?query=${encodeURIComponent(
       `SELECT id, gamertag, username FROM tbl_users WHERE id = ${Number(
@@ -67,7 +66,7 @@ export default async function PlayerProfile({
     if (u) title = u.gamertag || u.username || title;
   }
 
-  // 2) распределение по амплуа (рабочий API — без BigInt)
+  // распределение по амплуа
   const rolesResp = await fetch(
     `${base}/api/player-roles?userId=${encodeURIComponent(userId)}`,
     { cache: "no-store" }
@@ -79,21 +78,20 @@ export default async function PlayerProfile({
     percent: r.percent,
   }));
 
-  // 3) сгруппировать для барчарта амплуа (агрегация из lib/roles)
+  // группировка для барчарта
   const groupedRoles = groupRolePercents(rolePercents);
 
-  // 4) тепловая карта по фиксированному порядку (из utils/roles)
+  // тепловая карта по фиксированному порядку
   const heatmapData = HEATMAP_ROLES_ORDER.map((code) => {
     const found = rolePercents.find((x) => x.role === code);
     return { role: code, percent: found ? found.percent : 0 };
   });
 
-  // 5) распределение по лигам — пока пустая подложка (как было до барчарта лиг)
+  // пока пустая подложка лиг (вставим реальные — подадим массив в toLeagueBuckets)
   const leagues = toLeagueBuckets([]);
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
-      {/* header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{title}</h1>
@@ -103,7 +101,6 @@ export default async function PlayerProfile({
         </Link>
       </div>
 
-      {/* cards */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl border p-4">
           <div className="text-sm text-zinc-500">Матчи</div>
@@ -119,7 +116,6 @@ export default async function PlayerProfile({
         </div>
       </section>
 
-      {/* distributions */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
         <RoleDistributionSection
           roles={groupedRoles}
@@ -129,7 +125,6 @@ export default async function PlayerProfile({
         />
       </section>
 
-      {/* heatmap */}
       <section className="md:max-w-[1100px]">
         <div className="text-sm font-semibold mb-2">Тепловая карта амплуа</div>
         <RoleHeatmap data={heatmapData} />
