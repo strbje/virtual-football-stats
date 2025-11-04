@@ -1,35 +1,35 @@
 'use client';
 
 import useSWR from 'swr';
-import { useMemo } from 'react';
-import RoleHeatmap from '@/components/players/RoleHeatmap';
-import type { RolePercent } from '@/utils/roles';
+import { RoleHeatmap } from '@/components/players/RoleHeatmap';
+import type { RolePercent } from '@/components/players/RoleHeatmap';
 
 type ApiOk = { ok: true; roles: RolePercent[] };
 type ApiErr = { ok: false; error: string };
 
-const fetcher = (url: string) => fetch(url).then(r => r.json());
+const fetcher = (url: string) => fetch(url).then(r => r.json() as Promise<ApiOk | ApiErr>);
 
-export default function RoleHeatmapFromApi(props: { userId: number; range?: string }) {
-  const { userId, range = '' } = props;
+type Props = {
+  userId: number;
+  /** Формат "dd.mm.yyyy:dd.mm.yyyy" или пустая строка */
+  range?: string;
+};
 
-  const qs = useMemo(() => {
-    const p = new URLSearchParams();
-    if (range) p.set('range', range);
-    return p.toString();
-  }, [range]);
+export default function RoleHeatmapFromApi({ userId, range = '' }: Props) {
+  const qs = range ? `?range=${encodeURIComponent(range)}` : '';
+  const { data, isLoading, error } = useSWR<ApiOk | ApiErr>(`/api/player-roles/${userId}${qs}`, fetcher);
 
-  const url = `/api/player-roles/${userId}${qs ? `?${qs}` : ''}`;
-  const { data, error, isLoading } = useSWR<ApiOk | ApiErr>(url, fetcher);
-
-  if (isLoading) return <div className="text-sm text-muted-foreground">Загружаю тепловую карту…</div>;
-  if (error || !data || !('ok' in data) || !data.ok) {
-    return <div className="text-sm text-destructive">Не удалось загрузить роли</div>;
+  if (isLoading) return <div className="text-sm text-muted-foreground">Загрузка тепловой карты…</div>;
+  if (error)     return <div className="text-sm text-red-500">Ошибка загрузки</div>;
+  if (!data || ('ok' in data && !data.ok)) {
+    const msg = !data ? 'нет данных' : ('error' in data ? data.error : 'ошибка');
+    return <div className="text-sm text-red-500">Не удалось получить роли: {msg}</div>;
   }
 
+  // ✅ ВАЖНО: передаём props, которые реально есть у RoleHeatmap
   return (
     <RoleHeatmap
-      rolePercents={data.roles}
+      roles={data.roles}
       widthPx={500}
       heightPx={700}
       tooltip
