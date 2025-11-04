@@ -1,3 +1,4 @@
+// src/app/players/[userId]/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import RoleHeatmapFromApi from "@/app/players/_components/RoleHeatmapFromApi";
@@ -15,24 +16,30 @@ function getOne(sp: SearchParams, k: string) {
 }
 
 function parseRange(range?: string) {
-  if (!range) return { fromTs: 0, toTs: 32503680000 };
+  if (!range) return { fromTs: 0, toTs: 32503680000 }; // до 01.01.3000
   const [a, b] = range.split(":");
   const fromTs = a ? Math.floor(new Date(`${a} 00:00:00`).getTime() / 1000) : 0;
   const toTs = b ? Math.floor(new Date(`${b} 23:59:59`).getTime() / 1000) : 32503680000;
   return { fromTs, toTs };
 }
 
-export default async function PlayerPage({ params, searchParams }: { params: { userId: string }, searchParams: SearchParams }) {
+export default async function PlayerPage({
+  params,
+  searchParams,
+}: {
+  params: { userId: string };
+  searchParams: SearchParams;
+}) {
   const userId = Number(params.userId);
-  if (!Number.isFinite(userId)) {
-    return <div className="p-6">Неверный ID</div>;
-  }
+  if (!Number.isFinite(userId)) return <div className="p-6">Неверный ID</div>;
 
   const rangeParam = getOne(searchParams, "range");
   const { fromTs, toTs } = parseRange(rangeParam);
 
-  // --- Игрок
-  const user = await prisma.$queryRaw<{ id: number; gamertag: string | null; username: string | null }[]>`
+  // --- Игрок (заголовок)
+  const user = await prisma.$queryRaw<
+    { id: number; gamertag: string | null; username: string | null }[]
+  >`
     SELECT u.id, u.gamertag, u.username
     FROM tbl_users u
     WHERE u.id = ${userId}
@@ -40,7 +47,7 @@ export default async function PlayerPage({ params, searchParams }: { params: { u
   `;
   const title = user[0]?.gamertag || user[0]?.username || `User #${userId}`;
 
-  // --- Матчи = DISTINCT match_id
+  // --- Матчи игрока = DISTINCT match_id
   const played = await prisma.$queryRaw<{ matches: bigint }[]>`
     SELECT COUNT(DISTINCT ums.match_id) AS matches
     FROM tbl_users_match_stats ums
@@ -50,8 +57,10 @@ export default async function PlayerPage({ params, searchParams }: { params: { u
   `;
   const totalMatches = Number(played?.[0]?.matches ?? 0);
 
-  // --- Последние 30 уникальных матчей и актуальная роль (мода)
-  const last30 = await prisma.$queryRaw<{ match_id: number; ts: number; role_code: string | null }[]>`
+  // --- Последние 30 уникальных матчей и актуальное амплуа (мода)
+  const last30 = await prisma.$queryRaw<
+    { match_id: number; ts: number; role_code: string | null }[]
+  >`
     WITH uniq AS (
       SELECT DISTINCT ums.match_id, tm.timestamp AS ts
       FROM tbl_users_match_stats ums
@@ -77,10 +86,13 @@ export default async function PlayerPage({ params, searchParams }: { params: { u
   let currentRole = "—";
   let maxCnt = -1;
   for (const [k, v] of roleCounts) {
-    if (v > maxCnt) { maxCnt = v; currentRole = k; }
+    if (v > maxCnt) {
+      maxCnt = v;
+      currentRole = k;
+    }
   }
 
-  // --- Распределение ролей = проценты по DISTINCT match_id
+  // --- Распределение ролей (проценты по DISTINCT match_id)
   const roleRows = await prisma.$queryRaw<{ role: string; cnt: bigint }[]>`
     SELECT COALESCE(fp.code, sp.short_name) AS role,
            COUNT(DISTINCT ums.match_id)     AS cnt
@@ -94,18 +106,20 @@ export default async function PlayerPage({ params, searchParams }: { params: { u
     ORDER BY cnt DESC
   `;
   const rolesTotal = roleRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
-  const rolePercents: RolePercent[] = roleRows.map(r => ({
+  const rolePercents: RolePercent[] = roleRows.map((r) => ({
     role: r.role as RolePercent["role"],
     percent: Math.round((Number(r.cnt) * 100) / rolesTotal),
   }));
 
-  // --- Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) = проценты по DISTINCT match_id
+  // --- Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) — проценты по DISTINCT match_id
   const leaguesAgg = await prisma.$queryRaw<
     { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
   >`
     SELECT
       COUNT(DISTINCT ums.match_id) AS total,
-      COUNT(DISTINCT CASE WHEN (LOWER(t.name) LIKE '%премьер%' OR UPPER(t.name) LIKE '%ПЛ%')  THEN ums.match_id END) AS pl,
+      COUNT(DISTINCT CASE
+        WHEN (LOWER(t.name) LIKE '%премьер%' OR UPPER(t.name) LIKE '%ПЛ%')
+        THEN ums.match_id END) AS pl,
       COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ФНЛ%' THEN ums.match_id END) AS fnl,
       COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ПФЛ%' THEN ums.match_id END) AS pfl,
       COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ЛФЛ%' THEN ums.match_id END) AS lfl
@@ -115,14 +129,21 @@ export default async function PlayerPage({ params, searchParams }: { params: { u
     WHERE ums.user_id = ${userId}
       AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
   `;
-  const L = leaguesAgg[0] ?? { total: 0n, pl: 0n, fnl: 0n, pfl: 0n, lfl: 0n };
-  const leaguesTotal = Math.max(1, Number(L.total));
+  const Lraw = leaguesAgg[0];
+  const L = {
+    total: Number(Lraw?.total ?? 0),
+    pl: Number(Lraw?.pl ?? 0),
+    fnl: Number(Lraw?.fnl ?? 0),
+    pfl: Number(Lraw?.pfl ?? 0),
+    lfl: Number(Lraw?.lfl ?? 0),
+  };
+  const leaguesTotal = Math.max(1, L.total);
   const leagues = [
-    { label: "ПЛ",  percent: Math.round((Number(L.pl)  * 100) / leaguesTotal) },
-    { label: "ФНЛ", percent: Math.round((Number(L.fnl) * 100) / leaguesTotal) },
-    { label: "ПФЛ", percent: Math.round((Number(L.pfl) * 100) / leaguesTotal) },
-    { label: "ЛФЛ", percent: Math.round((Number(L.lfl) * 100) / leaguesTotal) },
-  ].filter(x => x.percent > 0);
+    { label: "ПЛ", percent: Math.round((L.pl * 100) / leaguesTotal) },
+    { label: "ФНЛ", percent: Math.round((L.fnl * 100) / leaguesTotal) },
+    { label: "ПФЛ", percent: Math.round((L.pfl * 100) / leaguesTotal) },
+    { label: "ЛФЛ", percent: Math.round((L.lfl * 100) / leaguesTotal) },
+  ].filter((x) => x.percent > 0);
 
   return (
     <div className="p-6 space-y-6">
@@ -133,7 +154,9 @@ export default async function PlayerPage({ params, searchParams }: { params: { u
             <DateRangeFilter initialRange={rangeParam || ""} />
           </div>
         </div>
-        <Link href="/players" className="text-blue-600 hover:underline text-sm">← Ко всем игрокам</Link>
+        <Link href="/players" className="text-blue-600 hover:underline text-sm">
+          ← Ко всем игрокам
+        </Link>
       </div>
 
       {/* Плитки */}
@@ -155,7 +178,7 @@ export default async function PlayerPage({ params, searchParams }: { params: { u
         <RoleDistributionSection
           roles={rolePercents}
           leagues={leagues}
-          widthPx={500}
+          widthPx={500}   // чтобы бары совпадали с 500px ширины теплокарты
           tooltip
         />
       </section>
