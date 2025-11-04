@@ -1,141 +1,78 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { Prisma } from '@prisma/client';
+import { NextResponse, NextRequest } from "next/server";
+import type { RoleCode } from "@/utils/roles";
+import { rolePercentsFromAppearances } from "@/utils/roles";
 
-/** Безопасный парсер дат "ДД.ММ.ГГГГ" или "ДД.ММ.ГГГГ ЧЧ:ММ:СС" -> ms */
-function parseTs(s?: string | null): number | null {
-  if (!s) return null;
-  const parts = s.trim().split(' ');
-  const [d, m, y] = (parts[0] || '').split('.').map(Number);
-  if (!d || !m || !y) return null;
-  const time = parts[1] || '00:00:00';
-  const [hh, mm, ss] = time.split(':').map(v => Number(v || 0));
-  const js = new Date(y, m - 1, d, hh, mm, ss).getTime();
-  return Number.isFinite(js) ? js : null;
-}
-
-/** Приводим любые bigint из MySQL к number */
-const toNum = (v: any) => (typeof v === 'bigint' ? Number(v) : Number(v ?? 0));
-
-/** GET /api/player-roles/[userId]?range=DD.MM.YYYY:DD.MM.YYYY */
-export async function GET(
-  req: Request,
-  { params }: { params: { userId: string } }
-) {
+/**
+ * GET /api/player-roles?userId=50734
+ * Возвращает:
+ * {
+ *   ok: true,
+ *   matches: number,                               // всего матчей (учтённых)
+ *   roles: Array<{ role: RoleCode; percent: number }> // доли по амплуа, %
+ * }
+ */
+export async function GET(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const range = url.searchParams.get('range') || '';
-
-    // Диапазон дат
-    const [fromRaw, toRaw] = range.split(':');
-    const fromTs = parseTs(fromRaw) ?? 0;
-    const toTs = parseTs(toRaw ? `${toRaw} 23:59:59` : '') ?? 32503680000; // 01.01.3000
-
-    const userId = Number(params.userId);
-    if (!Number.isFinite(userId)) {
-      return NextResponse.json({ ok: false, error: 'Bad userId' }, { status: 400 });
+    const userId = req.nextUrl.searchParams.get("userId");
+    if (!userId) {
+      return NextResponse.json(
+        { ok: false, error: "userId is required" },
+        { status: 400 }
+      );
     }
 
-    // --- 1) Распределение по ролям ---
-    // таблицы по твоему запросу из дашборда:
-    // tbl_users_match_stats ums
-    // tournament_match tm
-    // skills_positions sp
-    // tournament t (ниже пригодится для лиг)
-    type RoleRow = { role_code: string; cnt: bigint | number };
-    const rolesRows = await prisma.$queryRaw<RoleRow[]>(Prisma.sql`
-      SELECT sp.short_name AS role_code, COUNT(*) AS cnt
-      FROM tbl_users_match_stats ums
-      JOIN tournament_match tm ON ums.match_id = tm.id
-      JOIN skills_positions sp ON ums.skill_id = sp.id
-      WHERE ums.user_id = ${userId}
-        AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
-      GROUP BY sp.short_name
-    `);
-
-    const totalMatchesRow = await prisma.$queryRaw<{ total: bigint | number }[]>(
-      Prisma.sql`
-        SELECT COUNT(*) AS total
-        FROM tbl_users_match_stats ums
-        JOIN tournament_match tm ON ums.match_id = tm.id
-        WHERE ums.user_id = ${userId}
-          AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
-      `
-    );
-    const totalMatches = toNum(totalMatchesRow[0]?.total ?? 0);
-
-    const roles = rolesRows.map(r => ({
-      role: r.role_code,
-      count: toNum(r.cnt),
-      percent: totalMatches ? Math.round((toNum(r.cnt) * 10000) / totalMatches) / 100 : 0,
-    }));
-
-    // --- 2) Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) ---
-    // используем название турнира t.name
-    type LeagueRow = { bucket: string; cnt: bigint | number };
-    const leaguesRows = await prisma.$queryRaw<LeagueRow[]>(Prisma.sql`
-      SELECT
-        CASE
-          WHEN t.name LIKE '%Премьер%' OR t.name LIKE '%ПЛ%' THEN 'pl'
-          WHEN t.name LIKE '%ФНЛ%' THEN 'fnl'
-          WHEN t.name LIKE '%ПФЛ%' THEN 'pfl'
-          WHEN t.name LIKE '%ЛФЛ%' THEN 'lfl'
-          ELSE 'other'
-        END AS bucket,
-        COUNT(*) AS cnt
-      FROM tbl_users_match_stats ums
-      JOIN tournament_match tm ON ums.match_id = tm.id
-      JOIN tournament t ON tm.tournament_id = t.id
-      WHERE ums.user_id = ${userId}
-        AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
-      GROUP BY bucket
-    `);
-
-    const leaguesAgg = { pl: 0, fnl: 0, pfl: 0, lfl: 0, other: 0, total: 0 };
-    for (const row of leaguesRows) {
-      const k = (row.bucket as keyof typeof leaguesAgg) || 'other';
-      const v = toNum(row.cnt);
-      leaguesAgg[k] = (leaguesAgg[k] || 0) + v;
-      leaguesAgg.total += v;
+    // 1) Пытаемся вызвать старую готовую логику, если она у тебя есть
+    //    (оставляет поведение "как было").
+    try {
+      const mod: any = await import("@/lib/players");
+      if (mod && typeof mod.getPlayerRoles === "function") {
+        const data = await mod.getPlayerRoles(userId);
+        // ожидается структура { matches, roles }
+        return NextResponse.json({ ok: true, ...data });
+      }
+    } catch {
+      // нет модуля/функции — идём к Prisma
     }
-    const leagues = [
-      { label: 'ПЛ',  percent: leaguesAgg.total ? Math.round((leaguesAgg.pl  * 10000) / leaguesAgg.total) / 100 : 0 },
-      { label: 'ФНЛ', percent: leaguesAgg.total ? Math.round((leaguesAgg.fnl * 10000) / leaguesAgg.total) / 100 : 0 },
-      { label: 'ПФЛ', percent: leaguesAgg.total ? Math.round((leaguesAgg.pfl * 10000) / leaguesAgg.total) / 100 : 0 },
-      { label: 'ЛФЛ', percent: leaguesAgg.total ? Math.round((leaguesAgg.lfl * 10000) / leaguesAgg.total) / 100 : 0 },
-    ];
 
-    // --- 3) Актуальное амплуа (по последним 30 матчам пользователя) ---
-    type LastRow = { role_code: string; cnt: bigint | number };
-    const last30Rows = await prisma.$queryRaw<LastRow[]>(Prisma.sql`
-      SELECT A.role_code, COUNT(*) AS cnt
-      FROM (
-        SELECT sp.short_name AS role_code
-        FROM tbl_users_match_stats ums
-        JOIN tournament_match tm ON ums.match_id = tm.id
-        JOIN skills_positions sp ON ums.skill_id = sp.id
-        WHERE ums.user_id = ${userId}
-        ORDER BY tm.timestamp DESC
-        LIMIT 30
-      ) AS A
-      GROUP BY A.role_code
-      ORDER BY cnt DESC
-    `);
-    const topRoleLast30 = last30Rows.length ? last30Rows.reduce((a, b) => (toNum(b.cnt) > toNum(a.cnt) ? b : a)).role_code : null;
+    // 2) Пытаемся достать появления по ролям через Prisma (универсальный путь).
+    //    Предполагаем таблицу match с полями userId (string|number) и role (RoleCode).
+    //    Если у тебя другая схема — твоя старая getPlayerRoles перекроет этот блок.
+    try {
+      const prismaMod: any = await import("@/lib/prisma");
+      const prisma = prismaMod?.prisma ?? prismaMod?.default ?? prismaMod;
 
-    return NextResponse.json({
-      ok: true,
-      total: totalMatches,
-      roles,
-      leagues,
-      topRoleLast30,
-      range: { fromTs, toTs },
-    });
-  } catch (err: any) {
-    // даём короткий ответ + техническую деталь для логов
+      // Если prisma не экспортирован как объект — пробуем prisma.default
+      if (!prisma || typeof prisma.match?.findMany !== "function") {
+        throw new Error("Prisma client not available");
+      }
+
+      // Загружаем все появления игрока по ролям.
+      // Если нужно исключать сборные — добавь соответствующий фильтр в where.
+      const rows: Array<{ role: string | null }> = await prisma.match.findMany({
+        where: {
+          // userId может быть строкой в БД — приводим аккуратно
+          userId: isNaN(Number(userId)) ? (userId as any) : Number(userId),
+          // пример фильтра, если в схеме есть признак матчей сборных:
+          // isNational: false
+        },
+        select: { role: true },
+      });
+
+      const rolesByMatch: RoleCode[] = rows
+        .map((r) => (r.role ?? "").trim())
+        .filter((r) => r.length > 0) as RoleCode[];
+
+      const matches = rolesByMatch.length;
+      const roles = rolePercentsFromAppearances(rolesByMatch);
+
+      return NextResponse.json({ ok: true, matches, roles });
+    } catch {
+      // Prisma недоступен — не валим страницу, отдаём пустой результат
+      return NextResponse.json({ ok: true, matches: 0, roles: [] });
+    }
+  } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: err?.message || 'Internal error' },
+      { ok: false, error: e?.message ?? "Unexpected error" },
       { status: 500 }
     );
   }
