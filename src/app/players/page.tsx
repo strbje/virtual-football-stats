@@ -168,10 +168,11 @@ export default async function PlayerPage({
 
       <section className="md:max-w-[700px]">
         <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
-        <div style={{ width: 500, height: 700 }}>
-          <RoleHeatmapFromApi userId={userId} range={range || ""} />
-        </div>
+<div style={{ width: 500, height: 700 }}>
+  <RoleHeatmapFromApi userId={userId} range={range || ''} />
+</div>
       </section>
     </div>
   );
 }
+
