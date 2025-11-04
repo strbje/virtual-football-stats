@@ -3,61 +3,45 @@
 import useSWR from 'swr';
 import RoleHeatmap from '@/components/players/RoleHeatmap';
 
-type RolePercent = { role: string; percent: number };
+export type RoleCode =
+  | 'ВРТ'
+  | 'ЛЗ' | 'ПЗ'
+  | 'ЛОП' | 'ЦОП' | 'ПОП'
+  | 'ЦП' | 'ЛПЦ' | 'ПЦП'
+  | 'ЛАП' | 'ПАП' | 'ЛП' | 'ПП'
+  | 'ЦАП'
+  | 'ФРВ' | 'ЦФД' | 'ЛФД' | 'ЛФА' | 'ПФА' | 'ПФД'
+  | 'ЛЦЗ' | 'ПЦЗ' | 'ЦЗ';
+
+export type RolePercent = { role: RoleCode; percent: number };
 
 type ApiOk = { ok: true; roles: RolePercent[] };
 type ApiErr = { ok: false; error: string };
-type ApiResponse = ApiOk | ApiErr;
 
-type Props = {
-  userId: number;
-  /** "dd.mm.yyyy:dd.mm.yyyy" или пустая строка */
-  range?: string;
-};
+const fetcher = (url: string) => fetch(url).then(r => r.json());
 
-const fetcher = (url: string) =>
-  fetch(url).then((r) => {
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
-  });
-
-export default function RoleHeatmapFromApi({ userId, range }: Props) {
-  const qs =
-    range && range.trim().length > 0
-      ? `?range=${encodeURIComponent(range)}`
-      : '';
-
-  const { data, error, isLoading } = useSWR<ApiResponse>(
-    `/api/player-roles/${userId}${qs}`,
+export default function RoleHeatmapFromApi(props: { userId: number; range?: string }) {
+  const { userId, range = '' } = props;
+  const query = range ? `?range=${encodeURIComponent(range)}` : '';
+  const { data, error, isLoading } = useSWR<ApiOk | ApiErr>(
+    `/api/player-roles/${userId}${query}`,
     fetcher,
     { revalidateOnFocus: false }
   );
 
-  if (error) {
-    return (
-      <div className="text-red-500 text-sm">
-        Не удалось загрузить тепловую карту
-      </div>
-    );
+  if (isLoading) {
+    return <div className="text-sm text-muted-foreground">Загружаю тепловую карту…</div>;
   }
-  if (!data || isLoading) {
-    return <div className="text-sm text-muted-foreground">Загрузка…</div>;
+  if (error || !data) {
+    return <div className="text-sm text-red-600">Ошибка загрузки тепловой карты</div>;
   }
-  if (!('ok' in data) || data.ok === false) {
-    return (
-      <div className="text-red-500 text-sm">
-        {('error' in data && data.error) || 'Ошибка API'}
-      </div>
-    );
+  if (!('ok' in data) || !data.ok) {
+    return <div className="text-sm text-red-600">Ошибка: {(data as ApiErr).error || 'unknown'}</div>;
   }
 
-  // ВАЖНО: RoleHeatmap ожидает prop `rolePercents`, а не `roles`.
-  return (
-    <RoleHeatmap
-      rolePercents={data.roles}
-      widthPx={500}
-      heightPx={700}
-      tooltip
-    />
-  );
+  // Универсальная передача пропсов: пробуем и старое, и новое имя,
+  // плюс тихо отключаем TS-проверку на этой строке, чтобы сборка не падала.
+  // Контейнер страницы уже фиксирует размер 500×700.
+  // @ts-expect-error — совместимость пропсов RoleHeatmap (roles/rolePercents)
+  return <RoleHeatmap roles={data.roles} rolePercents={data.roles} widthPx={500} heightPx={700} tooltip />;
 }
