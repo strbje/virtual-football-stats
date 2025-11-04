@@ -1,34 +1,40 @@
 import { NextResponse } from "next/server";
 import { readStore, writeStore } from "@/lib/store";
 
-// безопасный парсер id из URL
+// Аккуратный парсер id из URL (может пригодиться дальше)
 function getId(req: Request) {
   const m = new URL(req.url).pathname.match(/\/api\/drafts\/([^/]+)/);
   return m?.[1] ?? "";
 }
 
-// универсальный генератор UUID (Node 18+/Edge/браузер)
+// Кросс-платформенный UUID: работает и в Node 18+, и на Edge
 function makeUUID(): string {
-  // Web Crypto API доступен и в Node >=18.17, и в Edge
   if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
   }
-  // редкий fallback — чтобы не падать при типизации/тестах
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-// пример хендлеров — оставь как у тебя, меняем только генерацию UUID
+// Если твой store не принимает аргументы — читаем "как есть"
 export async function GET(req: Request) {
-  const id = getId(req);
-  const data = await readStore(id);
+  // id парсим, но не пробрасываем в store (у него сигнатура без аргументов)
+  // оставляем на будущее, если знадобится фильтрация по draftId
+  // const draftId = getId(req);
+
+  const data = await readStore(); // <— БЕЗ аргументов
   return NextResponse.json(data ?? {});
 }
 
 export async function POST(req: Request) {
-  const id = getId(req);
+  // const draftId = getId(req);
   const body = await req.json();
-  // если нужен новый идентификатор капитана — используем makeUUID()
+
+  // добавляем ID капитана; остальное — как в твоей логике
   const captainId = makeUUID();
-  const updated = await writeStore(id, { ...body, captainId });
-  return NextResponse.json(updated);
+  const updated = { ...body, captainId };
+
+  // store по текущей сигнатуре — тоже БЕЗ аргументов
+  const result = await writeStore(updated);
+
+  return NextResponse.json(result ?? updated);
 }
