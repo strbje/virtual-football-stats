@@ -1,55 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="virtual-football-stats"
 APP_DIR="$HOME/virtual-football-stats"
-SECRETS_ENV="$HOME/secrets/virtual-football-stats.env"
-PORT="${PORT:-3000}"
-
-echo ">>> restore .env"
-mkdir -p "$(dirname "$SECRETS_ENV")"
-[[ -f "$SECRETS_ENV" ]] || { echo "ERROR: $SECRETS_ENV not found"; exit 42; }
-ln -sf "$SECRETS_ENV" "$APP_DIR/.env"
-
-echo ">>> fetch/reset"
 cd "$APP_DIR"
-git fetch origin main -q || true
+
+log() { echo ">>> $*"; }
+
+log "restore .env"
+[ -f .env ] || touch .env
+
+log "fetch/reset"
+git fetch --prune origin
 git reset --hard origin/main
+rm -f .git/index.lock || true
 
-echo ">>> stop app (ignore if missing)"
-pm2 delete "$APP_NAME" 2>/dev/null || true
+log "stop app (ignore if missing)"
+pm2 stop virtual-football-stats || true
 
-echo ">>> purge build artifacts"
-rm -rf .next
+log "purge build artifacts"
+rm -rf .next || true
 
-echo ">>> drop node_modules atomically"
-rm -rf node_modules
-
-echo ">>> npm cache bootstrap"
-mkdir -p "$HOME/.npm/_cacache/tmp" || true
-npm config set fund false
-npm config set audit false
-
-echo ">>> npm ci (or fallback to install)"
-npm ci || npm install --no-audit --no-fund
-
-# На всякий — выключаем телеметрию next, и убеждаемся что бинарь доступен
-npx -y next@15.3.3 telemetry disable >/dev/null 2>&1 || true
-
-echo ">>> prisma generate (best-effort)"
-npx prisma generate || true
-
-echo ">>> build"
-npm run build
-
-echo ">>> start app"
-# освобождаем порт, если вдруг
-if ss -lntp 2>/dev/null | grep -q ":$PORT "; then
-  echo ">>> free port $PORT"
-  fuser -k "$PORT/tcp" 2>/dev/null || true
+log "drop node_modules atomically"
+# 1) сначала пробуем обычное удаление
+if ! rm -rf node_modules 2>/dev/null; then
+  # 2) локально чистим проблемные каталоги Next, которые чаще всего «залипают»
+  rm -rf node_modules/next/dist/compiled 2>/dev/null || true
+  rm -rf node_modules/.cache 2>/dev/null || true
+  chmod -R u+w node_modules 2>/dev/null || true
+  # 3) rimraf как надёжный fallback
+  npx --yes rimraf node_modules || true
+  # 4) крайний случай: переименовать и удалить позже — не блокирует деплой
+  if [ -d node_modules ]; then
+    mv node_modules "node_modules._trash_$(date +%s)" || true
+  fi
 fi
 
-PORT="$PORT" pm2 start npm --name "$APP_NAME" -- start
-pm2 save
+log "purge npm cache (safe)"
+rm -rf "$HOME/.npm/_cacache" || true
+npm cache verify || true
 
-echo ">>> done"
+log "install deps (npm ci)"
+# без скриптов — postinstall у нас не нужен, prisma сгенерим вручную
+npm ci --ignore-scripts
+
+log "prisma generate (non-fatal)"
+npx prisma generate || true
+
+log "build"
+npm run -s build
+
+log "start via PM2"
+pm2 start "$APP_DIR/ecosystem.config.js" --update-env
+pm2 save
+pm2 status
