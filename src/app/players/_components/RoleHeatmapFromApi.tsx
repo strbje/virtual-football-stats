@@ -1,8 +1,8 @@
 'use client';
 
 import useSWR from 'swr';
-import RoleHeatmap from '@/components/players/RoleHeatmap';           // ⬅️ default import
-import type { RolePercent } from '@/components/players/RoleHeatmap';   // тип можно оставить
+import RoleHeatmap from '@/components/players/RoleHeatmap';           // default-export
+import type { RolePercent } from '@/components/players/RoleHeatmap';
 
 type ApiOk  = { ok: true;  roles: RolePercent[] };
 type ApiErr = { ok: false; error: string };
@@ -11,7 +11,7 @@ const fetcher = (url: string) => fetch(url).then(r => r.json() as Promise<ApiOk 
 
 type Props = {
   userId: number;
-  /** "dd.mm.yyyy:dd.mm.yyyy" или пусто */
+  /** формат "dd.mm.yyyy:dd.mm.yyyy" или пусто */
   range?: string;
 };
 
@@ -31,7 +31,7 @@ export default function RoleHeatmapFromApi({ userId, range = '' }: Props) {
 
   return (
     <RoleHeatmap
-      roles={data.roles}
+      rolePercents={data.roles}   // ⬅️ правильное имя пропа
       widthPx={500}
       heightPx={700}
       tooltip
