@@ -5,6 +5,7 @@ import RoleHeatmapFromApi from "@/app/players/_components/RoleHeatmapFromApi";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import DateRangeFilter from "@/components/filters/DateRangeFilter";
 import type { RolePercent } from "@/utils/roles";
+import { ROLE_LABELS } from "@/utils/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,12 @@ export default async function PlayerPage({
     percent: Math.round((Number(r.cnt) * 100) / rolesTotal),
   }));
 
+  // 🟢 Преобразуем RolePercent[] -> RoleItem[] ({label, value}) для RoleDistributionSection
+  const roleItems = rolePercents.map((r) => ({
+    label: ROLE_LABELS[r.role] ?? r.role,
+    value: r.percent,
+  }));
+
   // --- Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) — проценты по DISTINCT match_id
   const leaguesAgg = await prisma.$queryRaw<
     { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
@@ -176,9 +183,9 @@ export default async function PlayerPage({
       {/* Два бара шириной как теплокарта */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[700px]">
         <RoleDistributionSection
-          roles={rolePercents}
+          roles={roleItems}          // <-- здесь уже {label,value}
           leagues={leagues}
-          widthPx={500}   // чтобы бары совпадали с 500px ширины теплокарты
+          widthPx={500}              // совпадает с шириной теплокарты
           tooltip
         />
       </section>
