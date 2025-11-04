@@ -45,6 +45,11 @@ npm cache clean --force
 log "npm ci"
 npm ci --prefer-offline --no-audit --no-fund
 
+if ! node -e "require.resolve('styled-jsx/package.json')" >/dev/null 2>&1; then
+  echo ">>> styled-jsx not found, installing..."
+  npm i -D styled-jsx@5.1.1
+fi
+
 # 4) Prisma (best-effort)
 if command -v npx >/dev/null 2>&1; then
   log "prisma generate (best-effort)"
