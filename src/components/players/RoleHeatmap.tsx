@@ -1,238 +1,162 @@
-'use client';
+// src/app/players/_components/RoleHeatmap.tsx
+// Тепловая карта амплуа: 500x700, цвет = красный(0%) → зелёный(max%)
 
-import React from 'react';
+import * as React from 'react';
 
-/**
- * ВХОДНЫЕ ДАННЫЕ:
- * role — короткий код амплуа (ЦФД, ЛФА, ПЗ и т.д.)
- * percent/pct — доля в %, допускается count+total (но лучше процент).
- */
-export type HeatRole = {
-  role: string;
-  percent?: number;
-  pct?: number;
-  count?: number;
-};
+export type RolePercent = { role: string; percent: number };
 
 type Props = {
-  data: HeatRole[];
+  data: RolePercent[];              // короткие коды и доли 0..100
   caption?: string;
 };
 
-/* =========================
-   Габариты и масштабирование
-   ========================= */
+// Координаты центров «пузырей» в пикселях под холст 500x700
+// Сетка: (0,0) — верхний левый угол холста.
+const W = 500;
+const H = 700;
 
-const BASE_W = 640;
-const BASE_H = 900;
+// Блоки поля (рамки зон) — просто декоративные
+const BOXES = {
+  attack:   { x: 70, y: 90,  w: 360, h: 160 },
+  defense:  { x: 70, y: 480, w: 360, h: 120 },
+  midLine:  360, // y-координата раздела центр/оборона
+};
 
-// Нужный реальный размер:
-const WIDTH = 500;
-const HEIGHT = 700;
+type XY = { x: number; y: number };
 
-const sx = (x: number) => (x / BASE_W) * WIDTH;
-const sy = (y: number) => (y / BASE_H) * HEIGHT;
+// Базовые позиции (ширина крайних — шире; ЛЗ/ПЗ/ЛП/ПП выставлены шире и на одной высоте)
+const POS: Record<string, XY> = {
+  // Форварды (уже по центру)
+  'ЛФД': { x: 180, y: 140 },
+  'ЦФД': { x: 250, y: 130 },
+  'ПФД': { x: 320, y: 140 },
 
-/* =========================
-   Цветовая шкала (0 — красный)
-   ========================= */
+  // Атакующие полузащитники (шире, чем ФД)
+  'ЛФА': { x: 110, y: 190 },
+  'ЦАП': { x: 250, y: 210 },
+  'ПФА': { x: 390, y: 190 },
 
-function colorScale(vIn: number | undefined) {
-  const v = Math.max(0, Math.min(100, Number(vIn ?? 0)));
+  // Крайние полузащитники (ещё шире и на одной высоте)
+  'ЛП':  { x: 60,  y: 280 },
+  'ПП':  { x: 440, y: 280 },
 
-  // 0 → красный, 50 → жёлтый, >=70 → зелёный
-  if (v <= 0) return '#ef4444';      // red-500
-  if (v < 40) return '#f97316';      // orange-500
-  if (v < 60) return '#f59e0b';      // amber-500
-  if (v < 70) return '#84cc16';      // lime-500
-  return '#10b981';                  // emerald-500
-}
+  // Центральная линия
+  'ЛЦП': { x: 190, y: 360 },
+  'ЦП':  { x: 250, y: 360 },
+  'ПЦП': { x: 310, y: 360 },
 
-/* =========================
-   Раскладка координат (базовая)
-   — ЛЗ/ПЗ и ЛП/ПП шире, на одной высоте
-   — ЛФА/ПФА шире, чем ЛФД/ПФД; ЛФД/ПФД уже по оси X
-   — ЛАП/ПАП трактуем как широчайшие вингеры (там же, где ЛФА/ПФА)
-   ========================= */
-
-// Удобные «линии» по Y:
-const Y_FWD = 120;    // линия форвардов
-const Y_10  = 220;    // «десятки»
-const Y_W   = 360;    // линия ЛП/ПП (широкие хавы)
-const Y_CM  = 460;    // центральные полузащитники
-const Y_DM  = 560;    // опорники
-const Y_FB  = 720;    // крайние защитники
-const Y_CB  = 780;    // центральные защитники
-const Y_GK  = 860;    // вратарь
-
-// Центр поля:
-const X_C = BASE_W / 2;
-
-// Смещения по X
-const DX_FD_NARROW = 120;  // ЛФД/ПФД (уже)
-const DX_FA_WIDE   = 220;  // ЛФА/ПФА (шире)
-const DX_WINGER    = 260;  // ЛП/ПП (широко)
-const DX_FULLBACK  = 280;  // ЛЗ/ПЗ (ещё шире)
-const DX_CM        = 90;   // ЛЦП/ПЦП
-const DX_CB        = 90;   // ЛЦЗ/ПЦЗ
-
-// Базовая карта координат для коротких кодов
-const POS: Record<string, { x: number; y: number }> = {
-  // Форварды
-  'ЦФД': { x: X_C,              y: Y_FWD },
-  'ЛФД': { x: X_C - DX_FD_NARROW, y: Y_FWD },
-  'ПФД': { x: X_C + DX_FD_NARROW, y: Y_FWD },
-
-  // Фланговые форварды (шире)
-  'ЛФА': { x: X_C - DX_FA_WIDE,   y: Y_FWD },
-  'ПФА': { x: X_C + DX_FA_WIDE,   y: Y_FWD },
-
-  // «Десятка»
-  'ЦАП': { x: X_C,              y: Y_10 },
-
-  // Атакующие полузащитники по флангам — считаем «широкими»
-  'ЛАП': { x: X_C - DX_FA_WIDE,   y: Y_10 },
-  'ПАП': { x: X_C + DX_FA_WIDE,   y: Y_10 },
-
-  // Широкие полузащитники
-  'ЛП':  { x: X_C - DX_WINGER,    y: Y_W },
-  'ПП':  { x: X_C + DX_WINGER,    y: Y_W },
-
-  // Центральные полузащитники
-  'ЦП':  { x: X_C,              y: Y_CM },
-  'ЛЦП': { x: X_C - DX_CM,      y: Y_CM },
-  'ПЦП': { x: X_C + DX_CM,      y: Y_CM },
-
-  // Опорная линия
-  'ЦОП': { x: X_C,              y: Y_DM },
-  'ЛОП': { x: X_C - DX_CM,      y: Y_DM },
-  'ПОП': { x: X_C + DX_CM,      y: Y_DM },
+  // Опорники
+  'ЛОП': { x: 210, y: 420 },
+  'ПОП': { x: 290, y: 420 },
 
   // Крайние защитники (шире и симметрично)
-  'ЛЗ':  { x: X_C - DX_FULLBACK, y: Y_FB },
-  'ПЗ':  { x: X_C + DX_FULLBACK, y: Y_FB },
+  'ЛЗ':  { x: 60,  y: 560 },
+  'ПЗ':  { x: 440, y: 560 },
 
-  // Центральные защитники
-  'ЦЗ':  { x: X_C,              y: Y_CB },
-  'ЛЦЗ': { x: X_C - DX_CB,      y: Y_CB },
-  'ПЦЗ': { x: X_C + DX_CB,      y: Y_CB },
+  // Центральные защитники — можно добавить при необходимости
+  'ЛЦЗ': { x: 190, y: 520 },
+  'ЦЗ':  { x: 250, y: 520 },
+  'ПЦЗ': { x: 310, y: 520 },
 
-  // Вратарь
-  'ВРТ': { x: X_C,              y: Y_GK },
+  // Вратарь — редко используем, но пусть будет
+  'ВРТ': { x: 250, y: 630 },
 };
 
-/* =========================
-   Утилиты
-   ========================= */
+// Лейблы, если нужно переименовать короткие коды
+const LABEL: Record<string, string> = new Proxy({}, {
+  get: (_t, k: string) => k, // по умолчанию возвращаем сам код
+});
 
-const toPct = (r: HeatRole, total?: number) => {
-  if (Number.isFinite(r.percent)) return Number(r.percent);
-  if (Number.isFinite(r.pct))     return Number(r.pct);
-  if (total && Number(r.count) > 0) return (Number(r.count) / total) * 100;
-  return 0;
-};
+// Цвет: 0% → красный, max% → зелёный, линейно между ними.
+// HSL: hue 0..120 (красный→зелёный)
+function colorByShare(p: number, maxP: number) {
+  const t = Math.max(0, Math.min(1, maxP > 0 ? p / maxP : 0)); // 0..1
+  const hue = 120 * t;           // 0=красный, 120=зелёный
+  const sat = 70;                // насыщенность
+  const light = 46 + (1 - t) * 4; // чуть темнее для низких значений
+  return `hsl(${hue} ${sat}% ${light}%)`;
+}
 
-const fmt = (v: number) => `${Math.round(v)}%`;
-
-/* =========================
-   Компонент
-   ========================= */
+const R = 22;  // радиус «пузыря»
+const STROKE = '#0d3b2a1a'; // мягкий обвод
 
 export default function RoleHeatmap({ data, caption }: Props) {
-  // чистим данные, суммируем total если нужно
-  const totalCount = data.reduce((s, r) => s + (Number(r.count) || 0), 0) || undefined;
+  // Отфильтруем пустые и неизвестные коды, приведём к верхнему регистру
+  const items = (data ?? [])
+    .map(d => ({ role: (d.role || '').toUpperCase(), percent: Number(d.percent || 0) }))
+    .filter(d => Number.isFinite(d.percent) && d.percent >= 0 && POS[d.role]);
 
-  // оставляем только известные коды с ненулевым процентом
-  const points = data
-    .map((r) => {
-      const code = (r.role || '').toUpperCase().trim();
-      const base = POS[code];
-      if (!base) return null;
-
-      const p = toPct(r, totalCount);
-      if (p <= 0) return null;
-
-      return {
-        code,
-        pct: p,
-        x: sx(base.x),
-        y: sy(base.y),
-        fill: colorScale(p),
-      };
-    })
-    .filter(Boolean) as { code: string; pct: number; x: number; y: number; fill: string }[];
+  // максимум — для зелёной точки
+  const maxPercent = items.reduce((m, d) => Math.max(m, d.percent), 0);
 
   return (
-    <div className="w-full">
+    <div className="rounded-2xl border border-emerald-200/40 bg-emerald-50/40 p-4">
       {caption && <div className="text-sm text-gray-600 mb-2">{caption}</div>}
 
-      <svg
-        width={WIDTH}
-        height={HEIGHT}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        role="img"
-        aria-label="Тепловая карта амплуа"
-        style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
-      >
-        {/* Поле: фон + разметка штрафных/ворот (минимализм, без «вылетающей» рамки) */}
-        <rect x={0} y={0} width={WIDTH} height={HEIGHT} rx={12} ry={12} fill="#ecfdf5" stroke="#d1fae5" />
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label="Тепловая карта амплуа">
+        {/* фон поля */}
+        <rect x={0} y={0} width={W} height={H} rx={18} ry={18} fill="#eafff3" />
 
-        {/* Верхняя штрафная зона (для ориентира) */}
+        {/* разметка: атака и оборона */}
         <rect
-          x={sx(80)}
-          y={sy(40)}
-          width={sx(BASE_W - 160)}
-          height={sy(180)}
+          x={BOXES.attack.x}
+          y={BOXES.attack.y}
+          width={BOXES.attack.w}
+          height={BOXES.attack.h}
+          rx={10}
           fill="none"
-          stroke="#c7f9e0"
+          stroke="#10b98122"
         />
-        {/* Нижняя штрафная зона */}
+        <line
+          x1={30}
+          y1={BOXES.midLine}
+          x2={W - 30}
+          y2={BOXES.midLine}
+          stroke="#10b98122"
+        />
         <rect
-          x={sx(80)}
-          y={sy(BASE_H - 220)}
-          width={sx(BASE_W - 160)}
-          height={sy(180)}
+          x={BOXES.defense.x}
+          y={BOXES.defense.y}
+          width={BOXES.defense.w}
+          height={BOXES.defense.h}
+          rx={10}
           fill="none"
-          stroke="#c7f9e0"
+          stroke="#10b98122"
         />
 
-        {/* Центральная линия */}
-        <line x1={0} y1={sy(BASE_H / 2)} x2={WIDTH} y2={sy(BASE_H / 2)} stroke="#c7f9e0" />
+        {/* сами «пузырьки» */}
+        {items.map(({ role, percent }) => {
+          const { x, y } = POS[role];
+          const fill = colorByShare(percent, maxPercent);
+          const pct = Math.round(percent);
+          const title = `${LABEL[role]} — ${pct}% (цвет относительно максимума ${Math.round(maxPercent)}%)`;
 
-        {/* Точки-пузырьки */}
-        {points.map((pt) => (
-          <g key={pt.code} transform={`translate(${pt.x}, ${pt.y})`}>
-            {/* тень */}
-            <circle r={sy(22)} fill="rgba(15, 23, 42, .06)" />
-            {/* сам пузырь */}
-            <circle r={sy(20)} fill={pt.fill} stroke="#064e3b" strokeWidth={1} />
-            {/* текст: код + процент */}
-            <text
-              x={0}
-              y={-sy(2)}
-              textAnchor="middle"
-              fontSize={sy(16)}
-              fontWeight={700}
-              fill="#0c0c0c"
-              style={{ pointerEvents: 'none' }}
-            >
-              {pt.code}
-            </text>
-            <text
-              x={0}
-              y={sy(16)}
-              textAnchor="middle"
-              fontSize={sy(12)}
-              fill="#111827"
-              style={{ pointerEvents: 'none' }}
-            >
-              {fmt(pt.pct)}
-            </text>
-
-            {/* нативная подсказка */}
-            <title>{`${pt.code} — ${fmt(pt.pct)}`}</title>
-          </g>
-        ))}
+          return (
+            <g key={role} transform={`translate(${x},${y})`} style={{ cursor: 'default' }}>
+              <title>{title}</title>
+              <circle r={R} fill={fill} stroke={STROKE} strokeWidth={2} />
+              <text
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={12}
+                fontWeight={700}
+                fill="#0f172a"
+                y={-2}
+              >
+                {role}
+              </text>
+              <text
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={11}
+                fill="#0f172acc"
+                y={14}
+              >
+                {pct}%
+              </text>
+            </g>
+          );
+        })}
       </svg>
     </div>
   );
