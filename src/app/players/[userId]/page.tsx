@@ -5,7 +5,7 @@ import Link from "next/link";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 
-// Агрегация (правильная) — из lib
+// Агрегация (твоя логика) — из lib
 import { groupRolePercents } from "@/lib/roles";
 
 // Справочники, типы и упаковка «лиг» — из utils
@@ -51,7 +51,7 @@ export default async function PlayerProfile({
   const userId = params.userId;
   const base = await buildBaseURL();
 
-  // 1) имя игрока (чтобы не было User #NaN)
+  // 1) имя игрока
   const userRes = await fetch(
     `${base}/api/sql?query=${encodeURIComponent(
       `SELECT id, gamertag, username FROM tbl_users WHERE id = ${Number(
@@ -68,7 +68,7 @@ export default async function PlayerProfile({
     if (u) title = u.gamertag || u.username || title;
   }
 
-  // 2) распределение по амплуа (рабочий API — без BigInt)
+  // 2) распределение по амплуа
   const rolesResp = await fetch(
     `${base}/api/player-roles?userId=${encodeURIComponent(userId)}`,
     { cache: "no-store" }
@@ -80,8 +80,12 @@ export default async function PlayerProfile({
     percent: r.percent,
   }));
 
-  // 3) сгруппировать для барчарта
-  const groupedRoles = groupRolePercents(rolePercents);
+  // 3) группировка (из lib) + приведение к формату RoleDistributionSection
+  const grouped = groupRolePercents(rolePercents);
+  const rolesForChart = grouped.map((g: any) => ({
+    label: g.label ?? g.group ?? String(g.role ?? ""),
+    value: g.value ?? g.percent ?? 0,
+  }));
 
   // 4) тепловая карта по фиксированному порядку
   const heatmapData = HEATMAP_ROLES_ORDER.map((code) => {
@@ -89,7 +93,7 @@ export default async function PlayerProfile({
     return { role: code, percent: found ? found.percent : 0 };
   });
 
-  // 5) лиги (подложка; подставим реальные — отдавай массив, упакуем через toLeagueBuckets)
+  // 5) лиги — заглушка (готовы принять реальные данные)
   const leagues = toLeagueBuckets([]);
 
   return (
@@ -120,7 +124,7 @@ export default async function PlayerProfile({
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
         <RoleDistributionSection
-          roles={groupedRoles}
+          roles={rolesForChart}
           leagues={leagues}
           widthPx={500}
           tooltip
