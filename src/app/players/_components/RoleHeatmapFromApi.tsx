@@ -1,40 +1,43 @@
+// src/app/players/_components/RoleHeatmapFromApi.tsx
 'use client';
 
 import useSWR from 'swr';
-import RoleHeatmap from '@/components/players/RoleHeatmap';           // default-export
-import type { RolePercent } from '@/components/players/RoleHeatmap';
 
-type ApiOk  = { ok: true;  roles: RolePercent[] };
+// ВАЖНО: у нас default export у RoleHeatmap
+// Если у тебя настроен alias "@", оставь строку ниже.
+// Если alias не работает — замени на относительный путь '../../components/players/RoleHeatmap'
+import RoleHeatmap, { RolePercent } from '@/components/players/RoleHeatmap';
+
+type ApiOk = { ok: true; roles: RolePercent[] };
 type ApiErr = { ok: false; error: string };
+type Props = { userId: number; range?: string };
 
-const fetcher = (url: string) => fetch(url).then(r => r.json() as Promise<ApiOk | ApiErr>);
-
-type Props = {
-  userId: number;
-  /** формат "dd.mm.yyyy:dd.mm.yyyy" или пусто */
-  range?: string;
-};
+const fetcher = (url: string) => fetch(url).then(r => r.json());
 
 export default function RoleHeatmapFromApi({ userId, range = '' }: Props) {
-  const qs = range ? `?range=${encodeURIComponent(range)}` : '';
-  const { data, isLoading, error } = useSWR<ApiOk | ApiErr>(
-    `/api/player-roles/${userId}${qs}`,
+  const q = range ? `?range=${encodeURIComponent(range)}` : '';
+  const { data, error, isLoading } = useSWR<ApiOk | ApiErr>(
+    `/api/player-roles/${userId}${q}`,
     fetcher
   );
 
-  if (isLoading) return <div className="text-sm text-muted-foreground">Загрузка теплокарты…</div>;
-  if (error)     return <div className="text-sm text-red-500">Ошибка загрузки</div>;
-  if (!data || ('ok' in data && !data.ok)) {
-    const msg = !data ? 'нет данных' : data.error;
-    return <div className="text-sm text-red-500">Не удалось получить роли: {msg}</div>;
+  if (isLoading) {
+    return (
+      <div className="rounded-2xl border border-emerald-200/40 bg-emerald-50/40 p-4 text-sm text-gray-600">
+        Загружаем тепловую карту…
+      </div>
+    );
   }
 
-  return (
-    <RoleHeatmap
-      rolePercents={data.roles}   // ⬅️ правильное имя пропа
-      widthPx={500}
-      heightPx={700}
-      tooltip
-    />
-  );
+  if (error || !data || 'ok' in data && !data.ok) {
+    const msg = (data && 'error' in data && data.error) || (error as any)?.message || 'Нет данных';
+    return (
+      <div className="rounded-2xl border border-red-200/40 bg-red-50/40 p-4 text-sm text-red-700">
+        Ошибка загрузки: {msg}
+      </div>
+    );
+  }
+
+  // НУЖНО: передаём проп именно "data"
+  return <RoleHeatmap data={('ok' in data ? data.roles : [])} />;
 }
