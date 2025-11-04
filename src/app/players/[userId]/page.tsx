@@ -1,187 +1,205 @@
+// src/app/players/[userId]/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import RoleHeatmapFromApi from "@/app/players/_components/RoleHeatmapFromApi";
+import RoleHeatmap from "@/components/players/RoleHeatmap";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
-import DateRangeFilter from "@/components/filters/DateRangeFilter";
-import { ROLE_LABELS } from "@/utils/roles";
-import type { RolePercent } from "@/utils/roles";
-import type { RoleItem, LeagueBucket } from "@/components/players/types";
+import { RolePercent, groupRolePercents } from "@/utils/roles";
 
 export const dynamic = "force-dynamic";
 
-type SearchParams = Record<string, string | string[] | undefined>;
+type SearchParamsDict = Record<string, string | string[] | undefined>;
 
-function one(sp: SearchParams, k: string) {
-  const v = sp[k];
-  return Array.isArray(v) ? v[0] : v ?? "";
+function getVal(d: SearchParamsDict, k: string): string {
+  const v = d[k];
+  return Array.isArray(v) ? v[0] ?? "" : v ?? "";
 }
 
-function parseRange(range?: string) {
-  if (!range) return { fromTs: 0, toTs: 32503680000 };
-  const [a, b] = range.split(":");
-  const fromTs = a ? Math.floor(new Date(`${a} 00:00:00`).getTime() / 1000) : 0;
-  const toTs = b ? Math.floor(new Date(`${b} 23:59:59`).getTime() / 1000) : 32503680000;
-  return { fromTs, toTs };
+function parseRange(range?: string): { from?: string; to?: string } {
+  if (!range) return {};
+  const [start, end] = range.split(":").map((s) => s?.trim()).filter(Boolean);
+  return {
+    from: start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : undefined,
+    to: end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : undefined,
+  };
 }
 
-export default async function PlayerPage({
-  params,
-  searchParams,
-}: {
-  params: { userId: string };
-  searchParams: SearchParams;
-}) {
-  const userId = Number(params.userId);
-  if (!Number.isFinite(userId)) return <div className="p-6">Неверный ID</div>;
+export default async function PlayerPage(props: any) {
+  const params = (props?.params ?? {}) as { userId?: string };
+  const searchParams = (props?.searchParams ?? {}) as SearchParamsDict;
 
-  const rangeParam = one(searchParams, "range");
-  const { fromTs, toTs } = parseRange(rangeParam);
+  const userIdStr = params.userId ?? "";
+  const userIdNum = Number(userIdStr);
+  if (!Number.isFinite(userIdNum)) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Неверный ID игрока</h1>
+        <Link href="/players" className="text-blue-600 hover:underline">
+          ← Вернуться к списку игроков
+        </Link>
+      </div>
+    );
+  }
 
-  // Заголовок
-  const user = await prisma.$queryRaw<
+  // ?range=YYYY-MM-DD:YYYY-MM-DD
+  const range = getVal(searchParams, "range");
+  const { from, to } = parseRange(range);
+  const fromTs = from ? Math.floor(new Date(`${from} 00:00:00`).getTime() / 1000) : 0;
+  const toTs = to ? Math.floor(new Date(`${to} 23:59:59`).getTime() / 1000) : 32503680000;
+
+  // базовая инфа
+  const user = await prisma.$queryRawUnsafe<
     { id: number; gamertag: string | null; username: string | null }[]
-  >`
-    SELECT u.id, u.gamertag, u.username
-    FROM tbl_users u
-    WHERE u.id = ${userId}
-    LIMIT 1
-  `;
-  const title = user[0]?.gamertag || user[0]?.username || `User #${userId}`;
+  >(
+    `
+      SELECT u.id, u.gamertag, u.username
+      FROM tbl_users u
+      WHERE u.id = ?
+      LIMIT 1
+    `,
+    userIdNum
+  );
+  if (!user.length) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Игрок не найден</h1>
+        <Link href="/players" className="text-blue-600 hover:underline">
+          ← Вернуться к списку игроков
+        </Link>
+      </div>
+    );
+  }
 
-  // Счётчик матчей (DISTINCT по матчу)
-  const played = await prisma.$queryRaw<{ matches: bigint }[]>`
-    SELECT COUNT(DISTINCT ums.match_id) AS matches
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    WHERE ums.user_id = ${userId}
-      AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
-  `;
-  const totalMatches = Number(played?.[0]?.matches ?? 0);
-
-  // Последние 30 матча и "Актуальное амплуа"
-  const last30 = await prisma.$queryRaw<
-    { match_id: number; ts: number; role_code: string | null }[]
-  >`
-    WITH uniq AS (
-      SELECT DISTINCT ums.match_id, tm.timestamp AS ts
+  // агрегаты + последняя команда/амплуа
+  const agg = await prisma.$queryRawUnsafe<
+    {
+      matches: number;
+      goals: number | null;
+      assists: number | null;
+      last_role: string | null;
+      last_team: string | null;
+    }[]
+  >(
+    `
+      SELECT
+        COUNT(*)                         AS matches,
+        SUM(ums.goals)                   AS goals,
+        SUM(ums.assists)                 AS assists,
+        (
+          SELECT COALESCE(fp.code, sp.short_name)
+          FROM tbl_users_match_stats ums2
+          JOIN tournament_match tm2     ON tm2.id = ums2.match_id
+          JOIN skills_positions sp      ON sp.id  = ums2.skill_id
+          LEFT JOIN tbl_field_positions fp ON fp.skill_id = sp.id
+          WHERE ums2.user_id = ?
+            AND tm2.timestamp BETWEEN ? AND ?
+          ORDER BY tm2.timestamp DESC
+          LIMIT 1
+        ) AS last_role,
+        (
+          SELECT t2.team_name
+          FROM tbl_users_match_stats ums3
+          JOIN tournament_match tm3 ON tm3.id = ums3.match_id
+          JOIN teams t2             ON t2.id = ums3.team_id
+          WHERE ums3.user_id = ?
+            AND tm3.timestamp BETWEEN ? AND ?
+          ORDER BY tm3.timestamp DESC
+          LIMIT 1
+        ) AS last_team
       FROM tbl_users_match_stats ums
       JOIN tournament_match tm ON tm.id = ums.match_id
-      WHERE ums.user_id = ${userId}
-        AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
-      ORDER BY tm.timestamp DESC
-      LIMIT 30
-    )
-    SELECT u.match_id,
-           u.ts,
-           COALESCE(fp.code, sp.short_name) AS role_code
-    FROM uniq u
-    JOIN tbl_users_match_stats ums ON ums.match_id = u.match_id AND ums.user_id = ${userId}
-    JOIN skills_positions sp ON sp.id = ums.skill_id
-    LEFT JOIN tbl_field_positions fp ON fp.skill_id = sp.id
-  `;
-  const roleCounts = new Map<string, number>();
-  for (const r of last30) {
-    const key = r.role_code ?? "—";
-    roleCounts.set(key, (roleCounts.get(key) ?? 0) + 1);
-  }
-  let currentRole = "—";
-  let maxCnt = -1;
-  for (const [k, v] of roleCounts) if (v > maxCnt) { maxCnt = v; currentRole = k; }
+      WHERE ums.user_id = ?
+        AND tm.timestamp BETWEEN ? AND ?
+    `,
+    userIdNum, fromTs, toTs,
+    userIdNum, fromTs, toTs,
+    userIdNum, fromTs, toTs
+  );
 
-  // Распределение ролей (в процентах от DISTINCT матчей)
-  const roleRows = await prisma.$queryRaw<{ role: string; cnt: bigint }[]>`
-    SELECT COALESCE(fp.code, sp.short_name) AS role,
-           COUNT(DISTINCT ums.match_id)     AS cnt
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm         ON tm.id = ums.match_id
-    JOIN skills_positions  sp        ON sp.id = ums.skill_id
-    LEFT JOIN tbl_field_positions fp ON fp.skill_id = sp.id
-    WHERE ums.user_id = ${userId}
-      AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
-    GROUP BY COALESCE(fp.code, sp.short_name)
-    ORDER BY cnt DESC
-  `;
-  const rolesTotal = roleRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
-  const rolePercents: RolePercent[] = roleRows.map((r) => ({
-    role: r.role as RolePercent["role"],
-    percent: Math.round((Number(r.cnt) * 100) / rolesTotal),
-  }));
-  const roleItems: RoleItem[] = rolePercents.map((r) => ({
-    label: ROLE_LABELS[r.role] ?? r.role,
-    value: r.percent,
-  }));
+  const a = {
+    matches: Number(agg?.[0]?.matches ?? 0),
+    goals: Number(agg?.[0]?.goals ?? 0),
+    assists: Number(agg?.[0]?.assists ?? 0),
+    last_role: agg?.[0]?.last_role ?? null,
+    last_team: agg?.[0]?.last_team ?? null,
+  };
 
-  // Распределение по лигам (ПЛ/ФНЛ/ПФЛ/ЛФЛ) — именно {label,pct}
-  const leaguesAgg = await prisma.$queryRaw<
-    { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
-  >`
-    SELECT
-      COUNT(DISTINCT ums.match_id) AS total,
-      COUNT(DISTINCT CASE
-        WHEN (LOWER(t.name) LIKE '%премьер%' OR UPPER(t.name) LIKE '%ПЛ%')
-        THEN ums.match_id END) AS pl,
-      COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ФНЛ%' THEN ums.match_id END) AS fnl,
-      COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ПФЛ%' THEN ums.match_id END) AS pfl,
-      COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ЛФЛ%' THEN ums.match_id END) AS lfl
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t        ON t.id  = tm.tournament_id
-    WHERE ums.user_id = ${userId}
-      AND tm.timestamp BETWEEN ${fromTs} AND ${toTs}
-  `;
-  const Lr = leaguesAgg[0] ?? { total: 0n, pl: 0n, fnl: 0n, pfl: 0n, lfl: 0n };
-  const total = Number(Lr.total ?? 0) || 1;
-  const leagues: LeagueBucket[] = [
-    { label: "ПЛ",  pct: Math.round((Number(Lr.pl  ?? 0) * 100) / total) },
-    { label: "ФНЛ", pct: Math.round((Number(Lr.fnl ?? 0) * 100) / total) },
-    { label: "ПФЛ", pct: Math.round((Number(Lr.pfl ?? 0) * 100) / total) },
-    { label: "ЛФЛ", pct: Math.round((Number(Lr.lfl ?? 0) * 100) / total) },
-  ].filter((x) => x.pct > 0);
+  // распределение по амплуа (берём fp.code, иначе sp.short_name)
+  const rolesRows = await prisma.$queryRawUnsafe<{ role: string; cnt: number }[]>(
+    `
+      SELECT COALESCE(fp.code, sp.short_name) AS role, COUNT(*) AS cnt
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm         ON tm.id = ums.match_id
+      JOIN skills_positions  sp        ON sp.id = ums.skill_id
+      LEFT JOIN tbl_field_positions fp ON fp.skill_id = sp.id
+      WHERE ums.user_id = ?
+        AND tm.timestamp BETWEEN ? AND ?
+      GROUP BY COALESCE(fp.code, sp.short_name)
+      ORDER BY cnt DESC
+    `,
+    userIdNum,
+    fromTs,
+    toTs
+  );
+
+  const totalCnt = rolesRows.reduce((s, r) => s + Number(r.cnt), 0) || 1;
+
+  // формируем RolePercent[] (0% отбрасываем)
+  const rolePercents: RolePercent[] = rolesRows
+    .map((r) => ({
+      role: r.role as RolePercent["role"],
+      percent: Math.round((Number(r.cnt) * 100) / totalCnt),
+    }))
+    .filter((x) => x.percent > 0);
+
+  // сгруппированное распределение для списка
+  const grouped = groupRolePercents(rolePercents);
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between">
+      <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">{title}</h1>
-          <div className="mt-2">
-            <DateRangeFilter initialRange={rangeParam || ""} />
-          </div>
+          <h1 className="text-2xl font-bold">
+            {user[0]?.gamertag || user[0]?.username || `User #${userIdNum}`}
+          </h1>
+          <p className="text-sm text-gray-500">
+            {a.last_team ? `${a.last_team} · ` : ""}
+            {a.last_role ?? "—"}
+          </p>
         </div>
         <Link href="/players" className="text-blue-600 hover:underline text-sm">
           ← Ко всем игрокам
         </Link>
-      </div>
+      </header>
 
-      {/* Плитки */}
-      <section className="grid grid-cols-2 gap-4 md:max-w-[700px]">
+      {/* агрегаты */}
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="rounded-2xl border p-4">
           <div className="text-sm text-gray-500">Матчи</div>
-          <div className="text-2xl font-semibold">{totalMatches}</div>
+          <div className="text-2xl font-semibold">{a.matches}</div>
         </div>
         <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">
-            Актуальное амплуа <span title="За последние 30 уникальных матчей">ℹ️</span>
-          </div>
-          <div className="text-2xl font-semibold">{currentRole}</div>
+          <div className="text-sm text-gray-500">Голы</div>
+          <div className="text-2xl font-semibold">{a.goals}</div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Передачи</div>
+          <div className="text-2xl font-semibold">{a.assists}</div>
+        </div>
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Амплуа (последнее)</div>
+          <div className="text-2xl font-semibold">{a.last_role ?? "—"}</div>
         </div>
       </section>
 
-      {/* Бары под ширину теплокарты */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[700px]">
-        <RoleDistributionSection
-          roles={roleItems}
-          leagues={leagues}
-          widthPx={500}
-          tooltip
-        />
+      {/* распределение (сгруппированное) */}
+      <section>
+        <RoleDistributionSection data={grouped} />
       </section>
 
-      {/* Теплокарта 500x700 */}
-      <section className="md:max-w-[700px]">
+      {/* тепловая карта по конкретным амплуа */}
+      <section>
         <h3 className="font-semibold mb-2">Тепловая карта амплуа</h3>
-        <div style={{ width: 500, height: 700 }}>
-          <RoleHeatmapFromApi userId={userId} />
-        </div>
+        <RoleHeatmap data={rolePercents} />
       </section>
     </div>
   );
