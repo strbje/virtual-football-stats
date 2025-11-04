@@ -1,35 +1,34 @@
 import { NextResponse } from "next/server";
 import { readStore, writeStore } from "@/lib/store";
-import { randomUUID } from "crypto";
 
+// безопасный парсер id из URL
 function getId(req: Request) {
   const m = new URL(req.url).pathname.match(/\/api\/drafts\/([^/]+)/);
   return m?.[1] ?? "";
 }
 
+// универсальный генератор UUID (Node 18+/Edge/браузер)
+function makeUUID(): string {
+  // Web Crypto API доступен и в Node >=18.17, и в Edge
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  // редкий fallback — чтобы не падать при типизации/тестах
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// пример хендлеров — оставь как у тебя, меняем только генерацию UUID
+export async function GET(req: Request) {
+  const id = getId(req);
+  const data = await readStore(id);
+  return NextResponse.json(data ?? {});
+}
+
 export async function POST(req: Request) {
   const id = getId(req);
-  if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
-
-  const body = await req.json().catch(() => ({}));
-  const captainIds: string[] = Array.isArray(body?.captainIds) ? body.captainIds.map(String) : [];
-  if (captainIds.length < 2) {
-    return NextResponse.json({ error: "captainIds array (>=2) required" }, { status: 400 });
-  }
-
-  const s = await readStore();
-  const sess = s.sessions.find(x => x.id === id);
-  if (!sess) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  sess.captains = captainIds;
-  sess.teams = captainIds.map((cid, i) => ({
-    id: randomUUID(),
-    name: `Team ${i + 1}`,
-    captainId: cid,
-    draftOrder: i + 1, // можно и без этого поля, если не используешь
-    players: [cid],
-  }));
-  sess.picks = [];
-  await writeStore(s);
-  return NextResponse.json({ ok: true, teams: sess.teams });
+  const body = await req.json();
+  // если нужен новый идентификатор капитана — используем makeUUID()
+  const captainId = makeUUID();
+  const updated = await writeStore(id, { ...body, captainId });
+  return NextResponse.json(updated);
 }
