@@ -3,7 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
-import { RolePercent, groupRolePercents } from "@/utils/roles";
+import { ROLE_TO_GROUP, type RolePercent, groupRolePercents } from "@/utils/roles";
 
 export const dynamic = "force-dynamic";
 
