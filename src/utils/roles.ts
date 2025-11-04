@@ -1,4 +1,6 @@
 // src/utils/roles.ts
+
+/** Коды амплуа (то, что у тебя уже встречается в БД/файлах) */
 export type RoleCode =
   | 'ВРТ'
   | 'ЛЗ' | 'ПЗ'
@@ -9,9 +11,7 @@ export type RoleCode =
   | 'ФРВ' | 'ЦФД' | 'ЛФД' | 'ЛФА' | 'ПФА' | 'ПФД'
   | 'ЛЦЗ' | 'ПЦЗ' | 'ЦЗ';
 
-export type RolePercent = { role: RoleCode; percent: number };
-
-/** Подписи (можешь править нейминг тут) */
+/** Подписи для фронта (если надо — меняются только здесь) */
 export const ROLE_LABELS: Record<RoleCode, string> = {
   ВРТ: 'ВРТ',
   ЛЗ: 'ЛЗ', ПЗ: 'ПЗ',
@@ -23,39 +23,14 @@ export const ROLE_LABELS: Record<RoleCode, string> = {
   ЛЦЗ: 'ЛЦЗ', ПЦЗ: 'ПЦЗ', ЦЗ: 'ЦЗ',
 };
 
-/** Группа для блока «Распределение амплуа» */
-export type RoleGroup = 'ВРТ' | 'КЗ' | 'ЦОП' | 'ЦП' | 'КП' | 'ЦАП' | 'ФРВ' | 'ЦЗ';
-
-export const ROLE_TO_GROUP: Record<RoleCode, RoleGroup> = {
-  ВРТ: 'ВРТ',
-
-  ЛЗ: 'КЗ', ПЗ: 'КЗ',
-
-  ЛОП: 'ЦОП', ЦОП: 'ЦОП', ПОП: 'ЦОП',
-
-  ЦП: 'ЦП', ЛПЦ: 'ЦП', ПЦП: 'ЦП',
-
-  ЛАП: 'КП', ПАП: 'КП', ЛП: 'КП', ПП: 'КП',
-
-  ЦАП: 'ЦАП',
-
-  ФРВ: 'ФРВ', ЦФД: 'ФРВ', ЛФД: 'ФРВ', ПФД: 'ФРВ', ЛФА: 'ФРВ', ПФА: 'ФРВ',
-
-  ЛЦЗ: 'ЦЗ', ПЦЗ: 'ЦЗ', ЦЗ: 'ЦЗ',
+/** Элемент распределения по амплуа, % от 0 до 100 */
+export type RoleItem = {
+  label: string;   // обычно ROLE_LABELS[role] или человекочитаемое имя группы
+  value: number;   // доля/процент (0–100)
 };
 
-export type GroupBucket = { group: RoleGroup; percent: number };
-
-/** Сумма процентов по группам (нули игнорим) */
-export function groupRolePercents(rows: RolePercent[]): GroupBucket[] {
-  const acc = new Map<RoleGroup, number>();
-  for (const r of rows) {
-    if (!r || !r.role) continue;
-    if (!r.percent) continue;
-    const g = ROLE_TO_GROUP[r.role];
-    acc.set(g, (acc.get(g) ?? 0) + r.percent);
-  }
-  return [...acc.entries()]
-    .map(([group, percent]) => ({ group, percent }))
-    .sort((a, b) => b.percent - a.percent);
-}
+/** Элемент распределения по лигам (если показываешь вторую секцию) */
+export type LeagueBucket = {
+  label: string;   // название лиги
+  pct: number;     // доля/процент (0–100)
+};
