@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 
 type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB";
 
+// Кластеры — ПО РАСШИРЕННЫМ АМПЛУА (fp.code)
 const CLUSTERS: Record<ClusterKey, readonly string[]> = {
   FW: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"],
   AM: ["ЦАП", "ЦП", "ЛЦП", "ПЦП", "ЛАП", "ПАП"],
@@ -41,8 +42,7 @@ const LABELS: Record<string, string> = {
 };
 
 const SEASON_MIN = 18;
-// xG поле ты подтвердил: goals_expected
-const XG_EXPR = "ums.goals_expected";
+const XG_EXPR = "ums.goals_expected"; // ты подтвердил правильное имя поля
 
 type Params = { params: { userId: string } };
 
@@ -69,7 +69,7 @@ export async function GET(req: Request, { params }: Params) {
     }
     const wantDebug = new URL(req.url).searchParams.get("debug") === "1";
 
-    // 1) берём текущую роль/кластер через уже рабочую ручку
+    // 1) текущая роль/кластер через уже рабочую ручку
     const base = originFrom(req);
     const rolesRes = await fetch(`${base}/api/player-roles?userId=${encodeURIComponent(String(userIdNum))}`, { cache: "no-store" });
     if (!rolesRes.ok) {
@@ -83,12 +83,13 @@ export async function GET(req: Request, { params }: Params) {
       return NextResponse.json({ ok: true, ready: false, currentRole, reason: "Не удалось определить кластер" });
     }
 
-    // 2) фильтр по кластеру: sp.short_name — это коды амплуа
+    // 2) фильтр по кластеру — ВАЖНО: по fp.code (расширенные амплуа)
     const roleCodes = CLUSTERS[cluster].map((c) => `'${c}'`).join(",");
 
-    // 3) основной SQL: ЯВНЫЕ джойны по твоему запросу
+    // 3) только официальные турниры (сезон из имени турнира)
     const OFFICIAL_FILTER = `AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}`;
 
+    // 4) основной аггрегирующий запрос
     const AGG_SQL = `
       WITH base AS (
         SELECT
@@ -113,9 +114,10 @@ export async function GET(req: Request, { params }: Params) {
         FROM tbl_users_match_stats ums
         INNER JOIN tournament_match tm ON ums.match_id = tm.id
         INNER JOIN tournament t ON tm.tournament_id = t.id
-        INNER JOIN skills_positions sp ON ums.skill_id = sp.id
+        LEFT  JOIN skills_positions sp ON ums.skill_id = sp.id
+        LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
         WHERE ums.user_id = ${userIdNum}
-          AND sp.short_name IN (${roleCodes})
+          AND fp.code IN (${roleCodes})
           ${OFFICIAL_FILTER}
       ),
       agg AS (
@@ -175,22 +177,24 @@ export async function GET(req: Request, { params }: Params) {
     const A = agg[0] ?? {};
     const matchesCluster = Number(A?.matches ?? 0);
 
-    // список использованных турниров для диагностики/отображения
+    // 5) список турниров (для дебага/отображения)
     const TOURS_SQL = `
-      SELECT DISTINCT
+      SELECT
         t.name AS name,
-        CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) AS season
+        CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) AS season,
+        COUNT(DISTINCT ums.match_id) AS matches
       FROM tbl_users_match_stats ums
       INNER JOIN tournament_match tm ON ums.match_id = tm.id
       INNER JOIN tournament t ON tm.tournament_id = t.id
-      INNER JOIN skills_positions sp ON ums.skill_id = sp.id
+      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
       WHERE ums.user_id = ${userIdNum}
-        AND sp.short_name IN (${roleCodes})
+        AND fp.code IN (${roleCodes})
         ${OFFICIAL_FILTER}
-      ORDER BY name
+      GROUP BY t.name
+      ORDER BY season DESC, name ASC
       LIMIT 200
     `;
-    const tours: Array<{ name: string; season: number | null }> = await prisma.$queryRawUnsafe(TOURS_SQL);
+    const tours: Array<{ name: string; season: number | null; matches: number }> = await prisma.$queryRawUnsafe(TOURS_SQL);
     const tournamentsUsed = tours.map(t => t.name);
 
     if (!matchesCluster || matchesCluster < 30) {
