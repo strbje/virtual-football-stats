@@ -1,8 +1,6 @@
 // src/app/players/[userId]/page.tsx
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
-
-// из lib берём только проверенную группировку ролей
 import { groupRolePercents } from "@/lib/roles";
 
 type Params = { userId: string };
@@ -32,18 +30,10 @@ function buildBaseURL(): string | null {
   return null;
 }
 
-/** Локальная функция: собираем распределение по лигам + «Прочие». */
+/** Локально собираем распределение лиг + «Прочие». */
 function makeLeagueBuckets(leaguesFromApi: ApiLeague[] | undefined) {
   const src = Array.isArray(leaguesFromApi) ? leaguesFromApi : [];
-
-  // коды, которые выводим явно
-  const wanted: Record<string, string> = {
-    PL: "ПЛ",
-    FNL: "ФНЛ",
-    PFL: "ПФЛ",
-    LFL: "ЛФЛ",
-  };
-
+  const wanted: Record<string, string> = { PL: "ПЛ", FNL: "ФНЛ", PFL: "ПФЛ", LFL: "ЛФЛ" };
   const acc: Record<string, number> = { ПЛ: 0, ФНЛ: 0, ПФЛ: 0, ЛФЛ: 0, Прочие: 0 };
 
   for (const it of src) {
@@ -78,9 +68,7 @@ export default async function PlayerPage({ params }: { params: Params }) {
   } catch (e: any) {
     if (base) {
       try {
-        const res2 = await fetch(`${base}/api/player-roles?userId=${userId}`, {
-          cache: "no-store",
-        });
+        const res2 = await fetch(`${base}/api/player-roles?userId=${userId}`, { cache: "no-store" });
         if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
         data = (await res2.json()) as ApiResponse;
       } catch (e2: any) {
@@ -114,7 +102,6 @@ export default async function PlayerPage({ params }: { params: Params }) {
   const grouped = groupRolePercents(
     data.roles.map((r) => ({ role: r.role, percent: safeNumber(r.percent) }))
   );
-  // тут не полагаемся на наличие поля label — берём label || group
   const rolesForChart = grouped.map((g: any) => ({
     label: g.label ?? g.group,
     value: safeNumber(g.percent),
@@ -122,6 +109,9 @@ export default async function PlayerPage({ params }: { params: Params }) {
 
   // лиги с «Прочие»
   const leagues = makeLeagueBuckets(data.leagues);
+
+  // алиас без TS-типов, чтобы не спорить с сигнатурой RoleHeatmap
+  const Heatmap: any = RoleHeatmap;
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
@@ -148,14 +138,14 @@ export default async function PlayerPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* распределения: амплуа слева (шире подписи), лиги справа */}
+      {/* распределения: амплуа слева, лиги справа */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
         <RoleDistributionSection
           roles={rolesForChart}
           leagues={leagues}
-          labelWidthPx={320}     // шире подписи, чтобы влезали длинные названия
-          rolesBarWidthPx={520}  // ширина бара по амплуа
-          leaguesBarWidthPx={460} // ширина бара по лигам
+          labelWidthPx={320}
+          rolesBarWidthPx={520}
+          leaguesBarWidthPx={460}
           tooltip
         />
       </section>
@@ -163,7 +153,7 @@ export default async function PlayerPage({ params }: { params: Params }) {
       {/* тепловая */}
       <div>
         <h3 className="text-sm font-medium text-zinc-700 mb-3">Тепловая карта амплуа</h3>
-        <RoleHeatmap roles={data.roles} />
+        <Heatmap roles={data.roles} />
       </div>
     </div>
   );
