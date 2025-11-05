@@ -6,7 +6,7 @@ import RoleHeatmap from "@/components/players/RoleHeatmap";
 
 // ---------- типы ответа API ----------
 type ApiRole = { role: string; percent: number };
-type ApiLeague = { code: string; pct: number }; // ожидалось ранее
+type ApiLeague = { code: string; pct: number };
 type ApiResponse = {
   ok: boolean;
   matches: number;
@@ -29,9 +29,8 @@ const safeNum = (v: unknown, d = 0) => {
   return Number.isFinite(n) ? n : d;
 };
 
-// сгруппировать роли в большие блоки + вернуть для тепловой/барчартов
+// сгруппировать роли в большие блоки + вернуть для барчартов
 function groupRolePercents(roles: ApiRole[]) {
-  // группы как у тебя в lib/utils
   const GROUPS: Record<string, string[]> = {
     "Форвард": ["ЛФД", "ЦФД", "ПФД", "ФРВ"],
     "Атакующий полузащитник": ["ЛАП", "ЦАП", "ПАП"],
@@ -42,14 +41,12 @@ function groupRolePercents(roles: ApiRole[]) {
     "Вратарь": ["ВРТ"],
   };
 
-  const dict = Object.entries(GROUPS).map(([label, codes]) => {
+  return Object.entries(GROUPS).map(([label, codes]) => {
     const pct = roles
       .filter((r) => codes.includes(r.role))
       .reduce((s, r) => s + safeNum(r.percent), 0);
     return { label, value: pct };
   });
-
-  return dict;
 }
 
 // бакеты лиг: ПЛ / ФНЛ / ПФЛ / ЛФЛ / Прочие
@@ -86,10 +83,9 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 export default async function PlayerPage({ params }: { params: Params }) {
   const userId = params.userId;
 
-  // абсолютный URL + верное имя параметра userId (camelCase!)
+  // абсолютный URL + корректный параметр userId
   const url = abs(`/api/player-roles?userId=${encodeURIComponent(userId)}`);
 
-  // server fetch
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     return (
@@ -117,7 +113,7 @@ export default async function PlayerPage({ params }: { params: Params }) {
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
-      {/* хлебные крошки/название */}
+      {/* заголовок */}
       <div>
         <h1 className="text-2xl font-semibold">{nickname}</h1>
         {team ? <div className="text-zinc-500 text-sm mt-1">{team}</div> : null}
@@ -126,7 +122,7 @@ export default async function PlayerPage({ params }: { params: Params }) {
         </Link>
       </div>
 
-      {/* верхние плитки */}
+      {/* верхние плитки в один ряд */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-zinc-200 p-4">
           <div className="text-sm text-zinc-500 mb-1">Матчи</div>
@@ -141,20 +137,16 @@ export default async function PlayerPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* распределения: амплуа и лиги — в одном ряду */}
+      {/* распределения: амплуа и лиги — рядом */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
-        <RoleDistributionSection
-          roles={roleGroups} // [{label, value}]
-          leagues={leagues}  // [{label, pct}]
-          tooltip
-        />
+        <RoleDistributionSection roles={roleGroups} leagues={leagues} tooltip />
       </section>
 
       {/* тепловая карта амплуа */}
       <div>
         <h3 className="text-sm font-medium text-zinc-700 mb-3">Тепловая карта амплуа</h3>
-        {/* Компонент использует свои источники (как раньше). Пропсы не передаем. */}
-        <RoleHeatmap />
+        {/* ВАЖНО: этот компонент ожидает prop data */}
+        <RoleHeatmap data={(data.roles as unknown) as any} />
       </div>
     </div>
   );
