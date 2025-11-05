@@ -1,13 +1,19 @@
+// src/components/players/RoleDistributionSection.tsx
 import * as React from "react";
 
-/** Совместимость: можно передать либо roles, либо data (старый проп) */
+// Новый нормальный тип
 type RoleItem = { label: string; value: number };
+// Старый тип, который приходит со страницы src/components/players/page.tsx
+type LegacyRolePercent = { role: string; percent: number };
+// Правый бар (лиги)
 type LeagueItem = { label: string; pct: number };
 
 type Props = {
-  roles?: RoleItem[];      // новый правильный проп
-  data?: RoleItem[];       // устаревший проп (для старых страниц)
-  leagues?: LeagueItem[];  // правый бар
+  /** Новый проп — уже готовые пары label/value */
+  roles?: RoleItem[];
+  /** Наследный проп — мог быть либо RoleItem[], либо RolePercent[] */
+  data?: RoleItem[] | LegacyRolePercent[];
+  leagues?: LeagueItem[];
   widthPx?: number;
   tooltip?: boolean;
 };
@@ -22,6 +28,19 @@ const GROUP_ROLES: Record<string, string[]> = {
   "Центральный защитник": ["ЦЗ", "ЛЦЗ", "ПЦЗ"],
   "Вратарь": ["ВРТ"],
 };
+
+function toRoleItems(input?: RoleItem[] | LegacyRolePercent[] | undefined): RoleItem[] {
+  if (!input) return [];
+  // Если это уже RoleItem[]
+  if (input.length && "label" in (input[0] as any) && "value" in (input[0] as any)) {
+    return (input as RoleItem[]).map((r) => ({ label: r.label, value: Number(r.value || 0) }));
+  }
+  // Иначе считаем, что это LegacyRolePercent[] -> превращаем в label/value
+  return (input as LegacyRolePercent[]).map((r) => ({
+    label: (r as LegacyRolePercent).role,
+    value: Number((r as LegacyRolePercent).percent || 0),
+  }));
+}
 
 function BarRow({
   label,
@@ -53,11 +72,8 @@ export default function RoleDistributionSection({
   widthPx = 420,
   tooltip = false,
 }: Props) {
-  // наследная совместимость: если roles нет, берём data
-  const left = (roles ?? data ?? []).map(r => ({
-    label: r.label,
-    value: Number(r.value || 0),
-  }));
+  // Унифицируем вход
+  const left: RoleItem[] = roles ? toRoleItems(roles) : toRoleItems(data);
 
   const roleHints: Record<string, string | undefined> = {};
   if (tooltip) {
