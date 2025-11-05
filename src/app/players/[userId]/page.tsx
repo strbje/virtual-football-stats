@@ -32,7 +32,7 @@ function buildBaseURL(): string | null {
   return null;
 }
 
-/** Локальная функция: собираем распределение по лигам + «Прочие» */
+/** Локальная функция: собираем распределение по лигам + «Прочие». */
 function makeLeagueBuckets(leaguesFromApi: ApiLeague[] | undefined) {
   const src = Array.isArray(leaguesFromApi) ? leaguesFromApi : [];
 
@@ -66,7 +66,7 @@ function makeLeagueBuckets(leaguesFromApi: ApiLeague[] | undefined) {
 export default async function PlayerPage({ params }: { params: Params }) {
   const userId = params.userId;
 
-  // --- fetch c запасным абсолютным URL ---
+  // --- fetch с резервным абсолютным URL ---
   const base = buildBaseURL();
   let data: ApiResponse | null = null;
   let fetchError: string | null = null;
@@ -114,7 +114,11 @@ export default async function PlayerPage({ params }: { params: Params }) {
   const grouped = groupRolePercents(
     data.roles.map((r) => ({ role: r.role, percent: safeNumber(r.percent) }))
   );
-  const rolesForChart = grouped.map((g) => ({ label: g.label, value: g.percent }));
+  // тут не полагаемся на наличие поля label — берём label || group
+  const rolesForChart = grouped.map((g: any) => ({
+    label: g.label ?? g.group,
+    value: safeNumber(g.percent),
+  }));
 
   // лиги с «Прочие»
   const leagues = makeLeagueBuckets(data.leagues);
@@ -144,14 +148,14 @@ export default async function PlayerPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* распределения: амплуа слева, лиги справа */}
+      {/* распределения: амплуа слева (шире подписи), лиги справа */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
         <RoleDistributionSection
           roles={rolesForChart}
           leagues={leagues}
-          labelWidthPx={320}        // шире лейблы — влезают длинные названия
-          rolesBarWidthPx={520}
-          leaguesBarWidthPx={460}
+          labelWidthPx={320}     // шире подписи, чтобы влезали длинные названия
+          rolesBarWidthPx={520}  // ширина бара по амплуа
+          leaguesBarWidthPx={460} // ширина бара по лигам
           tooltip
         />
       </section>
