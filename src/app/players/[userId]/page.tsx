@@ -1,199 +1,150 @@
 // src/app/players/[userId]/page.tsx
-import { headers } from "next/headers";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
-import { groupRolePercents } from "@/lib/roles";
-import {
-  HEATMAP_ROLES_ORDER,
-  ROLE_LABELS,
-  type RolePercent,
-  type RoleCode,
-} from "@/utils/roles";
 
-export const dynamic = "force-dynamic";
+// группировки/агрегации берём из уже проверенной логики
+import { groupRolePercents, toLeagueBuckets } from "@/lib/roles";
 
-type ApiResp = {
+type Params = { userId: string };
+
+type ApiRole = { role: string; percent: number };
+type ApiLeague = { code: string; pct: number };
+
+type ApiResponse = {
   ok: boolean;
   matches: number;
-  roles: { role: RoleCode; percent: number }[];
-  currentRoleLast30?: RoleCode | null;
-  leagues?: { label: string; pct: number }[];
-  user?: { nickname: string; team: string | null };
-  error?: string;
+  roles: ApiRole[];
+  currentRole?: string;         // если отдаёт API
+  nickname?: string;            // если отдаёт API
+  teamName?: string;            // если отдаёт API
+  leagues?: ApiLeague[];        // если отдаёт API
 };
 
-const GROUP_LABELS: Record<string, string> = {
-  FORWARD: "Форвард",
-  ATT_MID: "Атакующий полузащитник",
-  WIDE_MID: "Крайний полузащитник",
-  CENT_MID: "Центральный полузащитник",
-  DEF_MID: "Опорный полузащитник",
-  FULLBACK: "Крайний защитник",
-  CENTER_BACK: "Центральный защитник",
-  GOALKEEPER: "Вратарь",
-};
-
-// безопасный fetch с абсолютным URL (без падений страницы)
-async function safeJsonAbs(base: string, path: string): Promise<any> {
-  try {
-    const url = `${base}${path}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status} @ ${path}` };
-    return await res.json();
-  } catch (e: any) {
-    return { ok: false, error: String(e?.message || e) };
-  }
+function safeNumber(n: unknown, fallback = 0): number {
+  const v = typeof n === "number" ? n : Number(n);
+  return Number.isFinite(v) ? v : fallback;
 }
 
-export default async function PlayerPage({ params }: { params: { userId: string } }) {
-  const userId = Number(params.userId);
+function buildBaseURL(): string | null {
+  // если задан публичный базовый адрес — используем его
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "");
+  }
+  return null; // по умолчанию пойдём на относительный путь
+}
 
-  // строим абсолютную базу для fetch
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = `${proto}://${host}`;
+export default async function PlayerPage({ params }: { params: Params }) {
+  const userId = params.userId;
 
-  // 1) основной путь: /api/player-roles/[userId]
-  let data: ApiResp = await safeJsonAbs(base, `/api/player-roles/${userId}`);
+  // 1) тянем данные об амплуа/лигах
+  const base = buildBaseURL();
 
-  // 2) fallback на старый формат: /api/player-roles?userId=...
-  if (!data?.ok) {
-    data = await safeJsonAbs(base, `/api/player-roles?userId=${userId}`);
+  // сначала пробуем относительный путь (в большинстве окружений он работает),
+  // если вдруг среда потребует абсолютный URL — есть запасной вариант
+  let data: ApiResponse | null = null;
+  let fetchError: string | null = null;
+
+  try {
+    const res = await fetch(`/api/player-roles?userId=${userId}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = (await res.json()) as ApiResponse;
+  } catch (e: any) {
+    if (base) {
+      try {
+        const res2 = await fetch(`${base}/api/player-roles?userId=${userId}`, { cache: "no-store" });
+        if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
+        data = (await res2.json()) as ApiResponse;
+      } catch (e2: any) {
+        fetchError = `Failed to fetch player-roles: ${String(e2?.message ?? e2)}`;
+      }
+    } else {
+      fetchError = `Failed to parse URL for relative fetch: ${String(e?.message ?? e)}`;
+    }
   }
 
   if (!data?.ok) {
     return (
-      <div className="mx-auto max-w-4xl p-6">
+      <div className="mx-auto max-w-6xl p-4 md:p-6">
         <h1 className="text-2xl font-semibold">{`User #${userId}`}</h1>
-        <p className="mt-2 text-sm text-red-600">Ошибка загрузки: {data?.error ?? "unknown"}</p>
-        <a href="/players" className="mt-4 inline-block text-blue-600 hover:underline">
+        <p className="mt-3 text-sm text-red-600">
+          Ошибка загрузки: {fetchError ?? "нет данных от API /api/player-roles"}
+        </p>
+        <a href="/players" className="mt-4 inline-block text-sky-600 hover:underline">
           ← Ко всем игрокам
         </a>
       </div>
     );
   }
 
-  const matches = Number(data.matches ?? 0);
-  const rolePercents: RolePercent[] = Array.isArray(data.roles)
-    ? data.roles.map((r) => ({ role: r.role, percent: Number(r.percent || 0) }))
-    : [];
+  const matches = safeNumber(data.matches, 0);
 
-  // ник/команда (если API отдаёт)
-  const nickname = data.user?.nickname ?? `User #${userId}`;
-  const teamName = data.user?.team ?? null;
+  // роли поштучно из API → агрегируем в группы для левого бара
+  const grouped = groupRolePercents(
+    data.roles.map(r => ({ role: r.role, percent: safeNumber(r.percent) }))
+  );
 
-  // «Актуальное амплуа» (мода 30) + подсказка
-  const currentRole =
-    (data.currentRoleLast30 &&
-      ((ROLE_LABELS as Record<string, string>)[data.currentRoleLast30] ??
-        data.currentRoleLast30)) ||
-    "—";
-  const currentRoleHint = "За последние 30 матчей";
+  // подготовка ролей для RoleDistributionSection (ожидает label/value)
+  const rolesForChart = grouped.map(g => ({ label: g.label, value: g.percent }));
 
-  // левый бар — твоя корректная агрегация
-  const grouped = groupRolePercents(rolePercents);
-  const rolesForChart = grouped.map((g: any) => ({
-    label: GROUP_LABELS[g.group ?? g.label] ?? (g.label ?? String(g.group)),
-    value: Number(g.value ?? g.percent ?? 0),
-  }));
+  // лиги из API или формируем на лету (с «Прочие»)
+  const leaguesFromApi = Array.isArray(data.leagues) ? data.leagues : [];
+  const leagues = toLeagueBuckets(leaguesFromApi);
 
-  // правый бар по лигам: ПЛ/ФНЛ/ПФЛ/ЛФЛ + «Прочие»
-  const rawLeagues =
-    Array.isArray(data.leagues) && data.leagues.length
-      ? data.leagues.map((x) => ({ label: x.label, pct: Number(x.pct || 0) }))
-      : [];
+  // заголовок
+  const nickname = data.nickname || `User #${userId}`;
+  const teamName = data.teamName || "";
 
-  const KNOWN = new Set(["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ"]);
-  const known = rawLeagues.filter((l) => KNOWN.has(l.label));
-  const others = rawLeagues.filter((l) => !KNOWN.has(l.label));
-  const knownSum = known.reduce((s, x) => s + x.pct, 0);
-  const othersSum =
-    others.length > 0 ? others.reduce((s, x) => s + x.pct, 0) : Math.max(0, 100 - knownSum);
-
-  const leagues = [
-    ...["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ"].map((k) => {
-      const f = known.find((x) => x.label === k);
-      return { label: k, pct: f ? f.pct : 0 };
-    }),
-    ...(othersSum > 0 ? [{ label: "Прочие", pct: othersSum }] : []),
-  ];
-
-  // тепловая — только позиции с >0%
- const ALLOWED = new Set([
-    "ЦФД","ЛФД","ПФД","ФРВ",
-    "ЦАП","ЛАП","ПАП",
-    "ЛП","ПП",
-    "ЦП","ЛЦП","ПЦП",
-    "ЦОП","ЛОП","ПОП",
-    "ЛЗ","ПЗ","ЦЗ","ЛЦЗ","ПЦЗ",
-    "ВРТ",
-  ]);
-
-  const heatmapData = rolePercents
-    .filter(r => r.percent > 0 && ALLOWED.has(r.role))
-    .map(r => ({ role: r.role, percent: Number(r.percent) }));
+  // актуальное амплуа (из API, если нет — по максимуму за 30 матчей считается на стороне API)
+  const currentRole = data.currentRole ?? "";
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
       {/* шапка */}
       <div>
         <h1 className="text-2xl font-semibold">{nickname}</h1>
-        {teamName && <div className="text-sm text-zinc-500 mt-1">{teamName}</div>}
-        <div className="mt-2">
-          <a href="/players" className="text-blue-600 hover:underline text-sm">
-            ← Ко всем игрокам
-          </a>
+        {teamName ? (
+          <div className="text-sm text-zinc-500">{teamName}</div>
+        ) : null}
+        <a href="/players" className="mt-3 inline-block text-sky-600 hover:underline">
+          ← Ко всем игрокам
+        </a>
+      </div>
+
+      {/* KPI row — одна строка: Матчи + Актуальное амплуа */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Матчи */}
+        <div className="rounded-xl border p-4">
+          <div className="text-sm text-zinc-500">Матчи</div>
+          <div className="text-3xl font-semibold">{matches}</div>
+          <div className="mt-1 text-[11px] text-zinc-500">
+            *без учета национальных матчей
+          </div>
+        </div>
+
+        {/* Актуальное амплуа */}
+        <div className="rounded-xl border p-4" title="За последние 30 матчей">
+          <div className="text-sm text-zinc-500">Актуальное амплуа</div>
+          <div className="text-3xl font-semibold">{currentRole}</div>
         </div>
       </div>
 
-      {/* KPI row */}
-<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-  {/* Матчи */}
-  <div className="rounded-xl border p-4">
-    <div className="text-sm text-zinc-500">Матчи</div>
-    <div className="text-3xl font-semibold">{matches}</div>
-    <div className="mt-1 text-[11px] text-zinc-500">*без учета национальных матчей</div>
-  </div>
-
-  {/* Актуальное амплуа */}
-  <div className="rounded-xl border p-4" title="За последние 30 матчей">
-    <div className="text-sm text-zinc-500">Актуальное амплуа</div>
-    <div className="text-3xl font-semibold">{currentRole}</div>
-  </div>
-</div>
-      
-      {/* карточки */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:max-w-[720px]">
-        <div className="rounded-xl border p-4">
-          <div className="text-sm text-zinc-500">Матчи</div>
-          <div className="text-2xl font-semibold tabular-nums">{matches}</div>
-        </div>
-        <div className="rounded-xl border p-4">
-          <div className="text-sm text-zinc-500" title={currentRoleHint}>
-            Актуальное амплуа
-          </div>
-          <div className="text-2xl font-semibold">{currentRole}</div>
-        </div>
-      </section>
-
-      {/* распределения */}
+      {/* распределения: амплуа слева, лиги справа */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
-        <<RoleDistributionSection
-  roles={rolesForChart}
-  leagues={leagues}
-  labelWidthPx={320}        // было 260 → места под «Атакующий полузащитник» хватает
-  rolesBarWidthPx={520}     // левый бар шире
-  leaguesBarWidthPx={460}   // правый бар
-  tooltip
-/>
+        <RoleDistributionSection
+          roles={rolesForChart}
+          leagues={leagues}
+          labelWidthPx={320}        // шире подписи — влезают длинные названия
+          rolesBarWidthPx={520}     // левый бар
+          leaguesBarWidthPx={460}   // правый бар
+          tooltip
+        />
       </section>
 
-      {/* тепловая */}
-      <section className="md:max-w-[1100px]">
-        <div className="text-sm font-semibold mb-2">Тепловая карта амплуа</div>
-        <RoleHeatmap data={heatmapData} />
-      </section>
+      {/* тепловая карта */}
+      <div>
+        <h3 className="text-sm font-medium text-zinc-700 mb-3">Тепловая карта амплуа</h3>
+        <RoleHeatmap roles={data.roles} />
+      </div>
     </div>
   );
 }
