@@ -63,11 +63,11 @@ function BarRow({
   return (
     <div className="flex items-center gap-3 py-1" title={hint}>
       <div
-        className="text-sm text-zinc-700 truncate"
-        style={{ width: labelWidthPx }}
-      >
-        {label}
-      </div>
+  className="text-sm text-zinc-700"
+  style={{ width: labelWidthPx }}
+>
+  {label}
+</div>
       <div
         className="relative h-[8px] rounded bg-zinc-200"
         style={{ width: barWidthPx }}
@@ -88,9 +88,9 @@ export default function RoleDistributionSection({
   roles,
   data,
   leagues = [],
-  labelWidthPx = 260,       // было 210 → расширил для длинных русских названий
-  rolesBarWidthPx = 460,    // левый бар — шире
-  leaguesBarWidthPx = 420,  // правый бар — как было
+  labelWidthPx = 320,       // было 210 → расширил для длинных русских названий
+  rolesBarWidthPx = 520,    // левый бар — шире
+  leaguesBarWidthPx = 460,  // правый бар — как было
   tooltip = false,
 }: Props) {
   // Унифицируем вход
