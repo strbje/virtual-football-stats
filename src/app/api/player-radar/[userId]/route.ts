@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
-// ---- кластеры ----
+/** ---------- Кластеры и метаданные ---------- */
 type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB";
+
 const CLUSTERS: Record<ClusterKey, readonly string[]> = {
   FW: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"],
   AM: ["ЦАП", "ЦП", "ЛЦП", "ПЦП", "ЛАП", "ПАП"],
@@ -40,14 +41,18 @@ const LABELS: Record<string, string> = {
   attack_participation: "Участие в атаке",
 };
 
-// минимальный сезон
-const SEASON_MIN = 18;
+const SEASON_MIN = 18;                        // фильтр сезонов
+const XG_EXPR = "s.goals_expected";          // поле xG в stats-таблице
 
-// возможные имена колонки с названием турнира в tbl_users_match_stats
-const TOURNAMENT_CANDIDATES = [
-  "tournament_name",
-  "t.name",
-] as const;
+// кандидаты таблиц
+const MATCH_TABLES = ["tbl_matches", "matches", "team_matches", "tbl_team_matches"] as const;
+const TOUR_TABLES  = ["tournament", "tournaments", "tbl_tournaments"] as const;
+
+// кандидаты имён колонки с названием турнира
+const TOUR_NAME_COLS = ["tournament_name", "name", "title", "league_name", "competition_name"] as const;
+
+// кандидаты имени внешнего ключа из матчей в турнир
+const TOUR_FK_COLS = ["tournament_id", "league_id", "competition_id"] as const;
 
 type Params = { params: { userId: string } };
 
@@ -66,16 +71,97 @@ function originFrom(req: Request) {
   return `${proto}://${host}`;
 }
 
+/** Проверка: существует ли таблица */
+async function hasTable(table: string) {
+  const r = await prisma.$queryRawUnsafe<Array<{ TABLE_NAME: string }>>(`
+    SELECT TABLE_NAME
+    FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${table}'
+    LIMIT 1
+  `);
+  return r.length > 0;
+}
+
+/** Найти первый столбец из candidates в таблице table */
+async function findColumn(table: string, candidates: readonly string[]) {
+  if (!(await hasTable(table))) return null;
+  const cols = await prisma.$queryRawUnsafe<Array<{ COLUMN_NAME: string }>>(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = '${table}'
+      AND COLUMN_NAME IN (${candidates.map(c => `'${c}'`).join(",")})
+    LIMIT 1
+  `);
+  return cols[0]?.COLUMN_NAME ?? null;
+}
+
+/** Определяем таблицы и колонки для JOIN турнира */
+async function detectTournamentJoin() {
+  // 1) находим таблицу матчей
+  let matchTable: string | null = null;
+  for (const t of MATCH_TABLES) {
+    if (await hasTable(t)) { matchTable = t; break; }
+  }
+  if (!matchTable) return { matchTable: null, tourTable: null, matchFk: null, tourNameExpr: null, joinSql: "", chosenTourNameCol: null } as const;
+
+  // 2) находим fk в матчах
+  const matchFk = await findColumn(matchTable, TOUR_FK_COLS);
+  if (!matchFk) return { matchTable, tourTable: null, matchFk: null, tourNameExpr: null, joinSql: `LEFT JOIN ${matchTable} m ON m.id = s.match_id`, chosenTourNameCol: null } as const;
+
+  // 3) находим таблицу турниров и колонку названия
+  let tourTable: string | null = null;
+  for (const t of TOUR_TABLES) {
+    if (await hasTable(t)) { tourTable = t; break; }
+  }
+  if (!tourTable) {
+    // хотя бы присоединим матчи (без названия турнира)
+    return {
+      matchTable,
+      tourTable: null,
+      matchFk,
+      tourNameExpr: null,
+      joinSql: `LEFT JOIN ${matchTable} m ON m.id = s.match_id`,
+      chosenTourNameCol: null,
+    } as const;
+  }
+  const tourNameCol = await findColumn(tourTable, TOUR_NAME_COLS);
+  if (!tourNameCol) {
+    return {
+      matchTable,
+      tourTable,
+      matchFk,
+      tourNameExpr: null,
+      joinSql: `
+        LEFT JOIN ${matchTable} m ON m.id = s.match_id
+        LEFT JOIN ${tourTable} t ON t.id = m.${matchFk}
+      `,
+      chosenTourNameCol: null,
+    } as const;
+  }
+  // всё найдено
+  return {
+    matchTable,
+    tourTable,
+    matchFk,
+    tourNameExpr: `t.${tourNameCol}`,
+    joinSql: `
+      LEFT JOIN ${matchTable} m ON m.id = s.match_id
+      LEFT JOIN ${tourTable} t ON t.id = m.${matchFk}
+    `,
+    chosenTourNameCol: tourNameCol,
+  } as const;
+}
+
 export async function GET(req: Request, { params }: Params) {
   try {
     const userIdNum = Number(params.userId);
     if (!Number.isFinite(userIdNum)) {
       return NextResponse.json({ ok: false, error: "bad userId" }, { status: 400 });
     }
-    const url = new URL(req.url);
-    const wantDebug = url.searchParams.get("debug") === "1";
+    const wantDebug = new URL(req.url).searchParams.get("debug") === "1";
 
-    // 1) текущая роль/кластер — через рабочую ручку
+    // 1) текущая роль/кластер (через уже рабочую ручку)
     const base = originFrom(req);
     const rolesRes = await fetch(`${base}/api/player-roles?userId=${encodeURIComponent(String(userIdNum))}`, { cache: "no-store" });
     if (!rolesRes.ok) {
@@ -89,27 +175,15 @@ export async function GET(req: Request, { params }: Params) {
       return NextResponse.json({ ok: true, ready: false, currentRole, reason: "Не удалось определить кластер" });
     }
 
-    // 2) определяем фактическую колонку турнира
-    const cols = await prisma.$queryRawUnsafe<Array<{ COLUMN_NAME: string }>>(`
-      SELECT COLUMN_NAME
-      FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = 'tbl_users_match_stats'
-        AND COLUMN_NAME IN (${TOURNAMENT_CANDIDATES.map(c => `'${c}'`).join(",")})
-    `);
-    const tourCol = cols[0]?.COLUMN_NAME ?? null;
-
-    // 3) выражение для сезона (MySQL 8+ REGEXP_SUBSTR)
-    const seasonExpr = tourCol ? `CAST(REGEXP_SUBSTR(s.${tourCol}, '[0-9]+') AS UNSIGNED)` : null;
+    // 2) определяем источник турнира: таблицы и поля
+    const tour = await detectTournamentJoin();
+    const seasonExpr = tour.tourNameExpr ? `CAST(REGEXP_SUBSTR(${tour.tourNameExpr}, '[0-9]+') AS UNSIGNED)` : null;
     const OFFICIAL_FILTER = seasonExpr ? `AND (${seasonExpr} >= ${SEASON_MIN})` : "";
 
-    // 4) xG поле (у тебя точно goals_expected)
-    const XG_EXPR = "s.goals_expected";
-
-    // 5) код кластеров в SQL
+    // 3) коды ролей для кластера
     const roleCodes = CLUSTERS[cluster].map((c) => `'${c}'`).join(",");
 
-    // 6) агрегаты по игроку (с фильтром турниров, если колонка найдена)
+    // 4) основной SQL (JOIN на матчи/турниры + фильтр 18+ сезонов, если возможно)
     const AGG_SQL = `
       WITH base AS (
         SELECT
@@ -130,9 +204,10 @@ export async function GET(req: Request, { params }: Params) {
           s.outplayed, s.penalised_fails,
           s.duels_air, s.duels_air_win,
           s.crosses
-          ${tourCol ? `, s.${tourCol} AS tournament_name` : ""}
+          ${tour.tourNameExpr ? `, ${tour.tourNameExpr} AS tournament_name` : ""}
         FROM tbl_users_match_stats s
         JOIN tbl_field_positions fp ON fp.id = s.position_id
+        ${tour.joinSql}
         WHERE s.user_id = ${userIdNum}
           AND fp.code IN (${roleCodes})
           ${OFFICIAL_FILTER}
@@ -189,26 +264,30 @@ export async function GET(req: Request, { params }: Params) {
         (ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0) AS attack_participation
       FROM agg
     `;
+
     const agg: any[] = await prisma.$queryRawUnsafe(AGG_SQL);
     const A = agg[0] ?? {};
     const matchesCluster = Number(A?.matches ?? 0);
 
-    // диагностический список турниров, попавших в выборку (если нужно)
+    // диагностика + короткий список турниров, реально попавших в расчёт
     let tournamentsDebug: Array<{ name: string; season: number | null }> = [];
-    if (wantDebug && tourCol) {
+    let tournamentsUsed: string[] | undefined;
+    if (tour.tourNameExpr) {
       const SQL_TOURS = `
         SELECT DISTINCT
-          s.${tourCol} AS name,
-          CAST(REGEXP_SUBSTR(s.${tourCol}, '[0-9]+') AS UNSIGNED) AS season
+          ${tour.tourNameExpr} AS name,
+          CAST(REGEXP_SUBSTR(${tour.tourNameExpr}, '[0-9]+') AS UNSIGNED) AS season
         FROM tbl_users_match_stats s
         JOIN tbl_field_positions fp ON fp.id = s.position_id
+        ${tour.joinSql}
         WHERE s.user_id = ${userIdNum}
           AND fp.code IN (${roleCodes})
           ${OFFICIAL_FILTER}
         ORDER BY name
-        LIMIT 50
+        LIMIT 100
       `;
       tournamentsDebug = await prisma.$queryRawUnsafe(SQL_TOURS);
+      tournamentsUsed = tournamentsDebug.map(x => x.name);
     }
 
     if (!matchesCluster || matchesCluster < 30) {
@@ -218,9 +297,13 @@ export async function GET(req: Request, { params }: Params) {
         currentRole,
         cluster,
         matchesCluster,
+        tournamentsUsed,
         reason: "Недостаточно матчей в кластере (< 30)",
         debug: wantDebug ? {
-          tournamentColumn: tourCol,
+          matchTable: tour.matchTable,
+          tourTable: tour.tourTable,
+          matchFk: tour.matchFk,
+          tourNameColumn: tour.chosenTourNameCol,
           seasonMin: SEASON_MIN,
           officialFilterApplied: Boolean(seasonExpr),
           tournaments: tournamentsDebug,
@@ -228,11 +311,9 @@ export async function GET(req: Request, { params }: Params) {
       });
     }
 
-    // (процентили — твоя текущая логика; здесь отдаём сырые значения + pct если уже посчитаны у тебя)
     const keys = RADAR_BY_CLUSTER[cluster];
     const radar = keys.map((k) => {
       const rawKey = k === "xa" ? "xa_avg" : k === "crosses" ? "crosses_avg" : k;
-      // pct здесь не считаю — оставь свою логику; если хочешь, перенесу сюда позже
       const raw = Number(A?.[rawKey] ?? 0);
       return { key: k, label: LABELS[k], raw, pct: null };
     });
@@ -243,9 +324,13 @@ export async function GET(req: Request, { params }: Params) {
       currentRole,
       cluster,
       matchesCluster,
+      tournamentsUsed,
       radar,
       debug: wantDebug ? {
-        tournamentColumn: tourCol,
+        matchTable: tour.matchTable,
+        tourTable: tour.tourTable,
+        matchFk: tour.matchFk,
+        tourNameColumn: tour.chosenTourNameCol,
         seasonMin: SEASON_MIN,
         officialFilterApplied: Boolean(seasonExpr),
         tournaments: tournamentsDebug,
