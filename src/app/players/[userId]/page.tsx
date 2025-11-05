@@ -147,6 +147,19 @@ export default async function PlayerPage({ params }: { params: { userId: string 
         </div>
       </div>
 
+      {/* KPI — Матчи */}
+<div className="rounded-xl border p-4">
+  <div className="text-sm text-zinc-500">Матчи</div>
+  <div className="text-3xl font-semibold">{matches}</div>
+  <div className="mt-1 text-[11px] text-zinc-500">*без учета национальных матчей</div>
+</div>
+
+{/* KPI — Актуальное амплуа */}
+<div className="rounded-xl border p-4" title="За последние 30 матчей">
+  <div className="text-sm text-zinc-500">Актуальное амплуа</div>
+  <div className="text-3xl font-semibold">{currentRole}</div>
+</div>
+      
       {/* карточки */}
       <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:max-w-[720px]">
         <div className="rounded-xl border p-4">
