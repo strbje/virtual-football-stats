@@ -1,159 +1,160 @@
 // src/app/players/[userId]/page.tsx
+import type { Metadata } from "next";
+import Link from "next/link";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
-import { groupRolePercents } from "@/lib/roles";
 
-type Params = { userId: string };
-
+// ---------- типы ответа API ----------
 type ApiRole = { role: string; percent: number };
-type ApiLeague = { code: string; pct: number };
-
+type ApiLeague = { code: string; pct: number }; // ожидалось ранее
 type ApiResponse = {
   ok: boolean;
   matches: number;
+  currentRole?: string | null;
   roles: ApiRole[];
-  currentRole?: string;
-  nickname?: string;
-  teamName?: string;
   leagues?: ApiLeague[];
+  nickname?: string | null;
+  teamName?: string | null;
 };
 
-function safeNumber(n: unknown, fallback = 0): number {
-  const v = typeof n === "number" ? n : Number(n);
-  return Number.isFinite(v) ? v : fallback;
+// ---------- утилиты ----------
+const BASE =
+  process.env.NEXT_PUBLIC_BASE_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://127.0.0.1:3000");
+
+const abs = (path: string) => new URL(path, BASE).toString();
+
+const safeNum = (v: unknown, d = 0) => {
+  const n = typeof v === "string" ? Number(v) : (v as number);
+  return Number.isFinite(n) ? n : d;
+};
+
+// сгруппировать роли в большие блоки + вернуть для тепловой/барчартов
+function groupRolePercents(roles: ApiRole[]) {
+  // группы как у тебя в lib/utils
+  const GROUPS: Record<string, string[]> = {
+    "Форвард": ["ЛФД", "ЦФД", "ПФД", "ФРВ"],
+    "Атакующий полузащитник": ["ЛАП", "ЦАП", "ПАП"],
+    "Крайний полузащитник": ["ЛП", "ПП"],
+    "Центральный полузащитник": ["ЛЦП", "ЦП", "ПЦП", "ЛОП", "ПОП", "ЦОП"],
+    "Крайний защитник": ["ЛЗ", "ПЗ"],
+    "Центральный защитник": ["ЦЗ", "ЛЦЗ", "ПЦЗ"],
+    "Вратарь": ["ВРТ"],
+  };
+
+  const dict = Object.entries(GROUPS).map(([label, codes]) => {
+    const pct = roles
+      .filter((r) => codes.includes(r.role))
+      .reduce((s, r) => s + safeNum(r.percent), 0);
+    return { label, value: pct };
+  });
+
+  return dict;
 }
 
-function buildBaseURL(): string | null {
-  if (process.env.NEXT_PUBLIC_SITE_URL) {
-    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "");
-  }
-  return null;
-}
+// бакеты лиг: ПЛ / ФНЛ / ПФЛ / ЛФЛ / Прочие
+function makeLeagueBuckets(leagues?: ApiLeague[]) {
+  if (!leagues || !leagues.length) return [];
+  const map: Record<string, number> = { ПЛ: 0, ФНЛ: 0, ПФЛ: 0, ЛФЛ: 0, Прочие: 0 };
 
-/** Локально собираем распределение лиг + «Прочие». */
-function makeLeagueBuckets(leaguesFromApi: ApiLeague[] | undefined) {
-  const src = Array.isArray(leaguesFromApi) ? leaguesFromApi : [];
-  const wanted: Record<string, string> = { PL: "ПЛ", FNL: "ФНЛ", PFL: "ПФЛ", LFL: "ЛФЛ" };
-  const acc: Record<string, number> = { ПЛ: 0, ФНЛ: 0, ПФЛ: 0, ЛФЛ: 0, Прочие: 0 };
-
-  for (const it of src) {
-    const code = (it.code || "").toUpperCase();
-    const pct = safeNumber(it.pct);
-    const label = wanted[code];
-    if (label) acc[label] += pct;
-    else acc["Прочие"] += pct;
+  for (const l of leagues) {
+    const code = (l.code || "").toUpperCase();
+    const pct = safeNum(l.pct);
+    if (code === "ПЛ" || code === "ФНЛ" || code === "ПФЛ" || code === "ЛФЛ") {
+      map[code] += pct;
+    } else {
+      map["Прочие"] += pct;
+    }
   }
 
   return [
-    { label: "ПЛ", pct: acc["ПЛ"] },
-    { label: "ФНЛ", pct: acc["ФНЛ"] },
-    { label: "ПФЛ", pct: acc["ПФЛ"] },
-    { label: "ЛФЛ", pct: acc["ЛФЛ"] },
-    { label: "Прочие", pct: acc["Прочие"] },
+    { label: "ПЛ", pct: map["ПЛ"] },
+    { label: "ФНЛ", pct: map["ФНЛ"] },
+    { label: "ПФЛ", pct: map["ПФЛ"] },
+    { label: "ЛФЛ", pct: map["ЛФЛ"] },
+    { label: "Прочие", pct: map["Прочие"] },
   ];
+}
+
+// ---------- страница ----------
+type Params = { userId: string };
+
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  return { title: `Игрок #${params.userId} — Virtual Football Stats` };
 }
 
 export default async function PlayerPage({ params }: { params: Params }) {
   const userId = params.userId;
 
-  // --- fetch с резервным абсолютным URL ---
-  const base = buildBaseURL();
-  let data: ApiResponse | null = null;
-  let fetchError: string | null = null;
+  // абсолютный URL + верное имя параметра userId (camelCase!)
+  const url = abs(`/api/player-roles?userId=${encodeURIComponent(userId)}`);
 
-  try {
-    const res = await fetch(`/api/player-roles?userId=${userId}`, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    data = (await res.json()) as ApiResponse;
-  } catch (e: any) {
-    if (base) {
-      try {
-        const res2 = await fetch(`${base}/api/player-roles?userId=${userId}`, { cache: "no-store" });
-        if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
-        data = (await res2.json()) as ApiResponse;
-      } catch (e2: any) {
-        fetchError = `Failed to fetch player-roles: ${String(e2?.message ?? e2)}`;
-      }
-    } else {
-      fetchError = `Failed to parse URL for relative fetch: ${String(e?.message ?? e)}`;
-    }
-  }
-
-  if (!data?.ok) {
+  // server fetch
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
     return (
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <h1 className="text-2xl font-semibold">{`User #${userId}`}</h1>
-        <p className="mt-3 text-sm text-red-600">
-          Ошибка загрузки: {fetchError ?? "нет данных от API /api/player-roles"}
+        <p className="text-red-600 mt-4">
+          Ошибка загрузки: {res.status} {res.statusText}
         </p>
-        <a href="/players" className="mt-4 inline-block text-sky-600 hover:underline">
+        <Link href="/players" className="text-blue-600 mt-4 inline-block">
           ← Ко всем игрокам
-        </a>
+        </Link>
       </div>
     );
   }
 
-  const matches = safeNumber(data.matches, 0);
+  const data: ApiResponse = await res.json();
+
   const nickname = data.nickname || `User #${userId}`;
-  const teamName = data.teamName || "";
-  const currentRole = data.currentRole ?? "";
+  const team = data.teamName || "";
+  const matches = safeNum(data.matches);
+  const currentRole = data.currentRole || "—";
 
-  // роли → группировки (для левого бара)
-  const grouped = groupRolePercents(
-    data.roles.map((r) => ({ role: r.role, percent: safeNumber(r.percent) }))
-  );
-  const rolesForChart = grouped.map((g: any) => ({
-    label: g.label ?? g.group,
-    value: safeNumber(g.percent),
-  }));
-
-  // лиги с «Прочие»
+  const roleGroups = groupRolePercents(data.roles);
   const leagues = makeLeagueBuckets(data.leagues);
-
-  // алиас без TS-типов, чтобы не спорить с сигнатурой RoleHeatmap
-  const Heatmap: any = RoleHeatmap;
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
-      {/* шапка */}
+      {/* хлебные крошки/название */}
       <div>
         <h1 className="text-2xl font-semibold">{nickname}</h1>
-        {teamName ? <div className="text-sm text-zinc-500">{teamName}</div> : null}
-        <a href="/players" className="mt-3 inline-block text-sky-600 hover:underline">
+        {team ? <div className="text-zinc-500 text-sm mt-1">{team}</div> : null}
+        <Link href="/players" className="text-blue-600 mt-3 inline-block">
           ← Ко всем игрокам
-        </a>
+        </Link>
       </div>
 
-      {/* KPI row — Матчи слева, Актуальное амплуа справа */}
+      {/* верхние плитки */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-xl border p-4">
-          <div className="text-sm text-zinc-500">Матчи</div>
-          <div className="text-3xl font-semibold">{matches}</div>
-          <div className="mt-1 text-[11px] text-zinc-500">*без учета национальных матчей</div>
+        <div className="rounded-xl border border-zinc-200 p-4">
+          <div className="text-sm text-zinc-500 mb-1">Матчи</div>
+          <div className="text-2xl font-semibold">{matches}</div>
+          <div className="text-[11px] text-zinc-400 mt-2">*без учета национальных матчей</div>
         </div>
-
-        <div className="rounded-xl border p-4" title="За последние 30 матчей">
-          <div className="text-sm text-zinc-500">Актуальное амплуа</div>
-          <div className="text-3xl font-semibold">{currentRole}</div>
+        <div className="rounded-xl border border-zinc-200 p-4">
+          <div className="text-sm text-zinc-500 mb-1">Актуальное амплуа</div>
+          <div className="text-2xl font-semibold" title="За последние 30 матчей">
+            {currentRole}
+          </div>
         </div>
       </div>
 
-      {/* распределения: амплуа слева, лиги справа */}
+      {/* распределения: амплуа и лиги — в одном ряду */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
         <RoleDistributionSection
-          roles={rolesForChart}
-          leagues={leagues}
-          labelWidthPx={320}
-          rolesBarWidthPx={520}
-          leaguesBarWidthPx={460}
+          roles={roleGroups} // [{label, value}]
+          leagues={leagues}  // [{label, pct}]
           tooltip
         />
       </section>
 
-      {/* тепловая */}
+      {/* тепловая карта амплуа */}
       <div>
         <h3 className="text-sm font-medium text-zinc-700 mb-3">Тепловая карта амплуа</h3>
-        <Heatmap/>
+        {/* Компонент использует свои источники (как раньше). Пропсы не передаем. */}
+        <RoleHeatmap />
       </div>
     </div>
   );
