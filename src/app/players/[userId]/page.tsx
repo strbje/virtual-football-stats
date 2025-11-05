@@ -120,12 +120,19 @@ export default async function PlayerPage({ params }: { params: { userId: string 
   ];
 
   // тепловая — только позиции с >0%
-  const heatmapData = HEATMAP_ROLES_ORDER
-    .map((code) => {
-      const f = rolePercents.find((x) => x.role === code);
-      return { role: code, percent: f ? Number(f.percent || 0) : 0 };
-    })
-    .filter((x) => x.percent > 0);
+ const ALLOWED = new Set([
+    "ЦФД","ЛФД","ПФД","ФРВ",
+    "ЦАП","ЛАП","ПАП",
+    "ЛП","ПП",
+    "ЦП","ЛЦП","ПЦП",
+    "ЦОП","ЛОП","ПОП",
+    "ЛЗ","ПЗ","ЦЗ","ЛЦЗ","ПЦЗ",
+    "ВРТ",
+  ]);
+
+  const heatmapData = rolePercents
+    .filter(r => r.percent > 0 && ALLOWED.has(r.role))
+    .map(r => ({ role: r.role, percent: Number(r.percent) }));
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
