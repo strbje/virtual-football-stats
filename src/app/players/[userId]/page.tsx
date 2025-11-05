@@ -1,4 +1,5 @@
 // src/app/players/[userId]/page.tsx
+import { headers } from "next/headers";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 import { groupRolePercents } from "@/lib/roles";
@@ -15,7 +16,6 @@ type ApiResp = {
   ok: boolean;
   matches: number;
   roles: { role: RoleCode; percent: number }[];
-  // опционально (если твой API уже это добавляет):
   currentRoleLast30?: RoleCode | null;
   leagues?: { label: string; pct: number }[];
   user?: { nickname: string; team: string | null };
@@ -33,11 +33,12 @@ const GROUP_LABELS: Record<string, string> = {
   GOALKEEPER: "Вратарь",
 };
 
-// безопасный fetch, чтобы не ронять страницу при 500/сетевых ошибках
-async function safeJson(url: string): Promise<any> {
+// безопасный fetch с абсолютным URL (без падений страницы)
+async function safeJsonAbs(base: string, path: string): Promise<any> {
   try {
+    const url = `${base}${path}`;
     const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status} @ ${path}` };
     return await res.json();
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) };
@@ -47,16 +48,21 @@ async function safeJson(url: string): Promise<any> {
 export default async function PlayerPage({ params }: { params: { userId: string } }) {
   const userId = Number(params.userId);
 
-  // 1) основной путь: /api/player-roles/[userId]
-  let data: ApiResp = await safeJson(`/api/player-roles/${userId}`);
+  // строим абсолютную базу для fetch
+  const h = await headers(); // в твоей версии это Promise
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = `${proto}://${host}`;
 
-  // 2) fallback на старый формат: /api/player-roles?userId=
+  // 1) основной путь: /api/player-roles/[userId]
+  let data: ApiResp = await safeJsonAbs(base, `/api/player-roles/${userId}`);
+
+  // 2) fallback на старый формат: /api/player-roles?userId=...
   if (!data?.ok) {
-    data = await safeJson(`/api/player-roles?userId=${userId}`);
+    data = await safeJsonAbs(base, `/api/player-roles?userId=${userId}`);
   }
 
   if (!data?.ok) {
-    // мягкая заглушка — страница не падает
     return (
       <div className="mx-auto max-w-4xl p-6">
         <h1 className="text-2xl font-semibold">{`User #${userId}`}</h1>
@@ -69,16 +75,15 @@ export default async function PlayerPage({ params }: { params: { userId: string 
   }
 
   const matches = Number(data.matches ?? 0);
-
   const rolePercents: RolePercent[] = Array.isArray(data.roles)
     ? data.roles.map((r) => ({ role: r.role, percent: Number(r.percent || 0) }))
     : [];
 
-  // ник/команда (если твой API это отдаёт)
+  // ник/команда (если API отдаёт)
   const nickname = data.user?.nickname ?? `User #${userId}`;
   const teamName = data.user?.team ?? null;
 
-  // «Актуальное амплуа» (мода за 30) + подсказка
+  // «Актуальное амплуа» (мода 30) + подсказка
   const currentRole =
     (data.currentRoleLast30 &&
       ((ROLE_LABELS as Record<string, string>)[data.currentRoleLast30] ??
@@ -86,7 +91,7 @@ export default async function PlayerPage({ params }: { params: { userId: string 
     "—";
   const currentRoleHint = "За последние 30 матчей";
 
-  // левый бар (агрегация — твоя функция)
+  // левый бар — твоя корректная агрегация
   const grouped = groupRolePercents(rolePercents);
   const rolesForChart = grouped.map((g: any) => ({
     label: GROUP_LABELS[g.group ?? g.label] ?? (g.label ?? String(g.group)),
