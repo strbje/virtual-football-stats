@@ -1,115 +1,116 @@
-// src/components/players/RoleDistributionSection.tsx
-'use client';
+import * as React from "react";
 
-import React from 'react';
-import {
-  ROLE_LABELS,
-  type RoleItem,
-  type LeagueBucket,
-  type RolePercent,
-} from '@/utils/roles';
-
-type RolesInput = RoleItem[] | RolePercent[];
-type LeagueInput = LeagueBucket[] | { label: string; percent: number }[];
+/** Левый бар: роли (группы амплуа). Правый бар: лиги */
+type RoleItem = { label: string; value: number }; // value = %
+type LeagueItem = { label: string; pct: number }; // pct = %
 
 type Props = {
-  /** можно передать {label,value}[] или {role,percent}[]  */
-  roles?: RolesInput;
-  /** legacy-проп: тоже принимает оба формата (для обратной совместимости) */
-  data?: RolesInput;
-  /** можно передать {label,pct}[] или {label,percent}[] */
-  leagues?: LeagueInput;
-  /** ширина зоны графиков (подгон к теплокарте), px */
+  roles: RoleItem[];
+  leagues?: LeagueItem[];
   widthPx?: number;
-  /** включать title-подсказки на барах */
   tooltip?: boolean;
 };
 
-function normalizeRoles(input?: RolesInput): RoleItem[] {
-  if (!input || input.length === 0) return [];
-  const first: any = input[0];
-  // если уже {label,value}
-  if ('label' in first && 'value' in first) return input as RoleItem[];
-  // иначе {role,percent} -> маппим в {label,value}
-  return (input as RolePercent[]).map((it) => ({
-    label: ROLE_LABELS[it.role],
-    value: it.percent,
-  }));
-}
+const GROUP_ROLES: Record<string, string[]> = {
+  "Форвард": ["ЦФД", "ЛФД", "ПФД", "ФРВ"],
+  "Атакующий полузащитник": ["ЦАП", "ЛАП", "ПАП"],
+  "Крайний полузащитник": ["ЛП", "ПП"],
+  "Центральный полузащитник": ["ЦП", "ЛЦП", "ПЦП"],
+  "Опорный полузащитник": ["ЦОП", "ЛОП", "ПОП"],
+  "Крайний защитник": ["ЛЗ", "ПЗ"],
+  "Центральный защитник": ["ЦЗ", "ЛЦЗ", "ПЦЗ"],
+  "Вратарь": ["ВРТ"],
+};
 
-function normalizeLeagues(input?: LeagueInput): LeagueBucket[] {
-  if (!input || (input as any[]).length === 0) return [];
-  const first: any = (input as any[])[0];
-  // если уже {label,pct}
-  if ('pct' in first) return input as LeagueBucket[];
-  // иначе {label,percent} -> {label,pct}
-  return (input as { label: string; percent: number }[]).map((x) => ({
-    label: x.label,
-    pct: x.percent,
-  }));
+function BarRow({
+  label,
+  percent,
+  hint,
+  widthPx = 420,
+}: {
+  label: string;
+  percent: number;
+  hint?: string;
+  widthPx?: number;
+}) {
+  const pct = Math.max(0, Math.min(100, Math.round(percent)));
+  return (
+    <div className="flex items-center gap-3 py-1" title={hint}>
+      <div className="w-[210px] text-sm text-zinc-700 truncate">{label}</div>
+      <div
+        className="relative h-[8px] rounded bg-zinc-200"
+        style={{ width: widthPx }}
+      >
+        <div
+          className="absolute left-0 top-0 h-full rounded bg-zinc-900"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="w-[40px] text-right text-sm tabular-nums text-zinc-600">
+        {pct}%
+      </div>
+    </div>
+  );
 }
 
 export default function RoleDistributionSection({
   roles,
-  data,
-  leagues,
-  widthPx = 500,
-  tooltip = true,
+  leagues = [],
+  widthPx = 420,
+  tooltip = false,
 }: Props) {
-  // поддерживаем и roles, и data
-  const items: RoleItem[] = normalizeRoles(roles ?? data);
-  const leaguesN: LeagueBucket[] = normalizeLeagues(leagues);
+  // Подсказки по группам амплуа
+  const roleHints: Record<string, string | undefined> = {};
+  if (tooltip) {
+    for (const [g, list] of Object.entries(GROUP_ROLES)) {
+      roleHints[g] = `Входит: ${list.join(", ")}`;
+    }
+  }
 
-  const leftLabelWidth = 56; // ширина текстовой колонки
-  const barMaxWidth = Math.max(0, widthPx - leftLabelWidth);
+  // Подсказки для лиг — отдельно для «Прочие»
+  const leagueHints: Record<string, string | undefined> = {};
+  if (tooltip) {
+    leagueHints["Прочие"] =
+      "Включает турниры вне ПЛ/ФНЛ/ПФЛ/ЛФЛ (например, LastDance, Кубок России и др.)";
+  }
 
   return (
-    <div className="space-y-6">
-      {/* БАР: распределение по амплуа */}
-      <div className="space-y-2">
-        <div className="text-sm font-semibold">Распределение по амплуа</div>
-        <div className="space-y-2">
-          {items.map((r) => (
-            <div key={r.label} className="flex items-center gap-3">
-              <div className="w-56 shrink-0 text-sm">{r.label}</div>
-              <div className="h-2 w-full rounded bg-zinc-100" style={{ maxWidth: barMaxWidth }}>
-                <div
-                  className="h-2 rounded bg-zinc-900"
-                  style={{ width: `${Math.max(0, Math.min(100, r.value))}%` }}
-                  title={tooltip ? `${r.value}%` : undefined}
-                />
-              </div>
-              <div className="w-12 text-right text-sm tabular-nums">
-                {r.value}%
-              </div>
-            </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Левый: роли */}
+      <div>
+        <div className="text-sm font-semibold mb-2">Распределение по амплуа</div>
+        <div>
+          {roles.map((r) => (
+            <BarRow
+              key={r.label}
+              label={r.label}
+              percent={r.value}
+              hint={roleHints[r.label]}
+              widthPx={widthPx}
+            />
           ))}
         </div>
       </div>
 
-      {/* БАР: распределение по лигам (если передано) */}
-      {leaguesN.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-sm font-semibold">Распределение по лигам</div>
-          <div className="space-y-2">
-            {leaguesN.map((x) => (
-              <div key={x.label} className="flex items-center gap-3">
-                <div className="w-56 shrink-0 text-sm">{x.label}</div>
-                <div className="h-2 w-full rounded bg-zinc-100" style={{ maxWidth: barMaxWidth }}>
-                  <div
-                    className="h-2 rounded bg-zinc-900"
-                    style={{ width: `${Math.max(0, Math.min(100, x.pct))}%` }}
-                    title={tooltip ? `${x.pct}%` : undefined}
-                  />
-                </div>
-                <div className="w-12 text-right text-sm tabular-nums">
-                  {x.pct}%
-                </div>
-              </div>
+      {/* Правый: лиги */}
+      <div>
+        <div className="text-sm font-semibold mb-2">Распределение по лигам</div>
+        {!leagues?.length ? (
+          <div className="text-sm text-zinc-500">Нет данных</div>
+        ) : (
+          <div>
+            {leagues.map((l) => (
+              <BarRow
+                key={l.label}
+                label={l.label}
+                percent={l.pct}
+                hint={leagueHints[l.label]}
+                widthPx={widthPx}
+              />
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
