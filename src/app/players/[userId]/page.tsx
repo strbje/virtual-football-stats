@@ -49,7 +49,7 @@ export default async function PlayerPage({ params }: { params: { userId: string 
   const userId = Number(params.userId);
 
   // строим абсолютную базу для fetch
-  const h = await headers(); // в твоей версии это Promise
+  const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = `${proto}://${host}`;
@@ -98,11 +98,26 @@ export default async function PlayerPage({ params }: { params: { userId: string 
     value: Number(g.value ?? g.percent ?? 0),
   }));
 
-  // правый бар по лигам (если есть)
-  const leagues =
+  // правый бар по лигам: ПЛ/ФНЛ/ПФЛ/ЛФЛ + «Прочие»
+  const rawLeagues =
     Array.isArray(data.leagues) && data.leagues.length
       ? data.leagues.map((x) => ({ label: x.label, pct: Number(x.pct || 0) }))
       : [];
+
+  const KNOWN = new Set(["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ"]);
+  const known = rawLeagues.filter((l) => KNOWN.has(l.label));
+  const others = rawLeagues.filter((l) => !KNOWN.has(l.label));
+  const knownSum = known.reduce((s, x) => s + x.pct, 0);
+  const othersSum =
+    others.length > 0 ? others.reduce((s, x) => s + x.pct, 0) : Math.max(0, 100 - knownSum);
+
+  const leagues = [
+    ...["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ"].map((k) => {
+      const f = known.find((x) => x.label === k);
+      return { label: k, pct: f ? f.pct : 0 };
+    }),
+    ...(othersSum > 0 ? [{ label: "Прочие", pct: othersSum }] : []),
+  ];
 
   // тепловая — только позиции с >0%
   const heatmapData = HEATMAP_ROLES_ORDER
