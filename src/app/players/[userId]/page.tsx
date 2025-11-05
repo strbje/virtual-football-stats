@@ -179,12 +179,12 @@ export default async function PlayerPage({ params }: { params: { userId: string 
 
       {/* распределения */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
-        <RoleDistributionSection
+        <<RoleDistributionSection
   roles={rolesForChart}
   leagues={leagues}
-  labelWidthPx={260}        // ширина колонки с подписями
-  rolesBarWidthPx={460}     // ширина левого бара (амплуа)
-  leaguesBarWidthPx={420}   // ширина правого бара (лиги)
+  labelWidthPx={320}        // было 260 → места под «Атакующий полузащитник» хватает
+  rolesBarWidthPx={520}     // левый бар шире
+  leaguesBarWidthPx={460}   // правый бар
   tooltip
 />
       </section>
