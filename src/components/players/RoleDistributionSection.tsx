@@ -1,4 +1,3 @@
-// src/components/players/RoleDistributionSection.tsx
 import * as React from "react";
 
 // Новый нормальный тип
@@ -14,7 +13,14 @@ type Props = {
   /** Наследный проп — мог быть либо RoleItem[], либо RolePercent[] */
   data?: RoleItem[] | LegacyRolePercent[];
   leagues?: LeagueItem[];
-  widthPx?: number;
+
+  /** Ширина колонки с подписями слева (амплуа/лиги), px */
+  labelWidthPx?: number;
+  /** Ширина прогресс-бара слева (амплуа), px */
+  rolesBarWidthPx?: number;
+  /** Ширина прогресс-бара справа (лиги), px */
+  leaguesBarWidthPx?: number;
+
   tooltip?: boolean;
 };
 
@@ -31,11 +37,9 @@ const GROUP_ROLES: Record<string, string[]> = {
 
 function toRoleItems(input?: RoleItem[] | LegacyRolePercent[] | undefined): RoleItem[] {
   if (!input) return [];
-  // Если это уже RoleItem[]
   if (input.length && "label" in (input[0] as any) && "value" in (input[0] as any)) {
     return (input as RoleItem[]).map((r) => ({ label: r.label, value: Number(r.value || 0) }));
   }
-  // Иначе считаем, что это LegacyRolePercent[] -> превращаем в label/value
   return (input as LegacyRolePercent[]).map((r) => ({
     label: (r as LegacyRolePercent).role,
     value: Number((r as LegacyRolePercent).percent || 0),
@@ -46,21 +50,36 @@ function BarRow({
   label,
   percent,
   hint,
-  widthPx = 420,
+  labelWidthPx,
+  barWidthPx,
 }: {
   label: string;
   percent: number;
   hint?: string;
-  widthPx?: number;
+  labelWidthPx: number;
+  barWidthPx: number;
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(percent)));
   return (
     <div className="flex items-center gap-3 py-1" title={hint}>
-      <div className="w-[210px] text-sm text-zinc-700 truncate">{label}</div>
-      <div className="relative h-[8px] rounded bg-zinc-200" style={{ width: widthPx }}>
-        <div className="absolute left-0 top-0 h-full rounded bg-zinc-900" style={{ width: `${pct}%` }} />
+      <div
+        className="text-sm text-zinc-700 truncate"
+        style={{ width: labelWidthPx }}
+      >
+        {label}
       </div>
-      <div className="w-[40px] text-right text-sm tabular-nums text-zinc-600">{pct}%</div>
+      <div
+        className="relative h-[8px] rounded bg-zinc-200"
+        style={{ width: barWidthPx }}
+      >
+        <div
+          className="absolute left-0 top-0 h-full rounded bg-zinc-900"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="w-[44px] text-right text-sm tabular-nums text-zinc-600">
+        {pct}%
+      </div>
     </div>
   );
 }
@@ -69,11 +88,13 @@ export default function RoleDistributionSection({
   roles,
   data,
   leagues = [],
-  widthPx = 420,
+  labelWidthPx = 260,       // было 210 → расширил для длинных русских названий
+  rolesBarWidthPx = 460,    // левый бар — шире
+  leaguesBarWidthPx = 420,  // правый бар — как было
   tooltip = false,
 }: Props) {
   // Унифицируем вход
-  const left: RoleItem[] = roles ? toRoleItems(roles) : toRoleItems(data);
+  const left = roles ? toRoleItems(roles) : toRoleItems(data);
 
   const roleHints: Record<string, string | undefined> = {};
   if (tooltip) {
@@ -89,7 +110,7 @@ export default function RoleDistributionSection({
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
       {/* Левый: амплуа */}
       <div>
         <div className="text-sm font-semibold mb-2">Распределение по амплуа</div>
@@ -100,7 +121,8 @@ export default function RoleDistributionSection({
               label={r.label}
               percent={r.value}
               hint={roleHints[r.label]}
-              widthPx={widthPx}
+              labelWidthPx={labelWidthPx}
+              barWidthPx={rolesBarWidthPx}
             />
           ))}
         </div>
@@ -119,7 +141,8 @@ export default function RoleDistributionSection({
                 label={l.label}
                 percent={l.pct}
                 hint={leagueHints[l.label]}
-                widthPx={widthPx}
+                labelWidthPx={labelWidthPx}
+                barWidthPx={leaguesBarWidthPx}
               />
             ))}
           </div>
