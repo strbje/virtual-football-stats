@@ -134,7 +134,9 @@ export default async function PlayerPage({ params }: { params: Params }) {
 
       {/* тепловая карта */}
       <div>
-        <h3 className="text-sm font-medium text-zinc-700 mb-3">Тепловая карта амплуа</h3>
+        <h3 className="text-sm font-semibold text-zinc-800 mb-3">
+  Тепловая карта амплуа
+</h3>
         <RoleHeatmap data={data.roles as any} />
       </div>
     </div>
