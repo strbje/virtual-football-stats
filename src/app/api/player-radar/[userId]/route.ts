@@ -42,7 +42,7 @@ const LABELS: Record<string, string> = {
 };
 
 const SEASON_MIN = 18;
-const XG_EXPR = "ums.goals_expected"; // ты подтвердил правильное имя поля
+const XG_EXPR = "ums.goals_expected"; // подтвержденное поле
 
 type Params = { params: { userId: string } };
 
@@ -59,6 +59,16 @@ function originFrom(req: Request) {
   const proto = req.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host;
   return `${proto}://${host}`;
+}
+
+// Нормализация чисел из БД: bigint/Decimal -> number
+function toNum(v: any, def = 0): number {
+  if (v == null) return def;
+  if (typeof v === "number") return v;
+  if (typeof v === "bigint") return Number(v);
+  // Prisma Decimal или строка-число:
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
 }
 
 export async function GET(req: Request, { params }: Params) {
@@ -83,13 +93,14 @@ export async function GET(req: Request, { params }: Params) {
       return NextResponse.json({ ok: true, ready: false, currentRole, reason: "Не удалось определить кластер" });
     }
 
-    // 2) фильтр по кластеру — ВАЖНО: по fp.code (расширенные амплуа)
+    // 2) фильтр по кластеру — ПО fp.code (расширенные амплуа)
     const roleCodes = CLUSTERS[cluster].map((c) => `'${c}'`).join(",");
 
-    // 3) только официальные турниры (сезон из имени турнира)
+    // 3) только официальные турниры (сезон в имени турнира)
     const OFFICIAL_FILTER = `AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}`;
 
-    // 4) основной аггрегирующий запрос
+    // 4) агрегирующий запрос
+    // Важно: домножаем на 1.0 или CAST(... AS DOUBLE) — чтобы вернуть примитивные числа, а не Decimal/BigInt
     const AGG_SQL = `
       WITH base AS (
         SELECT
@@ -122,7 +133,7 @@ export async function GET(req: Request, { params }: Params) {
       ),
       agg AS (
         SELECT
-          COUNT(DISTINCT match_id) AS matches,
+          CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
           SUM(goals) AS goals, SUM(assists) AS assists,
           SUM(goal_expected) AS xg,
           SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
@@ -141,48 +152,49 @@ export async function GET(req: Request, { params }: Params) {
         FROM base
       )
       SELECT
-        matches,
+        (matches * 1.0)                                        AS matches,
 
-        (goals + assists) / NULLIF(matches,0)                        AS goal_contrib,
-        (goals - xg) / NULLIF(matches,0)                             AS xg_delta,
-        kickedin / NULLIF(kicked,0)                                  AS shots_on_target_pct,
-        (pregoals + ipasses + 2*xa) / NULLIF(matches,0)              AS creation,
-        completedstockes / NULLIF(allstockes,0)                      AS dribble_pct,
-        (intercepts + selection) / NULLIF(matches,0)                 AS pressing,
+        ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
+        ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
+        (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
+        ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
+        (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
+        ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
 
-        xa / NULLIF(matches,0)                                       AS xa_avg,
-        0.5 * allpasses / NULLIF(xa,0)                               AS pxa,
+        (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
+        (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
 
-        allpasses / NULLIF(matches,0)                                AS passes,
-        completedpasses / NULLIF(allpasses,0)                        AS pass_acc,
+        (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
+        (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
 
-        (intercepts + selection + completedtackles + blocks) / NULLIF(matches,0) AS def_actions,
-        (beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)  AS beaten_rate,
-        duels_air_win / NULLIF(duels_air,0)                          AS aerial_pct,
+        ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
+        ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
+        (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
 
-        crosses / NULLIF(matches,0)                                  AS crosses_avg,
+        (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
 
-        0.5*(completedpasses/NULLIF(allpasses,0))
+        (0.5*(completedpasses/NULLIF(allpasses,0))
         +0.3*(completedstockes/NULLIF(allstockes,0))
         +0.15*(duels_air_win/NULLIF(duels_air,0))
-        +0.05*(selection/NULLIF(allselection,0))                     AS safety_coef,
+        +0.05*(selection/NULLIF(allselection,0))) * 1.0        AS safety_coef,
 
-        selection / NULLIF(allselection,0)                           AS tackle_success,
-        outs / NULLIF(matches,0)                                     AS clearances,
-        (ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0) AS attack_participation
+        (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
+        (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
+        ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
       FROM agg
     `;
 
     const agg: any[] = await prisma.$queryRawUnsafe(AGG_SQL);
     const A = agg[0] ?? {};
-    const matchesCluster = Number(A?.matches ?? 0);
+
+    const matchesCluster = toNum(A?.matches, 0);
 
     // 5) список турниров (для дебага/отображения)
     const TOURS_SQL = `
       SELECT
         t.name AS name,
         CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) AS season,
-        COUNT(DISTINCT ums.match_id) AS matches
+        CAST(COUNT(DISTINCT ums.match_id) AS UNSIGNED) AS matches
       FROM tbl_users_match_stats ums
       INNER JOIN tournament_match tm ON ums.match_id = tm.id
       INNER JOIN tournament t ON tm.tournament_id = t.id
@@ -194,7 +206,12 @@ export async function GET(req: Request, { params }: Params) {
       ORDER BY season DESC, name ASC
       LIMIT 200
     `;
-    const tours: Array<{ name: string; season: number | null; matches: number }> = await prisma.$queryRawUnsafe(TOURS_SQL);
+    const toursRaw: any[] = await prisma.$queryRawUnsafe(TOURS_SQL);
+    const tours = toursRaw.map(r => ({
+      name: String(r?.name ?? ""),
+      season: toNum(r?.season, null as any),
+      matches: toNum(r?.matches, 0)
+    }));
     const tournamentsUsed = tours.map(t => t.name);
 
     if (!matchesCluster || matchesCluster < 30) {
@@ -217,8 +234,8 @@ export async function GET(req: Request, { params }: Params) {
     const keys = RADAR_BY_CLUSTER[cluster];
     const radar = keys.map((k) => {
       const rawKey = k === "xa" ? "xa_avg" : k === "crosses" ? "crosses_avg" : k;
-      const raw = Number(A?.[rawKey] ?? 0);
-      return { key: k, label: LABELS[k], raw, pct: null };
+      const raw = toNum(A?.[rawKey], 0);
+      return { key: k, label: LABELS[k], raw, pct: null as number | null };
     });
 
     return NextResponse.json({
@@ -236,6 +253,8 @@ export async function GET(req: Request, { params }: Params) {
       } : undefined,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
+    // на случай, если где-то еще просочился bigint — аккуратно превращаем в строку
+    const msg = e?.message ?? String(e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
