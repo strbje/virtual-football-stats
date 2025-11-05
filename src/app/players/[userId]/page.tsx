@@ -116,12 +116,12 @@ export default async function PlayerPage({ params }: { params: Params }) {
 
       {/* верхние плитки: матчи слева, актуальное амплуа справа */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-zinc-200 p-4">
+       <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
           <div className="text-sm text-zinc-500 mb-1">Матчи</div>
           <div className="text-2xl font-semibold">{matches}</div>
           <div className="text-[11px] text-zinc-400 mt-2">*без учета национальных матчей</div>
         </div>
-        <div className="rounded-xl border border-zinc-200 p-4">
+        <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
           <div className="text-sm text-zinc-500 mb-1">Актуальное амплуа</div>
           <div className="text-2xl font-semibold" title="За последние 30 матчей">{currentRole}</div>
         </div>
