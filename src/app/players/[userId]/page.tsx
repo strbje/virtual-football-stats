@@ -4,32 +4,29 @@ import Link from "next/link";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 
-// ---------- типы ответа API ----------
+// ----- Типы ответа нашего API -----
 type ApiRole = { role: string; percent: number };
-type ApiLeague = { code: string; pct: number };
+type ApiLeague = { label: string; pct: number };
 type ApiResponse = {
   ok: boolean;
   matches: number;
-  currentRole?: string | null;
+  currentRoleLast30?: string | null;
   roles: ApiRole[];
   leagues?: ApiLeague[];
-  nickname?: string | null;
-  teamName?: string | null;
+  user?: { nickname?: string | null; team?: string | null } | null;
 };
 
-// ---------- утилиты ----------
+// ----- Вспомогалки -----
 const BASE =
   process.env.NEXT_PUBLIC_BASE_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://127.0.0.1:3000");
 
 const abs = (path: string) => new URL(path, BASE).toString();
-
-const safeNum = (v: unknown, d = 0) => {
-  const n = typeof v === "string" ? Number(v) : (v as number);
-  return Number.isFinite(n) ? n : d;
+const n = (v: unknown, d = 0) => {
+  const x = typeof v === "string" ? Number(v) : (v as number);
+  return Number.isFinite(x) ? x : d;
 };
 
-// сгруппировать роли в большие блоки + вернуть для барчартов
 function groupRolePercents(roles: ApiRole[]) {
   const GROUPS: Record<string, string[]> = {
     "Форвард": ["ЛФД", "ЦФД", "ПФД", "ФРВ"],
@@ -42,38 +39,39 @@ function groupRolePercents(roles: ApiRole[]) {
   };
 
   return Object.entries(GROUPS).map(([label, codes]) => {
-    const pct = roles
-      .filter((r) => codes.includes(r.role))
-      .reduce((s, r) => s + safeNum(r.percent), 0);
+    const pct = roles.filter(r => codes.includes(r.role)).reduce((s, r) => s + n(r.percent), 0);
     return { label, value: pct };
   });
 }
 
-// бакеты лиг: ПЛ / ФНЛ / ПФЛ / ЛФЛ / Прочие
-function makeLeagueBuckets(leagues?: ApiLeague[]) {
-  if (!leagues || !leagues.length) return [];
-  const map: Record<string, number> = { ПЛ: 0, ФНЛ: 0, ПФЛ: 0, ЛФЛ: 0, Прочие: 0 };
+// берём лиги из API как есть; «Прочие» считаем от 100, если нужно
+function withOthersBucket(leagues?: ApiLeague[]) {
+  const list = Array.isArray(leagues) ? leagues.slice() : [];
+  const sum = list.reduce((s, l) => s + n(l.pct), 0);
+  const others = sum >= 0 && sum <= 100 ? Math.max(0, 100 - sum) : 0;
 
-  for (const l of leagues) {
-    const code = (l.code || "").toUpperCase();
-    const pct = safeNum(l.pct);
-    if (code === "ПЛ" || code === "ФНЛ" || code === "ПФЛ" || code === "ЛФЛ") {
-      map[code] += pct;
-    } else {
-      map["Прочие"] += pct;
-    }
+  // гарантируем наличие всех четырёх стандартных ярлыков
+  const need = new Map<string, number>([
+    ["ПЛ", 0],
+    ["ФНЛ", 0],
+    ["ПФЛ", 0],
+    ["ЛФЛ", 0],
+  ]);
+  for (const l of list) {
+    if (need.has(l.label)) need.delete(l.label);
   }
+  for (const [label, pct] of need) list.push({ label, pct });
 
-  return [
-    { label: "ПЛ", pct: map["ПЛ"] },
-    { label: "ФНЛ", pct: map["ФНЛ"] },
-    { label: "ПФЛ", pct: map["ПФЛ"] },
-    { label: "ЛФЛ", pct: map["ЛФЛ"] },
-    { label: "Прочие", pct: map["Прочие"] },
-  ];
+  // добавляем «Прочие» в самый конец
+  list.push({ label: "Прочие", pct: others });
+
+  // фиксируем порядок
+  const ORDER = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"];
+  list.sort((a, b) => ORDER.indexOf(a.label) - ORDER.indexOf(b.label));
+  return list;
 }
 
-// ---------- страница ----------
+// ----- Страница -----
 type Params = { userId: string };
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
@@ -82,8 +80,6 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 
 export default async function PlayerPage({ params }: { params: Params }) {
   const userId = params.userId;
-
-  // абсолютный URL + корректный параметр userId
   const url = abs(`/api/player-roles?userId=${encodeURIComponent(userId)}`);
 
   const res = await fetch(url, { cache: "no-store" });
@@ -91,38 +87,34 @@ export default async function PlayerPage({ params }: { params: Params }) {
     return (
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <h1 className="text-2xl font-semibold">{`User #${userId}`}</h1>
-        <p className="text-red-600 mt-4">
-          Ошибка загрузки: {res.status} {res.statusText}
-        </p>
-        <Link href="/players" className="text-blue-600 mt-4 inline-block">
-          ← Ко всем игрокам
-        </Link>
+        <p className="text-red-600 mt-4">Ошибка загрузки: {res.status} {res.statusText}</p>
+        <Link href="/players" className="text-blue-600 mt-4 inline-block">← Ко всем игрокам</Link>
       </div>
     );
   }
 
   const data: ApiResponse = await res.json();
 
-  const nickname = data.nickname || `User #${userId}`;
-  const team = data.teamName || "";
-  const matches = safeNum(data.matches);
-  const currentRole = data.currentRole || "—";
+  // ----- Шапка -----
+  const nickname = (data.user?.nickname ?? `User #${userId}`) as string;
+  const teamName = (data.user?.team ?? "") as string;
+  const matches = n(data.matches);
+  const currentRole = data.currentRoleLast30 ?? "—";
 
-  const roleGroups = groupRolePercents(data.roles);
-  const leagues = makeLeagueBuckets(data.leagues);
+  // ----- Барчарты -----
+  const rolesForChart = groupRolePercents(data.roles);          // [{label, value}]
+  const leagues = withOthersBucket(data.leagues);               // [{label, pct}] включая «Прочие»
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
       {/* заголовок */}
       <div>
         <h1 className="text-2xl font-semibold">{nickname}</h1>
-        {team ? <div className="text-zinc-500 text-sm mt-1">{team}</div> : null}
-        <Link href="/players" className="text-blue-600 mt-3 inline-block">
-          ← Ко всем игрокам
-        </Link>
+        {teamName ? <div className="text-zinc-500 text-sm mt-1">{teamName}</div> : null}
+        <Link href="/players" className="text-blue-600 mt-3 inline-block">← Ко всем игрокам</Link>
       </div>
 
-      {/* верхние плитки в один ряд */}
+      {/* верхние плитки: матчи слева, актуальное амплуа справа */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-zinc-200 p-4">
           <div className="text-sm text-zinc-500 mb-1">Матчи</div>
@@ -131,22 +123,19 @@ export default async function PlayerPage({ params }: { params: Params }) {
         </div>
         <div className="rounded-xl border border-zinc-200 p-4">
           <div className="text-sm text-zinc-500 mb-1">Актуальное амплуа</div>
-          <div className="text-2xl font-semibold" title="За последние 30 матчей">
-            {currentRole}
-          </div>
+          <div className="text-2xl font-semibold" title="За последние 30 матчей">{currentRole}</div>
         </div>
       </div>
 
-      {/* распределения: амплуа и лиги — рядом */}
+      {/* распределения: слева амплуа, справа лиги */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
-        <RoleDistributionSection roles={roleGroups} leagues={leagues} tooltip />
+        <RoleDistributionSection roles={rolesForChart} leagues={leagues} tooltip />
       </section>
 
-      {/* тепловая карта амплуа */}
+      {/* тепловая карта */}
       <div>
         <h3 className="text-sm font-medium text-zinc-700 mb-3">Тепловая карта амплуа</h3>
-        {/* ВАЖНО: этот компонент ожидает prop data */}
-        <RoleHeatmap data={(data.roles as unknown) as any} />
+        <RoleHeatmap data={data.roles as any} />
       </div>
     </div>
   );
