@@ -46,7 +46,7 @@ const SEASON_MIN = 18;
 // возможные имена колонки с названием турнира в tbl_users_match_stats
 const TOURNAMENT_CANDIDATES = [
   "tournament_name",
-  "tournament",
+  "t.name",
 ] as const;
 
 type Params = { params: { userId: string } };
