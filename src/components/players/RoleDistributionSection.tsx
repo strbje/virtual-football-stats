@@ -1,12 +1,13 @@
 import * as React from "react";
 
-/** Левый бар: роли (группы амплуа). Правый бар: лиги */
-type RoleItem = { label: string; value: number }; // value = %
-type LeagueItem = { label: string; pct: number }; // pct = %
+/** Совместимость: можно передать либо roles, либо data (старый проп) */
+type RoleItem = { label: string; value: number };
+type LeagueItem = { label: string; pct: number };
 
 type Props = {
-  roles: RoleItem[];
-  leagues?: LeagueItem[];
+  roles?: RoleItem[];      // новый правильный проп
+  data?: RoleItem[];       // устаревший проп (для старых страниц)
+  leagues?: LeagueItem[];  // правый бар
   widthPx?: number;
   tooltip?: boolean;
 };
@@ -37,29 +38,27 @@ function BarRow({
   return (
     <div className="flex items-center gap-3 py-1" title={hint}>
       <div className="w-[210px] text-sm text-zinc-700 truncate">{label}</div>
-      <div
-        className="relative h-[8px] rounded bg-zinc-200"
-        style={{ width: widthPx }}
-      >
-        <div
-          className="absolute left-0 top-0 h-full rounded bg-zinc-900"
-          style={{ width: `${pct}%` }}
-        />
+      <div className="relative h-[8px] rounded bg-zinc-200" style={{ width: widthPx }}>
+        <div className="absolute left-0 top-0 h-full rounded bg-zinc-900" style={{ width: `${pct}%` }} />
       </div>
-      <div className="w-[40px] text-right text-sm tabular-nums text-zinc-600">
-        {pct}%
-      </div>
+      <div className="w-[40px] text-right text-sm tabular-nums text-zinc-600">{pct}%</div>
     </div>
   );
 }
 
 export default function RoleDistributionSection({
   roles,
+  data,
   leagues = [],
   widthPx = 420,
   tooltip = false,
 }: Props) {
-  // Подсказки по группам амплуа
+  // наследная совместимость: если roles нет, берём data
+  const left = (roles ?? data ?? []).map(r => ({
+    label: r.label,
+    value: Number(r.value || 0),
+  }));
+
   const roleHints: Record<string, string | undefined> = {};
   if (tooltip) {
     for (const [g, list] of Object.entries(GROUP_ROLES)) {
@@ -67,7 +66,6 @@ export default function RoleDistributionSection({
     }
   }
 
-  // Подсказки для лиг — отдельно для «Прочие»
   const leagueHints: Record<string, string | undefined> = {};
   if (tooltip) {
     leagueHints["Прочие"] =
@@ -76,11 +74,11 @@ export default function RoleDistributionSection({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      {/* Левый: роли */}
+      {/* Левый: амплуа */}
       <div>
         <div className="text-sm font-semibold mb-2">Распределение по амплуа</div>
         <div>
-          {roles.map((r) => (
+          {left.map((r) => (
             <BarRow
               key={r.label}
               label={r.label}
