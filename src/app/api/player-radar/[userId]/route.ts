@@ -100,7 +100,7 @@ export async function GET(_req: Request, { params }: Params) {
           s.user_id,
           s.match_id,
           -- сырьё
-          s.goals, s.assists, s.goal_expected,
+          s.goals, s.assists, s.goals_expected,
           s.kicked, s.kickedin,
           s.passes        AS xa_part,             -- xA
           s.allpasses, s.completedpasses, s.passes_rate,
@@ -122,7 +122,7 @@ export async function GET(_req: Request, { params }: Params) {
         SELECT
           COUNT(DISTINCT match_id) AS matches,
           SUM(goals) AS goals, SUM(assists) AS assists,
-          SUM(goal_expected) AS xg,
+          SUM(goals_expected) AS xg,
           SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
           SUM(xa_part) AS xa,
           SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
