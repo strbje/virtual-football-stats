@@ -21,6 +21,28 @@ const RADAR_BY_CLUSTER = {
   CB: ['safety_coef','def_actions','tackle_success','clearances','pass_acc','attack_participation','aerial_pct','beaten_rate'],
 } as const;
 
+// Собираем турниры
+const TOURNAMENT_COL = 'tournament_name';
+const hasTournamentCol = await prisma.$queryRawUnsafe<Array<{ present: number }>>(`
+  SELECT 1 AS present
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'tbl_users_match_stats'
+    AND COLUMN_NAME = '${TOURNAMENT_COL}'
+  LIMIT 1
+`);
+
+// Фильтр "официальные 18+ сезон" (включается, только если колонка существует)
+const OFFICIAL_FILTER = hasTournamentCol.length
+  ? `
+    AND (
+      -- извлекаем первую цифробуквенную группу (номер сезона) из названия турнира
+      -- MySQL 8+: REGEXP_SUBSTR
+      CAST(REGEXP_SUBSTR(s.${TOURNAMENT_COL}, '[0-9]+') AS UNSIGNED) >= 18
+    )
+  `
+  : '';
+
 // вспомогательный список русских подписей
 const LABELS: Record<string,string> = {
   goal_contrib: 'Гол+пас',
@@ -117,6 +139,7 @@ export async function GET(_req: Request, { params }: Params) {
         FROM tbl_users_match_stats s
         JOIN tbl_field_positions fp ON fp.id = s.position_id
         WHERE s.user_id = ${userId} AND fp.code IN (${placeHolders})
+         ${OFFICIAL_FILTER}
       ),
       agg AS (
         SELECT
