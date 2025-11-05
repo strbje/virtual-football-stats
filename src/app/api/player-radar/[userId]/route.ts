@@ -1,15 +1,16 @@
 // src/app/api/player-radar/[userId]/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma"; // как в проекте
+type ClusterKey = 'FW' | 'AM' | 'FM' | 'CM' | 'CB';
 type Params = { params: { userId: string } };
 
 // --- кластеры
-const CLUSTERS = {
-  FW:  ['ФРВ','ЦФД','ЛФД','ПФД','ЛФА','ПФА'],
-  AM:  ['ЦАП','ЦП','ЛЦП','ПЦП','ЛАП','ПАП'],
-  FM:  ['ЛП','ПП'],
-  CM:  ['ЦП','ЦОП','ЛЦП','ПЦП','ЛОП','ПОП'],
-  CB:  ['ЦЗ','ЛЦЗ','ПЦЗ','ЛЗ','ПЗ'],
+const CLUSTERS: Record<ClusterKey, readonly string[]> = {
+  FW: ['ФРВ', 'ЦФД', 'ЛФД', 'ПФД', 'ЛФА', 'ПФА'],
+  AM: ['ЦАП', 'ЦП', 'ЛЦП', 'ПЦП', 'ЛАП', 'ПАП'],
+  FM: ['ЛП', 'ПП'],
+  CM: ['ЦП', 'ЦОП', 'ЛЦП', 'ПЦП', 'ЛОП', 'ПОП'],
+  CB: ['ЦЗ', 'ЛЦЗ', 'ПЦЗ', 'ЛЗ', 'ПЗ'],
 } as const;
 
 const RADAR_BY_CLUSTER = {
@@ -66,9 +67,10 @@ const CURRENT_ROLE_SQL = (userId: number) => `
   LIMIT 30
 `;
 
-function clusterOf(roleCode: string): keyof typeof CLUSTERS | null {
-  for (const [k, arr] of Object.entries(CLUSTERS)) {
-    if (arr.includes(roleCode)) return k as any;
+function clusterOf(roleCode: string): ClusterKey | null {
+  for (const key of Object.keys(CLUSTERS) as ClusterKey[]) {
+    const arr = CLUSTERS[key] as readonly string[];
+    if (arr.includes(roleCode)) return key;
   }
   return null;
 }
