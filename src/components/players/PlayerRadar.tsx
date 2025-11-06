@@ -183,23 +183,28 @@ export default function PlayerRadar({ title = "Профиль по амплуа"
               <circle cx={dot.x} cy={dot.y} r={3} fill={POLY_STROKE} />
               {/* бейдж рисуем как прямоугольник с радиусом */}
               <g transform={`translate(${badge.x}, ${badge.y})`}>
-                <foreignObject x={-20} y={-14} width={40} height={18}>
-                  <div
-                    xmlns="http://www.w3.org/1999/xhtml"
-                    style={{
-                      background: BADGE_BG,
-                      color: BADGE_TEXT,
-                      fontSize: FONT_BADGE,
-                      lineHeight: "18px",
-                      borderRadius: 999,
-                      textAlign: "center",
-                      padding: "0 6px",
-                      minWidth: 36,
-                    }}
-                  >
-                    {pct}%
-                  </div>
-                </foreignObject>
+               <g>
+  <rect
+    x={-20}
+    y={-12}
+    width={40}
+    height={16}
+    rx={6}
+    ry={6}
+    fill={BADGE_BG}           // как и раньше: '#e11d48' / твой цвет бейджа
+  />
+  <text
+    x={0}
+    y={-12 + 8}               // вертикальная центровка бейджа (12/2=6..8 смотрится лучше)
+    textAnchor="middle"
+    fontSize={10}
+    fontWeight={700}
+    fill={BADGE_TEXT}         // как и раньше: '#ffffff'
+    dominantBaseline="middle"
+  >
+    {Math.round(pct)}%
+  </text>
+</g>
               </g>
             </g>
           );
