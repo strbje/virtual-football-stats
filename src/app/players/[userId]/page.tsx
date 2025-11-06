@@ -4,6 +4,7 @@ import Link from "next/link";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 import PlayerRadar from "@/components/players/PlayerRadar";
+import { headers } from "next/headers";
 
 // ----- Типы ответа нашего API -----
 type ApiRole = { role: string; percent: number };
@@ -72,6 +73,28 @@ function withOthersBucket(leagues?: ApiLeague[]) {
   return list;
 }
 
+function buildBaseURL() {
+  const h = headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  return `${proto}://${host}`;
+}
+
+async function fetchPlayerRadar(userId: string) {
+  try {
+    const base = buildBaseURL();
+    const res = await fetch(`${base}/api/player-radar/${userId}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json()) as {
+      ok: boolean;
+      ready?: boolean;
+      radar?: { label: string; pct: number | null }[];
+    } | null;
+  } catch {
+    return null;
+  }
+}
+
 // ----- Страница -----
 type Params = { userId: string };
 
@@ -105,6 +128,15 @@ export default async function PlayerPage({ params }: { params: Params }) {
   // ----- Барчарты -----
   const rolesForChart = groupRolePercents(data.roles);          // [{label, value}]
   const leagues = withOthersBucket(data.leagues);               // [{label, pct}] включая «Прочие»
+
+   // ----- Радар -----
+  const radarResp = await fetchPlayerRadar(params.userId);
+  const radarReady =
+  Boolean(radarResp?.ready) &&
+  Array.isArray(radarResp?.radar) &&
+  radarResp!.radar!.length > 0;
+  const radarData = radarResp?.radar ?? [];
+
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
@@ -144,8 +176,27 @@ export default async function PlayerPage({ params }: { params: Params }) {
 
       {/* распределения: слева амплуа, справа лиги */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
-        <RoleDistributionSection roles={rolesForChart} leagues={leagues} tooltip />
-      </section>
+  {/* Левая колонка — как и была */}
+  <RoleDistributionSection roles={rolesForChart} leagues={leagues} tooltip />
+
+  {/* Правая колонка — радар */}
+  <div className="rounded-xl border border-zinc-200 p-4">
+    <div className="text-sm text-zinc-500 mb-2">Профиль по амплуа</div>
+
+    {radarReady ? (
+      <PlayerRadar
+        data={radarData.map((r) => ({
+          label: r.label,
+          pct: r.pct ?? 0,
+        }))}
+      />
+    ) : (
+      <div className="text-zinc-500 text-sm">
+        Недостаточно матчей на актуальном амплуа (≥ 30), радар недоступен.
+      </div>
+    )}
+  </div>
+</section>
 
       {/* тепловая карта */}
       <div>
