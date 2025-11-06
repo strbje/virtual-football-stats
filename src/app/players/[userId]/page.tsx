@@ -73,11 +73,19 @@ function withOthersBucket(leagues?: ApiLeague[]) {
   return list;
 }
 
-function buildBaseURL() {
-  const h = headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return `${proto}://${host}`;
+async function fetchPlayerRadar(userId: string) {
+  try {
+    const base = await buildBaseURL();
+    const res = await fetch(`${base}/api/player-radar/${userId}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json()) as {
+      ok: boolean;
+      ready?: boolean;
+      radar?: { label: string; pct: number | null }[];
+    } | null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchPlayerRadar(userId: string) {
