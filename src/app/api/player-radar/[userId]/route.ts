@@ -324,8 +324,8 @@ export async function GET(req: Request, { params }: { params: { userId: string }
         AVG(ums.goals)                AS goals,
         AVG(ums.assists)              AS assists,
         AVG(ums.goals_expected)       AS goals_expected,
-        AVG(ums.shots_ongoal)         AS shots_on,
-        AVG(ums.shots)                AS shots_all,
+        AVG(ums.kickedin)             AS shots_on,
+        AVG(ums.kicked)               AS shots_all,
         AVG(ums.pregoal_passes)       AS pregoal,
         AVG(ums.ipasses)              AS ipass,
         AVG(ums.passes)               AS xa,        -- твой xA
