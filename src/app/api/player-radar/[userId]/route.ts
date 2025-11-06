@@ -10,6 +10,7 @@ const CLUSTERS: Record<ClusterKey, readonly string[]> = {
   FM: ["ЛП", "ПП"],
   CM: ["ЦП", "ЦОП", "ЛЦП", "ПЦП", "ЛОП", "ПОП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
+  GK: ["ВРТ"],
 } as const;
 
 // Наборы метрик для радара по кластерам
@@ -19,6 +20,8 @@ const RADAR_BY_CLUSTER = {
   CM: ["creation", "passes", "pass_acc", "def_actions", "beaten_rate", "aerial_pct"],
   FM: ["creation", "passes", "pass_acc", "def_actions", "beaten_rate", "aerial_pct", "crosses", "goal_contrib"],
   CB: ["safety_coef", "def_actions", "tackle_success", "clearances", "pass_acc", "attack_participation", "aerial_pct", "beaten_rate"],
+  GK: ["saves_pct", "saves_avg", "intercepts_avg", "passes_avg", "clean_sheets_pct", "prevented_xg"],
+  
 } as const;
 
 // Метрики, где МЕНЬШЕ — ЛУЧШЕ (перцентиль считаем инвертированно)
@@ -149,7 +152,13 @@ export async function GET(req: Request, { params }: Params) {
           ums.outplayed, ums.penalised_fails,
           ums.duels_air, ums.duels_air_win,
           ums.crosses,
+          ums.saved, ums.scored, ums.saving_rate, ums.dry,
+          ums.team_id,
           t.name AS tournament_name
+          (SELECT SUM(${XG_EXPR})
+          FROM tbl_users_match_stats u2
+          WHERE u2.match_id = ums.match_id
+          AND u2.team_id <> ums.team_id) AS opp_xg
         FROM tbl_users_match_stats ums
         INNER JOIN tournament_match tm ON ums.match_id = tm.id
         INNER JOIN tournament t ON tm.tournament_id = t.id
@@ -177,6 +186,10 @@ export async function GET(req: Request, { params }: Params) {
           SUM(outplayed) + SUM(penalised_fails) AS beaten,
           SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
           SUM(crosses) AS crosses
+          SUM(saved)  AS saved,
+          SUM(scored) AS scored,
+          SUM(dry)    AS clean_sheets,
+          SUM(opp_xg) AS opp_xg
         FROM base
       )
       SELECT
@@ -209,6 +222,14 @@ export async function GET(req: Request, { params }: Params) {
         (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
         (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
         ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
+        (saved / NULLIF(saved + scored,0)) * 1.0 AS saves_pct,
+        (saved / NULLIF(matches,0)) * 1.0        AS saves_avg,
+        (intercepts / NULLIF(matches,0)) * 1.0   AS intercepts_avg, 
+        (allpasses / NULLIF(matches,0)) * 1.0    AS passes_avg,      
+        (clean_sheets / NULLIF(matches,0)) * 1.0 AS clean_sheets_pct,
+
+  -- Предотвращённый xG:
+  (opp_xg - scored) * 1.0 AS prevented_xg
       FROM agg
     `;
 
