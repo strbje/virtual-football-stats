@@ -162,16 +162,25 @@ export default async function PlayerPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* Распределения (слева амплуа, справа — радар) */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
-        {/* Левая колонка — барчарты амплуа/лиг */}
-        <RoleDistributionSection roles={rolesForChart} leagues={leagues} tooltip />
+  {/* Левая колонка — барчарты амплуа/лиг */}
+  <RoleDistributionSection roles={rolesForChart} leagues={leagues} tooltip />
 
-        <PlayerRadar
-  title="Профиль по амплуа"
-  data={radar.map(r => ({ label: r.label, pct: r.pct ?? 0 }))}
-  footnote="*данные на основании кроссплея с 18 сезона"
-/>
+  {/* Правая колонка — радар */}
+  <div className="rounded-xl border border-zinc-200 p-4">
+    <div className="text-sm text-zinc-500 mb-2">Профиль по амплуа</div>
+    {radarReady ? (
+      <PlayerRadar
+        data={radarData.map(r => ({ label: r.label, pct: r.pct ?? 0 }))}
+        footnote="*данные на основании кроссплея с 18 сезона"
+      />
+    ) : (
+      <div className="text-zinc-500 text-sm">
+        Недостаточно матчей на актуальном амплуа (≥ 30), радар недоступен.
+      </div>
+    )}
+  </div>
+</section>
 
 
         {/* Правая колонка — радар */}
