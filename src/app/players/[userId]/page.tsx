@@ -168,7 +168,6 @@ export default async function PlayerPage({ params }: { params: Params }) {
 
         {/* Правая колонка — радар */}
         <div className="rounded-xl border border-zinc-200 p-4">
-          <div className="text-sm text-zinc-500 mb-2">Профиль по амплуа</div>
           {radarReady ? (
             <PlayerRadar
               data={radarData.map(r => ({ label: r.label, pct: r.pct ?? 0 }))}
