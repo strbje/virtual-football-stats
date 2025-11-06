@@ -30,16 +30,33 @@ function safeNum(v: any, d = 0) {
 }
 
 // Парсим «…(18 сезон)», «(24 сезон)» и т.п.; остальные (LastDance и т.п.) отсеиваем
-function extractSeason(name: string): number | null {
-  const m = name.toLowerCase().match(/сезон\D*(\d{1,3})/i);
-  if (!m) return null;
-  const s = Number(m[1]);
-  return Number.isFinite(s) ? s : null;
-}
+function extractSeason(raw: string): number | null {
+  if (!raw) return null;
+  // нормализуем: переводим в нижний регистр, убираем неразрывные пробелы
+  const s = raw.replace(/\u00A0/g, " ").toLowerCase();
 
-function resolveClusterByRole(role: RoleCode): ClusterKey | null {
-  for (const k of Object.keys(CLUSTERS) as ClusterKey[]) {
-    if (CLUSTERS[k].includes(role)) return k;
+  // Поддерживаем три популярных формы:
+  //  (a) "... (18 сезон)" или "… 18 сезон"
+  //  (b) "... (сезон 18)" или "… сезон 18"
+  //  (c) допускаем тире/дефисы: "18-й сезон", "18-й сезон"
+  const rxA = /(?:^|[\s(])(\d{1,3})\s*[-–—]?\s*(?:й|-й)?\s*сезон\b/;   // 18 сезон / 18-й сезон
+  const rxB = /сезон\s*[-–—]?\s*(?:№)?\s*(\d{1,3})\b/;                // сезон 18
+  const rxC = /\(\s*(\d{1,3})\s*[-–—]?\s*(?:й|-й)?\s*сезон\s*\)/;     // (18 сезон)
+
+  const mA = s.match(rxA);
+  if (mA) {
+    const val = Number(mA[1]); 
+    return Number.isFinite(val) ? val : null;
+  }
+  const mB = s.match(rxB);
+  if (mB) {
+    const val = Number(mB[1]); 
+    return Number.isFinite(val) ? val : null;
+  }
+  const mC = s.match(rxC);
+  if (mC) {
+    const val = Number(mC[1]); 
+    return Number.isFinite(val) ? val : null;
   }
   return null;
 }
@@ -344,7 +361,8 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     debug: {
       seasonMin: 18,
       officialFilterApplied: true,
-      tournaments: official
-    }
+      tournamentsAll: detailed,
+  tournamentsOfficial: official
+}
   });
 }
