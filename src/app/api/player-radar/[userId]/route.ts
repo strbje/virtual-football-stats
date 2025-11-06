@@ -119,7 +119,7 @@ function buildCohortSQLCommon(roleCodesSQL: string) {
         user_id,
         CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
         SUM(goals) AS goals, SUM(assists) AS assists,
-        SUM(goal_expected) AS xg,
+        SUM(goals_expected) AS xg,
         SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
         SUM(xa_part) AS xa,
         SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
