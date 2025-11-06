@@ -195,7 +195,7 @@ function buildCohortSQLGK() {
         b1.user_id,
         b1.team_id,
         b1.match_id,
-        SUM(b2.goal_expected) AS opp_xg
+        SUM(b2.goals_expected) AS opp_xg
       FROM base b1
       JOIN base b2
         ON b2.match_id = b1.match_id
