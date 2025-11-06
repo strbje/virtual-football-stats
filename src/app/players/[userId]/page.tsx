@@ -18,7 +18,7 @@ type ApiResponse = {
   user?: { nickname?: string | null; team?: string | null } | null;
 };
 
-// ----- Вспомогалки -----
+// ----- Утилиты URL -----
 const BASE =
   process.env.NEXT_PUBLIC_BASE_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://127.0.0.1:3000");
@@ -29,6 +29,7 @@ const n = (v: unknown, d = 0) => {
   return Number.isFinite(x) ? x : d;
 };
 
+// ----- Группировки амплуа для барчарта -----
 function groupRolePercents(roles: ApiRole[]) {
   const GROUPS: Record<string, string[]> = {
     "Форвард": ["ЛФД", "ЦФД", "ПФД", "ФРВ"],
@@ -46,13 +47,13 @@ function groupRolePercents(roles: ApiRole[]) {
   });
 }
 
-// берём лиги из API как есть; «Прочие» считаем от 100, если нужно
+// ----- Лиги + корзина «Прочие» -----
 function withOthersBucket(leagues?: ApiLeague[]) {
   const list = Array.isArray(leagues) ? leagues.slice() : [];
   const sum = list.reduce((s, l) => s + n(l.pct), 0);
   const others = sum >= 0 && sum <= 100 ? Math.max(0, 100 - sum) : 0;
 
-  // гарантируем наличие всех четырёх стандартных ярлыков
+  // гарантируем наличие стандартных ярлыков
   const need = new Map<string, number>([
     ["ПЛ", 0],
     ["ФНЛ", 0],
@@ -64,13 +65,21 @@ function withOthersBucket(leagues?: ApiLeague[]) {
   }
   for (const [label, pct] of need) list.push({ label, pct });
 
-  // добавляем «Прочие» в самый конец
+  // добавляем «Прочие»
   list.push({ label: "Прочие", pct: others });
 
-  // фиксируем порядок
+  // фиксированный порядок
   const ORDER = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"];
   list.sort((a, b) => ORDER.indexOf(a.label) - ORDER.indexOf(b.label));
   return list;
+}
+
+// ----- Хелперы для радара -----
+async function buildBaseURL() {
+  const h = await headers(); // важно: headers() как Promise
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  return `${proto}://${host}`;
 }
 
 async function fetchPlayerRadar(userId: string) {
@@ -88,13 +97,6 @@ async function fetchPlayerRadar(userId: string) {
   }
 }
 
-async function buildBaseURL() {
-  const h = await headers(); // важно: await
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return `${proto}://${host}`;
-}
-
 // ----- Страница -----
 type Params = { userId: string };
 
@@ -104,52 +106,52 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 
 export default async function PlayerPage({ params }: { params: Params }) {
   const userId = params.userId;
-  const url = abs(`/api/player-roles?userId=${encodeURIComponent(userId)}`);
 
+  // API: роли/лиги/профиль
+  const url = abs(`/api/player-roles?userId=${encodeURIComponent(userId)}`);
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     return (
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <h1 className="text-2xl font-semibold">{`User #${userId}`}</h1>
         <p className="text-red-600 mt-4">Ошибка загрузки: {res.status} {res.statusText}</p>
-        <Link href="/players" className="text-blue-600 mt-4 inline-block">← Ко всем игрокам</Link>
+        <Link href="/players" className="text-blue-600 mt-3 inline-block">← Ко всем игрокам</Link>
       </div>
     );
   }
 
   const data: ApiResponse = await res.json();
 
-  // ----- Шапка -----
+  // Шапка
   const nickname = (data.user?.nickname ?? `User #${userId}`) as string;
   const teamName = (data.user?.team ?? "") as string;
   const matches = n(data.matches);
   const currentRole = data.currentRoleLast30 ?? "—";
 
-  // ----- Барчарты -----
-  const rolesForChart = groupRolePercents(data.roles);          // [{label, value}]
-  const leagues = withOthersBucket(data.leagues);               // [{label, pct}] включая «Прочие»
+  // Барчарты
+  const rolesForChart = groupRolePercents(data.roles);   // [{label, value}]
+  const leagues = withOthersBucket(data.leagues);        // [{label, pct}] + «Прочие»
 
-   // ----- Радар -----
-  const radarResp = await fetchPlayerRadar(params.userId);
+  // Радар
+  const radarResp = await fetchPlayerRadar(userId);
   const radarReady =
-  Boolean(radarResp?.ready) &&
-  Array.isArray(radarResp?.radar) &&
-  radarResp!.radar!.length > 0;
+    Boolean(radarResp?.ready) &&
+    Array.isArray(radarResp?.radar) &&
+    radarResp!.radar!.length > 0;
   const radarData = radarResp?.radar ?? [];
-
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
-      {/* заголовок */}
+      {/* Заголовок */}
       <div>
         <h1 className="text-2xl font-semibold">{nickname}</h1>
         {teamName ? <div className="text-zinc-500 text-sm mt-1">{teamName}</div> : null}
         <Link href="/players" className="text-blue-600 mt-3 inline-block">← Ко всем игрокам</Link>
       </div>
 
-      {/* верхние плитки: матчи слева, актуальное амплуа справа */}
+      {/* Верхние плитки: слева Матчи, справа Актуальное амплуа */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-       <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
+        <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
           <div className="text-sm text-zinc-500 mb-1">Матчи</div>
           <div className="text-2xl font-semibold">{matches}</div>
           <div className="text-[11px] text-zinc-400 mt-2">*без учета национальных матчей</div>
@@ -160,49 +162,32 @@ export default async function PlayerPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {ready ? (
-  <div className="mt-6">
-    <PlayerRadar
-      data={radar.map(r => ({ label: r.label, pct: r.pct ?? 0 }))}
-      title="Профиль по перцентилям"
-      size={440} // можно 380–520
-    />
-  </div>
-) : (
-  <div className="mt-6 text-zinc-500 text-sm">
-    Недостаточно матчей на актуальном амплуа для построения радара.
-  </div>
-)}
-
-      {/* распределения: слева амплуа, справа лиги */}
+      {/* Распределения (слева амплуа, справа — радар) */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
-  {/* Левая колонка — как и была */}
-  <RoleDistributionSection roles={rolesForChart} leagues={leagues} tooltip />
+        {/* Левая колонка — барчарты амплуа/лиг */}
+        <RoleDistributionSection roles={rolesForChart} leagues={leagues} tooltip />
 
-  {/* Правая колонка — радар */}
-  <div className="rounded-xl border border-zinc-200 p-4">
-    <div className="text-sm text-zinc-500 mb-2">Профиль по амплуа</div>
+        {/* Правая колонка — радар */}
+        <div className="rounded-xl border border-zinc-200 p-4">
+          <div className="text-sm text-zinc-500 mb-2">Профиль по амплуа</div>
+          {radarReady ? (
+            <PlayerRadar
+              data={radarData.map((r) => ({
+                label: r.label,
+                pct: r.pct ?? 0,
+              }))}
+            />
+          ) : (
+            <div className="text-zinc-500 text-sm">
+              Недостаточно матчей на актуальном амплуа (≥ 30), радар недоступен.
+            </div>
+          )}
+        </div>
+      </section>
 
-    {radarReady ? (
-      <PlayerRadar
-        data={radarData.map((r) => ({
-          label: r.label,
-          pct: r.pct ?? 0,
-        }))}
-      />
-    ) : (
-      <div className="text-zinc-500 text-sm">
-        Недостаточно матчей на актуальном амплуа (≥ 30), радар недоступен.
-      </div>
-    )}
-  </div>
-</section>
-
-      {/* тепловая карта */}
+      {/* Тепловая карта */}
       <div>
-        <h3 className="text-sm font-semibold text-zinc-800 mb-3">
-  Тепловая карта амплуа
-</h3>
+        <h3 className="text-sm font-semibold text-zinc-800 mb-3">Тепловая карта амплуа</h3>
         <RoleHeatmap data={data.roles as any} />
       </div>
     </div>
