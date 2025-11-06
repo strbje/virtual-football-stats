@@ -111,7 +111,7 @@ function buildCohortSQLCommon(roleCodesSQL: string) {
       INNER JOIN tournament_match tm ON ums.match_id = tm.id
       INNER JOIN tournament t ON tm.tournament_id = t.id
       INNER JOIN skills_positions sp ON ums.skill_id = sp.id
-      WHERE sp.short_name IN (${roleCodes})
+      WHERE sp.short_name IN (${roleCodesSQL})
         ${OFFICIAL_FILTER}
     ),
     per_user AS (
