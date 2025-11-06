@@ -1,208 +1,214 @@
 "use client";
-import React from "react";
+import * as React from "react";
 
-/**
- * PlayerRadar — чистый SVG-радар (без сторонних либ)
- * Пропсы:
- *  - data: массив { label, pct } — pct в диапазоне 0..100 (или null, если нет значения)
- *  - title?: заголовок над радаром (опционально)
- *  - size?: общий размер svg в px (по умолчанию 440)
- */
-export type RadarPoint = { label: string; pct: number | null };
+/** ───────── Настройки (меняй тут) ───────── */
+// Размеры
+const SIZE = 380;            // общий размер svg
+const PADDING = 74;          // внутренние поля (добавил справа запас под длинные лейблы)
+const GRID_STEPS = 5;        // кол-во колец сетки
+const LABEL_OFFSET = 26;     // отступ подписи оси от внешнего кольца
+const BADGE_OFFSET = 18;     // отступ бейджа % от полигона
 
-type Props = {
-  data: RadarPoint[];
-  title?: string;
-  size?: number;
+// Шрифты
+const FONT_AXIS = 12;        // размер шрифта подписей осей
+const FONT_BADGE = 11;       // размер шрифта в бейджах
+const FONT_TITLE = 14;       // размер заголовка блока
+
+// Цвета
+const GRID_COLOR = "#e5e7eb";         // сетка (zinc-200)
+const AXIS_COLOR = "#111827";         // подписи осей (zinc-900)
+const POLY_STROKE = "#ef4444";        // обводка полигона (red-500)
+const POLY_FILL = "rgba(239,68,68,0.12)"; // заливка полигона
+const BADGE_BG = "#ef4444";           // фон бейджа (red-500)
+const BADGE_TEXT = "#ffffff";         // текст в бейдже
+
+// Кастомные названия метрик (по желанию)
+// ключ = пришедший label из API, значение = как показать на графике
+const LABEL_OVERRIDES: Record<string, string> = {
+  // примеры:
+  // "shots_on_target_pct": "Удары в створ %"
+  // Если в data уже приходят нормальные русские названия — можно оставить пустым объект.
 };
 
-/* =======================
-   ===  STYLE  KNOBS   ===
-   Здесь меняй стили быстро.
-   ======================= */
-// Цвет линии радара и маркеров
-const LINE_COLOR = "#E11D48"; // красный-розовый (Tailwind rose-600)
-// Цвет сетки и подписей
-const GRID_COLOR = "#D4D4D8"; // zinc-300
-const AXIS_COLOR = "#E4E4E7"; // zinc-200
-const LABEL_COLOR = "#18181B"; // zinc-900
-// Толщина линии радара
-const LINE_WIDTH = 2.5;
-// Радиус точки-узла
-const NODE_RADIUS = 3.5;
-// Шрифты и размеры
-const TITLE_FONT_SIZE = 18;
-const LABEL_FONT_SIZE = 12;
-const VALUE_FONT_SIZE = 11; // текст в «плашках» процентов
-// Внешний отступ для подписей метрик
-const LABEL_OFFSET = 18;
-// Кол-во колец сетки
-const GRID_RINGS = 5;
-/* ======================= */
+/** ───────── Типы ───────── */
+export type RadarDatum = { label: string; pct: number };
 
-export default function PlayerRadar({ data, title, size = 440 }: Props) {
-  // защита от пустых данных
-  const items = Array.isArray(data) ? data : [];
-  const n = items.length || 1;
+type Props = {
+  title?: string;
+  data: RadarDatum[];
+  /** Сноска под графиком (например, «*данные на основании кроссплея с 18 сезона»). */
+  footnote?: string;
+};
 
-  // геометрия
-  const w = size;
-  const h = size;
-  const cx = w / 2;
-  const cy = h / 2;
-  // оставим поля под подписи
-  const padding = 70;
-  const rMax = Math.min(cx, cy) - padding;
+/** ───────── Утилиты ───────── */
+function toRadians(deg: number) {
+  return (deg * Math.PI) / 180;
+}
 
-  // конвертер процента (0..100) в радиус
-  const rFromPct = (pct: number) => (Math.max(0, Math.min(100, pct)) / 100) * rMax;
+// аккуратный перенос строки по пробелам, чтобы подписи не уезжали вправо
+function wrapLabel(label: string, maxLen = 14): string[] {
+  const txt = LABEL_OVERRIDES[label] ?? label;
+  if (txt.length <= maxLen) return [txt];
 
-  // углы по часовой стрелке, «ноль» вверх
-  const angleAt = (i: number) => (-Math.PI / 2) + (2 * Math.PI * i) / n;
+  const words = txt.split(" ");
+  const lines: string[] = [];
+  let current = "";
 
-  // координаты для pct
-  const xy = (i: number, pct: number) => {
-    const a = angleAt(i);
-    const r = rFromPct(pct);
-    return [cx + r * Math.cos(a), cy + r * Math.sin(a)] as const;
+  for (const w of words) {
+    if ((current + " " + w).trim().length > maxLen) {
+      if (current) lines.push(current.trim());
+      current = w;
+    } else {
+      current = (current + " " + w).trim();
+    }
+  }
+  if (current) lines.push(current.trim());
+  return lines.slice(0, 2); // максимум 2 строки — эстетичнее
+}
+
+function polarPoint(cx: number, cy: number, r: number, angleDeg: number) {
+  const a = toRadians(angleDeg - 90); // 0° вверх
+  return {
+    x: cx + r * Math.cos(a),
+    y: cy + r * Math.sin(a),
   };
+}
 
-  // вершины многоугольника
-  const polygon = items
-    .map((pt, i) => {
-      const v = pt.pct ?? 0;
-      const [x, y] = xy(i, v);
-      return `${x},${y}`;
-    })
-    .join(" ");
+/** ───────── Компонент ───────── */
+export default function PlayerRadar({ title = "Профиль по амплуа", data, footnote }: Props) {
+  const N = data.length || 1;
+  const center = SIZE / 2;
+  const radius = center - PADDING;
+
+  // углы по кругу
+  const angles = React.useMemo(() => {
+    const step = 360 / N;
+    return [...Array(N)].map((_, i) => i * step);
+  }, [N]);
+
+  // точки сетки
+  const gridRadii = [...Array(GRID_STEPS)].map((_, i) => radius * ((i + 1) / GRID_STEPS));
+
+  // точки полигона по pct
+  const polyPoints = data.map((d, i) => {
+    const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
+    return polarPoint(center, center, r, angles[i]);
+  });
+
+  const polyAttr = polyPoints.map((p) => `${p.x},${p.y}`).join(" ");
 
   return (
-    <div className="w-full h-full flex flex-col items-center">
-      {title && (
-        <div
-          style={{ fontSize: TITLE_FONT_SIZE, color: LABEL_COLOR }}
-          className="font-semibold mb-2"
-        >
-          {title}
-        </div>
-      )}
+    <div className="rounded-xl border border-zinc-200 p-4">
+      <div className="text-[14px] font-semibold mb-2">{title}</div>
+      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-label="radar-chart">
+        {/* Сетка: кольца */}
+        {gridRadii.map((r, idx) => (
+          <circle
+            key={r}
+            cx={center}
+            cy={center}
+            r={r}
+            fill="none"
+            stroke={GRID_COLOR}
+            strokeWidth={1}
+            opacity={idx === gridRadii.length - 1 ? 1 : 0.8}
+          />
+        ))}
 
-      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label="player radar">
-        {/* сетка — концентрические многоугольники */}
-        {[...Array(GRID_RINGS)].map((_, ringIdx) => {
-          const pct = ((ringIdx + 1) / GRID_RINGS) * 100;
-          const ringPoints = items
-            .map((_, i) => {
-              const [x, y] = xy(i, pct);
-              return `${x},${y}`;
-            })
-            .join(" ");
-          return (
-            <polygon
-              key={`ring-${ringIdx}`}
-              points={ringPoints}
-              fill="none"
-              stroke={GRID_COLOR}
-              strokeWidth={1}
-            />
-          );
-        })}
-
-        {/* оси */}
-        {items.map((_, i) => {
-          const [x, y] = xy(i, 100);
+        {/* Сетка: оси */}
+        {angles.map((a, i) => {
+          const p = polarPoint(center, center, radius, a);
           return (
             <line
               key={`axis-${i}`}
-              x1={cx}
-              y1={cy}
-              x2={x}
-              y2={y}
-              stroke={AXIS_COLOR}
+              x1={center}
+              y1={center}
+              x2={p.x}
+              y2={p.y}
+              stroke={GRID_COLOR}
               strokeWidth={1}
+              opacity={0.9}
             />
           );
         })}
 
-        {/* подписи метрик (снаружи) */}
-        {items.map((pt, i) => {
-          const a = angleAt(i);
-          const [x, y] = [cx + (rMax + LABEL_OFFSET) * Math.cos(a), cy + (rMax + LABEL_OFFSET) * Math.sin(a)];
-          // выравнивание по углу
-          let anchor: "start" | "middle" | "end" = "middle";
-          const cos = Math.cos(a);
-          if (cos > 0.2) anchor = "start";
-          else if (cos < -0.2) anchor = "end";
+        {/* Подписи осей (переносим на 1–2 строки) */}
+        {data.map((d, i) => {
+          const outer = polarPoint(center, center, radius + LABEL_OFFSET, angles[i]);
+          const lines = wrapLabel(d.label, 14);
+          // выравнивание текста по сектору
+          const align =
+            Math.cos(toRadians(angles[i] - 90)) > 0.25
+              ? "start"
+              : Math.cos(toRadians(angles[i] - 90)) < -0.25
+              ? "end"
+              : "middle";
 
           return (
             <text
               key={`label-${i}`}
-              x={x}
-              y={y}
-              textAnchor={anchor}
+              x={outer.x}
+              y={outer.y}
+              fontSize={FONT_AXIS}
+              fill={AXIS_COLOR}
+              textAnchor={align as any}
               dominantBaseline="middle"
-              style={{
-                fontSize: LABEL_FONT_SIZE,
-                fill: LABEL_COLOR,
-                fontWeight: 500,
-              }}
             >
-              {pt.label}
+              {lines.map((ln, j) => (
+                <tspan key={j} x={outer.x} dy={j === 0 ? 0 : 14}>
+                  {ln}
+                </tspan>
+              ))}
             </text>
           );
         })}
 
-        {/* многоугольник значения */}
+        {/* Полигон игрока */}
         <polygon
-          points={polygon}
-          fill={`${LINE_COLOR}22`} // лёгкая заливка
-          stroke={LINE_COLOR}
-          strokeWidth={LINE_WIDTH}
+          points={polyAttr}
+          fill={POLY_FILL}
+          stroke={POLY_STROKE}
+          strokeWidth={2}
         />
 
-        {/* узлы + «плашки» процентов */}
-        {items.map((pt, i) => {
-          const val = pt.pct ?? 0;
-          const [x, y] = xy(i, val);
-
-          // координата для бэйджа процента
-          const a = angleAt(i);
-          const badgeR = 18; // радиус вынесения плашки
-          const bx = x + badgeR * Math.cos(a);
-          const by = y + badgeR * Math.sin(a);
+        {/* Точки + бейджи процентов (вынесены от полигона на BADGE_OFFSET) */}
+        {data.map((d, i) => {
+          const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
+          const dot = polarPoint(center, center, r, angles[i]);
+          const badge = polarPoint(center, center, r + BADGE_OFFSET, angles[i]);
+          const pct = Math.round(d.pct ?? 0);
 
           return (
-            <g key={`node-${i}`}>
-              {/* точка */}
-              <circle cx={x} cy={y} r={NODE_RADIUS} fill={LINE_COLOR} />
-              {/* плашка процента */}
-              <g transform={`translate(${bx}, ${by})`}>
-                <rect
-                  x={-18}
-                  y={-12}
-                  rx={6}
-                  ry={6}
-                  width={36}
-                  height={18}
-                  fill={LINE_COLOR}
-                />
-                <text
-                  x={0}
-                  y={-3}
-                  textAnchor="middle"
-                  style={{
-                    fill: "#FFFFFF",
-                    fontSize: VALUE_FONT_SIZE,
-                    fontWeight: 700,
-                  }}
-                >
-                  {Math.round(val)}%
-                </text>
+            <g key={`pt-${i}`}>
+              <circle cx={dot.x} cy={dot.y} r={3} fill={POLY_STROKE} />
+              {/* бейдж рисуем как прямоугольник с радиусом */}
+              <g transform={`translate(${badge.x}, ${badge.y})`}>
+                <foreignObject x={-20} y={-14} width={40} height={18}>
+                  <div
+                    xmlns="http://www.w3.org/1999/xhtml"
+                    style={{
+                      background: BADGE_BG,
+                      color: BADGE_TEXT,
+                      fontSize: FONT_BADGE,
+                      lineHeight: "18px",
+                      borderRadius: 999,
+                      textAlign: "center",
+                      padding: "0 6px",
+                      minWidth: 36,
+                    }}
+                  >
+                    {pct}%
+                  </div>
+                </foreignObject>
               </g>
             </g>
           );
         })}
       </svg>
+
+      {footnote && (
+        <div className="mt-2 text-[12px] text-zinc-500">{footnote}</div>
+      )}
     </div>
   );
 }
