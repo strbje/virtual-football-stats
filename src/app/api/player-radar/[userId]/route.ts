@@ -244,7 +244,7 @@ export async function GET(
         WHERE s.skill_id IN (${clusterSkillIds.length ? clusterSkillIds.join(",") : "-1"})
           AND t.name IN (${placeholders})
         GROUP BY s.user_id
-        HAVING COUNT(*) >= 5
+        HAVING COUNT(*) >= 30
       `,
         ...names
       );
