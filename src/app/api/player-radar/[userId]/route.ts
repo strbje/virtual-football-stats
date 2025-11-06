@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
-type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB";
+type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB" | "GK";
 
 // Кластеры — по РАСШИРЕННЫМ амплуа (fp.code)
 const CLUSTERS: Record<ClusterKey, readonly string[]> = {
