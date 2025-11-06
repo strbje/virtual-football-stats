@@ -339,7 +339,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
         AVG(ums.selection)            AS tackles_won,
         AVG(ums.allselection)         AS tackles_all,
         AVG(ums.completedtackles)     AS slidetackles_won,
-        AVG(ums.ums.tackles)          AS slidetackles_all,
+        AVG(ums.tackles)              AS slidetackles_all,
         AVG(ums.blocks)               AS blocks,
         AVG(ums.outs)                 AS clearances,
         AVG(ums.duels_air)            AS duels_air_all,
