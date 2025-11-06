@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
+import PlayerRadar from "@/components/players/PlayerRadar";
 
 // ----- Типы ответа нашего API -----
 type ApiRole = { role: string; percent: number };
@@ -126,6 +127,20 @@ export default async function PlayerPage({ params }: { params: Params }) {
           <div className="text-2xl font-semibold" title="За последние 30 матчей">{currentRole}</div>
         </div>
       </div>
+
+      {ready ? (
+  <div className="mt-6">
+    <PlayerRadar
+      data={radar.map(r => ({ label: r.label, pct: r.pct ?? 0 }))}
+      title="Профиль по перцентилям"
+      size={440} // можно 380–520
+    />
+  </div>
+) : (
+  <div className="mt-6 text-zinc-500 text-sm">
+    Недостаточно матчей на актуальном амплуа для построения радара.
+  </div>
+)}
 
       {/* распределения: слева амплуа, справа лиги */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
