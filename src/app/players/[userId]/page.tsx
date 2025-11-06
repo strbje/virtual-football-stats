@@ -88,19 +88,11 @@ async function fetchPlayerRadar(userId: string) {
   }
 }
 
-async function fetchPlayerRadar(userId: string) {
-  try {
-    const base = buildBaseURL();
-    const res = await fetch(`${base}/api/player-radar/${userId}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as {
-      ok: boolean;
-      ready?: boolean;
-      radar?: { label: string; pct: number | null }[];
-    } | null;
-  } catch {
-    return null;
-  }
+async function buildBaseURL() {
+  const h = await headers(); // важно: await
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  return `${proto}://${host}`;
 }
 
 // ----- Страница -----
