@@ -267,6 +267,7 @@ export async function GET(req: Request, { params }: Params) {
     }
 
     // 7) Коhортa по кластеру: та же фильтрация, те же расчёты, но GROUP BY user_id
+    const MIN_MATCHES = 30;
     const COHORT_SQL = `
       WITH base AS (
         SELECT
@@ -315,6 +316,7 @@ export async function GET(req: Request, { params }: Params) {
           SUM(crosses) AS crosses
         FROM base
         GROUP BY user_id
+        HAVING COUNT(DISTINCT match_id) >= ${MIN_MATCHES}
       )
       SELECT
         user_id,
