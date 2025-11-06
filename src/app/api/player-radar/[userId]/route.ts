@@ -49,8 +49,10 @@ const RADAR_BY_CLUSTER: Record<ClusterKey, string[]> = {
 };
 
 function resolveClusterByRole(role: string): ClusterKey | null {
+  // TS не вывозит тип элемента из CLUSTERS[k], подскажем явно
   for (const k of Object.keys(CLUSTERS) as ClusterKey[]) {
-    if (CLUSTERS[k as ClusterKey].includes(role as RoleCode)) return k as ClusterKey;
+    const roles = CLUSTERS[k] as readonly string[]; // 👈 подсказали тип
+    if (roles.includes(role)) return k;
   }
   return null;
 }
