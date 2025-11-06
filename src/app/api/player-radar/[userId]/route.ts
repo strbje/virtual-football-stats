@@ -110,8 +110,8 @@ function buildCohortSQLCommon(roleCodesSQL: string) {
       FROM tbl_users_match_stats ums
       INNER JOIN tournament_match tm ON ums.match_id = tm.id
       INNER JOIN tournament t ON tm.tournament_id = t.id
-      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-      WHERE fp.code IN (${roleCodesSQL})
+      INNER JOIN skills_positions sp ON ums.skill_id = sp.id
+      WHERE sp.short_name IN (${roleCodes})
         ${OFFICIAL_FILTER}
     ),
     per_user AS (
@@ -193,8 +193,8 @@ const COHORT_SQL = `
     FROM tbl_users_match_stats ums
     INNER JOIN tournament_match tm ON ums.match_id = tm.id
     INNER JOIN tournament t        ON tm.tournament_id = t.id
-    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-    WHERE fp.code IN ('ВРТ')
+    INNER JOIN skills_positions sp ON ums.skill_id = sp.id
+    WHERE sp.short_name IN ('ВРТ')
       ${OFFICIAL_FILTER}
   ),
   per_user AS (
