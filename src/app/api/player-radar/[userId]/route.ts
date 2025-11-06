@@ -266,9 +266,6 @@ export async function GET(_: Request, { params }: { params: { userId: string } }
     const roleCodesSQL =
       "(" + CLUSTERS[cluster].map((c) => `'${c}'`).join(",") + ")";
 
-    const COHORT_SQL =
-      cluster === "GK" ? buildCohortSQLGK() : buildCohortSQLCommon(roleCodesSQL);
-
     // 3) Весь пул кластера (≥30 матчей)
     const cohortRows = toJSON(await prisma.$queryRawUnsafe(COHORT_SQL)) as any[];
 
