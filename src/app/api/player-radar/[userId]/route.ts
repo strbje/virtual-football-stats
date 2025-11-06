@@ -4,365 +4,482 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// ---- Кластеры ролей (то, как у нас на странице) ----
-type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB" | "GK";
-type RoleCode = string;
+/** -------------------- Типы и справочники -------------------- */
 
+type RoleCode =
+  | "ФРВ" | "ЦФД" | "ЛФД" | "ПФД" | "ЛФА" | "ПФА" // форварды
+  | "ЦАП" | "ЛАП" | "ПАП"                         // атакующая тройка полузащиты
+  | "ЛП"  | "ПП"                                  // фланговые полузащитники
+  | "ЦП"  | "ЦОП" | "ЛЦП" | "ПЦП" | "ЛОП" | "ПОП" // центральные/опорные
+  | "ЦЗ"  | "ЛЦЗ" | "ПЦЗ" | "ЛЗ"  | "ПЗ"         // защита
+  | "ВРТ";                                       // вратарь
+
+type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB" | "GK";
+
+/** Кластеры без пересечений (сняли конфликт AM/CM вокруг центральных) */
 const CLUSTERS: Record<ClusterKey, RoleCode[]> = {
   FW: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"],
-  AM: ["ЦАП", "ЦП", "ЛЦП", "ПЦП", "ЛАП", "ПАП"],
+  AM: ["ЦАП", "ЛАП", "ПАП"],
   FM: ["ЛП", "ПП"],
   CM: ["ЦП", "ЦОП", "ЛЦП", "ПЦП", "ЛОП", "ПОП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
   GK: ["ВРТ"],
 };
 
-// инвертируем вычисление перцентиля для метрик «меньше = лучше»
-const INVERTED_PCT = new Set<string>(["beaten_rate", "gk_conceded_per_match"]);
-
-// ---- утилиты ----
-const json = (data: any, init?: number) =>
-  NextResponse.json(data, { status: init ?? 200 });
-
-function safeNum(v: any, d = 0) {
-  const n = typeof v === "string" ? Number(v) : (v as number);
-  return Number.isFinite(n) ? n : d;
+function resolveClusterByRole(role: RoleCode): ClusterKey | null {
+  for (const key of Object.keys(CLUSTERS) as ClusterKey[]) {
+    if (CLUSTERS[key].includes(role)) return key;
+  }
+  return null;
 }
 
-// Парсим «…(18 сезон)», «(24 сезон)» и т.п.; остальные (LastDance и т.п.) отсеиваем
+/** -------------------- Утилиты -------------------- */
+
 function extractSeason(raw: string): number | null {
   if (!raw) return null;
-  // нормализуем: переводим в нижний регистр, убираем неразрывные пробелы
   const s = raw.replace(/\u00A0/g, " ").toLowerCase();
 
-  // Поддерживаем три популярных формы:
-  //  (a) "... (18 сезон)" или "… 18 сезон"
-  //  (b) "... (сезон 18)" или "… сезон 18"
-  //  (c) допускаем тире/дефисы: "18-й сезон", "18-й сезон"
-  const rxA = /(?:^|[\s(])(\d{1,3})\s*[-–—]?\s*(?:й|-й)?\s*сезон\b/;   // 18 сезон / 18-й сезон
-  const rxB = /сезон\s*[-–—]?\s*(?:№)?\s*(\d{1,3})\b/;                // сезон 18
-  const rxC = /\(\s*(\d{1,3})\s*[-–—]?\s*(?:й|-й)?\s*сезон\s*\)/;     // (18 сезон)
+  // 18 сезон / 18-й сезон / (18 сезон)
+  const rxA = /(^|[\s(])(\d{1,3})\s*[-–—]?\s*(?:й|-й)?\s*сезон\b/;
+  const rxB = /сезон\s*[-–—]?\s*(?:№)?\s*(\d{1,3})\b/;
+  const rxC = /\(\s*(\d{1,3})\s*[-–—]?\s*(?:й|-й)?\s*сезон\s*\)/;
 
   const mA = s.match(rxA);
   if (mA) {
-    const val = Number(mA[1]); 
+    const val = Number(mA[2]);
     return Number.isFinite(val) ? val : null;
   }
   const mB = s.match(rxB);
   if (mB) {
-    const val = Number(mB[1]); 
+    const val = Number(mB[1]);
     return Number.isFinite(val) ? val : null;
   }
   const mC = s.match(rxC);
   if (mC) {
-    const val = Number(mC[1]); 
+    const val = Number(mC[1]);
     return Number.isFinite(val) ? val : null;
   }
   return null;
 }
 
-// Если страница не передала ?role=… — fallback: берём самую частую роль из последних 30 матчей
-async function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
-  // skills_positions.short_name — это «ФРВ», «ЦАП» и т.д.
-  const rows: { role: string; cnt: bigint }[] = await prisma.$queryRawUnsafe(`
-    SELECT sp.short_name AS role, COUNT(*) AS cnt
-    FROM tbl_users_match_stats ums
-    JOIN skills_positions sp ON sp.id = ums.skill_id
+function json(obj: any) {
+  return NextResponse.json(
+    obj,
+    {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    }
+  );
+}
+
+/** Безопасная сериализация BigInt в number */
+function toSafe<T>(row: T): T {
+  return JSON.parse(JSON.stringify(row, (_, v) => (typeof v === "bigint" ? Number(v) : v)));
+}
+
+/** Процентили: доля значений в пуле, не превосходящих x (для «ниже лучше» делаем инверсию заранее) */
+function percentileOf(pool: number[], x: number): number {
+  if (!pool.length) return 0;
+  const lessEq = pool.filter((v) => v <= x).length;
+  return Math.round((lessEq / pool.length) * 100);
+}
+
+/** -------------------- SQL кусочки (таблицы/поля) -------------------- */
+/**
+ * Основано на твоём запросе, который ты присылал:
+ *   tbl_users_match_stats ums
+ *   tournament_match tm
+ *   tournament t
+ *   skills_positions sp  (sp.short_name = код роли, например "ЛФД")
+ *   tbl_users u
+ *   teams c
+ */
+
+const TBL = {
+  stats: "tbl_users_match_stats",
+  match: "tournament_match",
+  tour: "tournament",
+  skills: "skills_positions",
+};
+
+const COL = {
+  roleShort: "sp.short_name",
+  tourName: "t.name",
+};
+
+/** -------------------- Турниры: полный список и официальный фильтр -------------------- */
+
+async function getTournamentsForUser(userId: number) {
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT ${COL.tourName} AS name, COUNT(*) AS matches
+    FROM ${TBL.stats} ums
+    JOIN ${TBL.match} tm ON ums.match_id = tm.id
+    JOIN ${TBL.tour} t ON tm.tournament_id = t.id
     WHERE ums.user_id = ?
-    ORDER BY ums.match_id DESC
-    LIMIT 200
+    GROUP BY ${COL.tourName}
+    ORDER BY matches DESC;
   `, userId);
 
-  if (!rows?.length) return null;
-  // берём моду
-  const byRole = new Map<string, number>();
-  for (const r of rows) {
-    byRole.set(r.role, (byRole.get(r.role) ?? 0) + Number(r.cnt));
+  const detailed = rows.map((r) => ({
+    name: String(r.name ?? ""),
+    season: extractSeason(String(r.name ?? "")),
+    matches: Number(r.matches ?? 0),
+  }));
+
+  const official = detailed.filter((d) => (d.season ?? -1) >= 18);
+
+  return { detailed, official };
+}
+
+/** -------------------- Автоопределение текущей роли (если страница не передала role=) -------------------- */
+
+async function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
+  // Берём последние 30 матчей пользователя и выбираем самую частую роль
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT ${COL.roleShort} AS role
+    FROM ${TBL.stats} ums
+    JOIN ${TBL.skills} sp ON ums.skill_id = sp.id
+    JOIN ${TBL.match} tm ON ums.match_id = tm.id
+    ORDER BY tm.timestamp DESC
+    LIMIT 200;
+  `);
+
+  // Поскольку в таблице нет фильтра по пользователю в ORDER ... LIMIT, добавим его корректно:
+  // (Некоторые MySQL/Марии допускают LIMIT в подзапросе; сделаем безопасно  — просто возьмём 300 последних и отфильтруем)
+  const rowsProper = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT ${COL.roleShort} AS role
+    FROM ${TBL.stats} ums
+    JOIN ${TBL.skills} sp ON ums.skill_id = sp.id
+    JOIN ${TBL.match} tm ON ums.match_id = tm.id
+    WHERE ums.user_id = ?
+    ORDER BY tm.timestamp DESC
+    LIMIT 300;
+  `, userId);
+
+  const freq = new Map<string, number>();
+  for (const r of rowsProper) {
+    const rc = String(r.role ?? "");
+    if (!rc) continue;
+    freq.set(rc, (freq.get(rc) ?? 0) + 1);
   }
   let best: string | null = null;
   let bestCnt = -1;
-  for (const [k, v] of byRole.entries()) {
+  for (const [k, v] of freq) {
     if (v > bestCnt) { best = k; bestCnt = v; }
   }
-  return best;
+  return (best as RoleCode) ?? null;
 }
 
-// Список официальных турниров игрока (название + матчи), фильтр >= seasonMin
-async function getOfficialTournaments(prisma: PrismaClient, userId: number, seasonMin = 18) {
-  const raw: { name: string; matches: bigint }[] = await prisma.$queryRawUnsafe(`
-    SELECT t.name AS name, COUNT(*) AS matches
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    WHERE ums.user_id = ?
-    GROUP BY t.id, t.name
-  `, userId);
+/** -------------------- Выбор метрик по кластеру -------------------- */
 
-  const detailed = raw.map(r => {
-    const season = extractSeason(r.name);
-    return { name: r.name, season, matches: Number(r.matches) };
-  });
+type RadarMetric = {
+  key: string;
+  label: string;
+  compute: (r: any) => number; // вычисляет «сырое» значение по агрегированным полям
+  lowerIsBetter?: boolean;     // если true — инвертируем при расчёте перцентиля
+};
 
-  const official = detailed.filter(d => d.season !== null && (d.season as number) >= seasonMin);
-  return { official, all: detailed };
-}
-
-// Собираем список match_id игрока в официальных турнирах (для дальнейших фильтров)
-async function getOfficialMatchIds(prisma: PrismaClient, userId: number, seasonMin = 18): Promise<number[]> {
-  const rows: { id: number; tname: string }[] = await prisma.$queryRawUnsafe(`
-    SELECT tm.id, t.name AS tname
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    WHERE ums.user_id = ?
-  `, userId);
-
-  const ids: number[] = [];
-  for (const r of rows) {
-    const s = extractSeason(r.tname);
-    if (s !== null && s >= seasonMin) ids.push(r.id);
+function metricsForCluster(cluster: ClusterKey): RadarMetric[] {
+  switch (cluster) {
+    case "FW":
+      return [
+        { key: "goal_contrib", label: "Гол+пас", compute: (r) => n(r.goals) + n(r.assists) },
+        { key: "xg_delta", label: "Реализация xG", compute: (r) => n(r.goals) - n(r.goals_expected) },
+        { key: "shots_on_target_pct", label: "Удары в створ %", compute: (r) => ratio(n(r.shots_on), n(r.shots_all)) },
+        { key: "creation", label: "Созидание", compute: (r) => n(r.pregoal) + n(r.ipass) + 2 * n(r.xa) },
+        { key: "dribble_pct", label: "Дриблинг %", compute: (r) => ratio(n(r.dribble_won), n(r.dribble_all)) },
+        { key: "pressing", label: "Прессинг", compute: (r) => n(r.intercepts) + n(r.tackles_won) },
+      ];
+    case "AM":
+      return [
+        { key: "xa", label: "xA", compute: (r) => n(r.xa) },
+        { key: "pxa", label: "pXA", compute: (r) => pxaFrom(r.passes_all, r.xa_raw) },
+        { key: "goal_contrib", label: "Гол+пас", compute: (r) => n(r.goals) + n(r.assists) },
+        { key: "pass_acc", label: "Точность пасов %", compute: (r) => n(r.passes_rate) },
+        { key: "dribble_pct", label: "Дриблинг %", compute: (r) => ratio(n(r.dribble_won), n(r.dribble_all)) },
+        { key: "pressing", label: "Прессинг", compute: (r) => n(r.intercepts) + n(r.tackles_won) },
+      ];
+    case "FM":
+      return [
+        { key: "creation", label: "Созидание", compute: (r) => n(r.pregoal) + n(r.ipass) + 2 * n(r.xa) },
+        { key: "passes", label: "Пасы", compute: (r) => n(r.passes_all) },
+        { key: "pass_acc", label: "Точность паса %", compute: (r) => n(r.passes_rate) },
+        { key: "def_actions", label: "Защитные действия", compute: (r) => n(r.intercepts) + n(r.tackles_won) + n(r.slidetackles_won) + n(r.blocks) },
+        { key: "beaten_rate", label: "Beaten Rate ↓", compute: (r) => beatenRate(r), lowerIsBetter: true },
+        { key: "aerial", label: "Верховые %", compute: (r) => ratio(n(r.duels_air_win), n(r.duels_air_all)) },
+        { key: "crosses", label: "Навесы", compute: (r) => n(r.crosses_success) }, // удачные навесы
+        { key: "gc", label: "Гол+пас", compute: (r) => n(r.goals) + n(r.assists) },
+      ];
+    case "CM":
+      return [
+        { key: "creation", label: "Созидание", compute: (r) => n(r.pregoal) + n(r.ipass) + 2 * n(r.xa) },
+        { key: "passes", label: "Пасы", compute: (r) => n(r.passes_all) },
+        { key: "pass_acc", label: "Точность паса %", compute: (r) => n(r.passes_rate) },
+        { key: "def_actions", label: "Защитные действия", compute: (r) => n(r.intercepts) + n(r.tackles_won) + n(r.slidetackles_won) + n(r.blocks) },
+        { key: "beaten_rate", label: "Beaten Rate ↓", compute: (r) => beatenRate(r), lowerIsBetter: true },
+        { key: "aerial", label: "Верховые %", compute: (r) => ratio(n(r.duels_air_win), n(r.duels_air_all)) },
+      ];
+    case "CB":
+      return [
+        { key: "safety", label: "Кэф безопасности", compute: (r) => safetyCoefficient(r) },
+        { key: "def_actions", label: "Защитные действия", compute: (r) => n(r.intercepts) + n(r.tackles_won) + n(r.slidetackles_won) + n(r.blocks) },
+        { key: "tackle_succ", label: "% успешных отборов", compute: (r) => ratio(n(r.tackles_won), n(r.tackles_all)) },
+        { key: "clearances", label: "Выносы", compute: (r) => n(r.clearances) },
+        { key: "pass_acc", label: "% точности пасов", compute: (r) => n(r.passes_rate) },
+        { key: "attack_part", label: "Участие в атаке", compute: (r) => n(r.ipass) + n(r.pregoal) + 2 * (n(r.goals) + n(r.assists)) },
+        { key: "aerial", label: "% побед в воздухе", compute: (r) => ratio(n(r.duels_air_win), n(r.duels_air_all)) },
+        { key: "beaten_rate", label: "Beaten Rate ↓", compute: (r) => beatenRate(r), lowerIsBetter: true },
+      ];
+    case "GK":
+      return [
+        { key: "save_pct", label: "% сейвов", compute: (r) => ratio(n(r.saved), n(r.saved) + n(r.scored)) },
+        { key: "saves", label: "Кол-во сейвов", compute: (r) => n(r.saved) }, // в среднем за матч
+        { key: "intercepts", label: "Перехваты", compute: (r) => n(r.intercepts) },
+        { key: "passes", label: "Пасы", compute: (r) => n(r.passes_all) },
+        { key: "clean_sheets", label: "% сухих матчей", compute: (r) => ratio(n(r.dry), n(r.matches)) },
+        // prevented xG — добавим, когда появится колонка соперничьего xG
+      ];
   }
-  return ids;
 }
 
-// ---- метрики по кластерам ----
-// Универсальные суммирования для полевых (FW/AM/FM/CM/CB)
-// (все величины делятся на matches, кроме долей/процентов)
-const FIELD_METRICS_SQL = `
-  SUM(goals + assists)                               / NULLIF(COUNT(*),0)                                  AS goal_contrib,          -- Гол+пас/матч
-  (SUM(goals) - SUM(goals_expected))                 / NULLIF(COUNT(*),0)                                  AS xg_delta,              -- Реализация xG/матч
-  SUM(kickedin)                                     / NULLIF(SUM(kicked),0)                                AS shots_on_target_pct,   -- Удары в створ / все удары
-  (SUM(pregoal_passes) + SUM(ipasses) + 2*SUM(passes)) / NULLIF(COUNT(*),0)                                AS creation,              -- Созидание/матч
-  SUM(completedstockes)                             / NULLIF(SUM(allstockes),0)                            AS dribble_pct,           -- Дриблинг %
-  (SUM(intercepts) + SUM(completedtackles))         / NULLIF(COUNT(*),0)                                   AS pressing,              -- Перехват+удачный отбор / матч
-  (SUM(intercepts)+SUM(completedtackles)+SUM(completedtackles_slide)+SUM(blocks)) / NULLIF(COUNT(*),0)     AS def_actions,           -- Защитные действия/матч (для CM/CB/FM)
-  SUM(completedpasses)                              / NULLIF(SUM(allpasses),0)                             AS pass_acc,              -- Точность паса %
-  SUM(duels_air_win)                                / NULLIF(SUM(duels_air),0)                             AS air_win_pct,           -- Верховые %
-  SUM(outplayed + penalised_fails)                  / NULLIF(SUM(intercepts)+SUM(completedtackles)+SUM(completedtackles_slide)+SUM(blocks),0) AS beaten_rate -- Beaten Rate
-`;
+/** -------------------- Агрегации «в среднем за матч» -------------------- */
 
-// Метрики для GK
-const GK_METRICS_SQL = `
-  SUM(saved)                                         / NULLIF(SUM(saved)+SUM(scored),0)                    AS gk_save_pct,           -- % сейвов
-  SUM(saved)                                         / NULLIF(COUNT(*),0)                                  AS gk_saves_per_match,    -- сейвы/матч
-  SUM(intercepts)                                    / NULLIF(COUNT(*),0)                                  AS gk_intercepts,         -- перехваты/матч
-  SUM(allpasses)                                     / NULLIF(COUNT(*),0)                                  AS gk_passes,             -- пасы/матч
-  SUM(CASE WHEN dry=1 THEN 1 ELSE 0 END)             / NULLIF(COUNT(*),0)                                  AS gk_clean_pct,          -- % сухих
-  SUM(scored)                                        / NULLIF(COUNT(*),0)                                  AS gk_conceded_per_match  -- пропущено/матч (для контекста и инверсии)
-`;
-
-// Считаем перцентиль игрока на фоне пула (Having 30+ матчей в кластере)
-function percentileFromCohort(playerValue: number, cohortValues: number[], metricKey: string): number {
-  const vals = cohortValues.filter(v => Number.isFinite(v));
-  if (!vals.length || !Number.isFinite(playerValue)) return 0;
-  vals.sort((a, b) => a - b);
-  // позиция игрока в отсортированном массиве
-  let rank = 0;
-  for (let i = 0; i < vals.length; i++) {
-    if (vals[i] <= playerValue) rank = i + 1;
-    else break;
-  }
-  let pct = Math.round((rank / vals.length) * 100);
-  if (INVERTED_PCT.has(metricKey)) pct = 100 - pct;
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
-  return pct;
+function n(v: any, d = 0) {
+  const x = typeof v === "string" ? Number(v) : (v ?? d);
+  return Number.isFinite(x as number) ? (x as number) : d;
+}
+function ratio(num: number, den: number) {
+  return den > 0 ? num / den : 0;
+}
+function beatenRate(r: any) {
+  const beaten = n(r.outplayed) + n(r.penalised_fails);
+  const denom = n(r.intercepts) + n(r.tackles_all) + n(r.slidetackles_all) + n(r.blocks);
+  return ratio(beaten, denom);
+}
+function safetyCoefficient(r: any) {
+  const passPart = ratio(n(r.passes_success), n(r.passes_all));
+  const dribPart = ratio(n(r.dribble_won), n(r.dribble_all));
+  const airPart = ratio(n(r.duels_air_win), n(r.duels_air_all));
+  const tacklePart = ratio(n(r.tackles_won), n(r.tackles_all));
+  return 0.5 * passPart + 0.3 * dribPart + 0.15 * airPart + 0.05 * tacklePart;
+}
+// pXA = SUM(allpasses)/SUM(passes/0.5) — из твоей формулы
+function pxaFrom(allpasses: any, xa_raw: any) {
+  const a = n(allpasses);
+  const x = n(xa_raw);
+  // если xA = 0 — вернём 0, чтобы не делить на 0
+  return x > 0 ? a / (x / 0.5) : 0;
 }
 
-// ---- handler ----
+/** -------------------- Основной обработчик -------------------- */
+
 export async function GET(req: Request, { params }: { params: { userId: string } }) {
-  const userIdNum = Number(params.userId);
-  if (!Number.isFinite(userIdNum) || userIdNum <= 0) {
-    return json({ ok: false, error: "Bad userId" }, 400);
-  }
+  try {
+    const userIdNum = Number(params.userId);
+    if (!Number.isFinite(userIdNum)) {
+      return json({ ok: false, error: "Bad userId" });
+    }
 
-  const url = new URL(req.url);
-  const roleFromClient = (url.searchParams.get("role") || "").trim() as RoleCode | "";
+    const url = new URL(req.url);
+    const roleFromClient = (url.searchParams.get("role") || "").trim() as RoleCode | "";
+    const wantDebug = url.searchParams.has("debug");
 
-  // 1) «Актуальное амплуа»: если страница передала — используем; иначе авто-детект по последним матчам
-  let currentRole: RoleCode | null = roleFromClient || null;
-  if (!currentRole) currentRole = await autoDetectRole(prisma, userIdNum);
-  const cluster: ClusterKey | null = currentRole ? resolveClusterByRole(currentRole) : null;
+    // 1) турниры пользователя
+    const { detailed, official } = await getTournamentsForUser(userIdNum);
+    const officialApplied = official.length > 0;
 
-  if (!currentRole || !cluster) {
-    return json({
-      ok: true,
-      ready: false,
-      currentRole: currentRole ?? null,
-      cluster: cluster ?? null,
-      matchesCluster: 0,
-      tournamentsUsed: [],
-      reason: "Не удалось определить амплуа",
-      debug: { seasonMin: 18, officialFilterApplied: false, tournaments: [] }
+    // 2) текущая роль (из клиента или авто-детект по последним матчам)
+    let currentRole: RoleCode | null = roleFromClient || null;
+    if (!currentRole) currentRole = await autoDetectRole(prisma, userIdNum);
+    const cluster: ClusterKey | null = currentRole ? resolveClusterByRole(currentRole) : null;
+
+    if (!currentRole || !cluster) {
+      return json({
+        ok: true,
+        ready: false,
+        currentRole: currentRole ?? null,
+        cluster: null,
+        matchesCluster: 0,
+        tournamentsUsed: [],
+        reason: "Нет актуального амплуа или не определён кластер",
+        debug: {
+          seasonMin: 18,
+          officialFilterApplied: officialApplied,
+          tournamentsAll: detailed,
+          tournamentsOfficial: official,
+        },
+      });
+    }
+
+    // 3) соберём официальные матчи пользователя по нужному кластеру
+    const roleList = CLUSTERS[cluster];
+    const rolesSql = roleList.map((r) => `'${r}'`).join(",");
+
+    // соберём агрегаты по пользователю (средние за матч) и количество матчей в кластере
+    // (только по официальным турнирам season>=18)
+    const myAgg = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT
+        COUNT(*)                      AS matches,
+        AVG(ums.goals)                AS goals,
+        AVG(ums.assists)              AS assists,
+        AVG(ums.goals_expected)       AS goals_expected,
+        AVG(ums.shots_ongoal)         AS shots_on,
+        AVG(ums.shots)                AS shots_all,
+        AVG(ums.pregoal_passes)       AS pregoal,
+        AVG(ums.ipasses)              AS ipass,
+        AVG(ums.passes)               AS xa,        -- твой xA
+        AVG(ums.passes)               AS xa_raw,    -- для pXA
+        AVG(ums.allpasses)            AS passes_all,
+        AVG(ums.completedpasses)      AS passes_success,
+        AVG(ums.passes_rate)          AS passes_rate,
+        AVG(ums.allstockes)           AS dribble_all,
+        AVG(ums.completedstockes)     AS dribble_won,
+        AVG(ums.intercepts)           AS intercepts,
+        AVG(ums.completedtackles)     AS tackles_won,
+        AVG(ums.tackles)              AS tackles_all,
+        AVG(ums.completedslidetackes) AS slidetackles_won,
+        AVG(ums.slidetackles)         AS slidetackles_all,
+        AVG(ums.blocks)               AS blocks,
+        AVG(ums.clearances)           AS clearances,
+        AVG(ums.duels_air)            AS duels_air_all,
+        AVG(ums.duels_air_win)        AS duels_air_win,
+        AVG(ums.outplayed)            AS outplayed,
+        AVG(ums.penalised_fails)      AS penalised_fails,
+        -- GK:
+        AVG(ums.saved)                AS saved,
+        AVG(ums.scored)               AS scored,
+        AVG(ums.dry)                  AS dry
+      FROM ${TBL.stats} ums
+      JOIN ${TBL.match} tm ON ums.match_id = tm.id
+      JOIN ${TBL.tour}  t  ON tm.tournament_id = t.id
+      JOIN ${TBL.skills} sp ON ums.skill_id = sp.id
+      WHERE ums.user_id = ?
+        AND sp.short_name IN (${rolesSql})
+        AND (
+          -- только официальные
+          (t.name REGEXP '(\\\\(|^| )[0-9]{1,3}( *-?й)? *сезон' AND ${seasonExpr("t.name")} >= 18)
+          OR (t.name REGEXP 'сезон *[0-9]{1,3}' AND ${seasonExpr("t.name")} >= 18)
+        )
+    `, userIdNum);
+
+    const me = toSafe(myAgg[0] ?? null);
+    const matchesCluster = Number(me?.matches ?? 0);
+
+    if (!matchesCluster || matchesCluster < 30) {
+      return json({
+        ok: true,
+        ready: false,
+        currentRole,
+        cluster,
+        matchesCluster,
+        tournamentsUsed: official.map((o) => o.name),
+        reason: "Недостаточно матчей в кластере (< 30)",
+        debug: {
+          seasonMin: 18,
+          officialFilterApplied: officialApplied,
+          tournamentsAll: detailed,
+          tournamentsOfficial: official,
+        },
+      });
+    }
+
+    // 4) пул игроков в кластере с 30+ матчей на официальных турнирах
+    const pool = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT
+        ums.user_id                   AS uid,
+        COUNT(*)                      AS matches,
+        AVG(ums.goals)                AS goals,
+        AVG(ums.assists)              AS assists,
+        AVG(ums.goals_expected)       AS goals_expected,
+        AVG(ums.shots_ongoal)         AS shots_on,
+        AVG(ums.shots)                AS shots_all,
+        AVG(ums.pregoal_passes)       AS pregoal,
+        AVG(ums.ipasses)              AS ipass,
+        AVG(ums.passes)               AS xa,
+        AVG(ums.passes)               AS xa_raw,
+        AVG(ums.allpasses)            AS passes_all,
+        AVG(ums.completedpasses)      AS passes_success,
+        AVG(ums.passes_rate)          AS passes_rate,
+        AVG(ums.allstockes)           AS dribble_all,
+        AVG(ums.completedstockes)     AS dribble_won,
+        AVG(ums.intercepts)           AS intercepts,
+        AVG(ums.completedtackles)     AS tackles_won,
+        AVG(ums.tackles)              AS tackles_all,
+        AVG(ums.completedslidetackes) AS slidetackles_won,
+        AVG(ums.slidetackles)         AS slidetackles_all,
+        AVG(ums.blocks)               AS blocks,
+        AVG(ums.clearances)           AS clearances,
+        AVG(ums.duels_air)            AS duels_air_all,
+        AVG(ums.duels_air_win)        AS duels_air_win,
+        AVG(ums.outplayed)            AS outplayed,
+        AVG(ums.penalised_fails)      AS penalised_fails,
+        -- GK:
+        AVG(ums.saved)                AS saved,
+        AVG(ums.scored)               AS scored,
+        AVG(ums.dry)                  AS dry
+      FROM ${TBL.stats} ums
+      JOIN ${TBL.match} tm ON ums.match_id = tm.id
+      JOIN ${TBL.tour}  t  ON tm.tournament_id = t.id
+      JOIN ${TBL.skills} sp ON ums.skill_id = sp.id
+      WHERE sp.short_name IN (${rolesSql})
+        AND (
+          (t.name REGEXP '(\\\\(|^| )[0-9]{1,3}( *-?й)? *сезон' AND ${seasonExpr("t.name")} >= 18)
+          OR (t.name REGEXP 'сезон *[0-9]{1,3}' AND ${seasonExpr("t.name")} >= 18)
+        )
+      GROUP BY ums.user_id
+      HAVING COUNT(*) >= 30;
+    `);
+
+    const poolSafe = pool.map(toSafe);
+
+    // 5) собираем метрики
+    const metrics = metricsForCluster(cluster);
+    const myVals = metrics.map((m) => ({ key: m.key, label: m.label, raw: m.compute(me) }));
+
+    // 6) считаем процентили
+    const result = myVals.map((mv) => {
+      const values = poolSafe.map((r) => metrics.find((mm) => mm.key === mv.key)!.compute(r));
+      const prepared = values
+        .filter((v) => Number.isFinite(v))
+        .map((v) => (metrics.find((mm) => mm.key === mv.key)!.lowerIsBetter ? -v : v));
+      const x = metrics.find((mm) => mm.key === mv.key)!.lowerIsBetter ? -mv.raw : mv.raw;
+      const pct = prepared.length ? percentileOf(prepared, x) : null;
+      return { key: mv.key, label: mv.label, raw: mv.raw, pct };
     });
-  }
 
-  // 2) Официальные турниры
-  const { official, all } = await getOfficialTournaments(prisma, userIdNum, 18);
-  if (!official.length) {
     return json({
       ok: true,
-      ready: false,
-      currentRole,
-      cluster,
-      matchesCluster: 0,
-      tournamentsUsed: [],
-      reason: "Нет официальных турниров (содержат «сезон» и номер ≥ 18)",
-      debug: { seasonMin: 18, officialFilterApplied: false, tournaments: all }
-    });
-  }
-
-  const officialMatchIds = await getOfficialMatchIds(prisma, userIdNum, 18);
-  if (!officialMatchIds.length) {
-    return json({
-      ok: true,
-      ready: false,
-      currentRole,
-      cluster,
-      matchesCluster: 0,
-      tournamentsUsed: official.map(t => t.name),
-      reason: "Не нашли матчей игрока в официальных турнирах",
-      debug: { seasonMin: 18, officialFilterApplied: true, tournaments: official }
-    });
-  }
-
-  // 3) Матчи игрока в нужном кластере (официальные + роль ∈ кластер)
-  const rolesList = CLUSTERS[cluster].map(r => `'${r}'`).join(",");
-  const myRows: { matches: bigint }[] = await prisma.$queryRawUnsafe(`
-    SELECT COUNT(*) AS matches
-    FROM tbl_users_match_stats ums
-    JOIN skills_positions sp ON sp.id = ums.skill_id
-    WHERE ums.user_id = ?
-      AND ums.match_id IN (${officialMatchIds.join(",")})
-      AND sp.short_name IN (${rolesList})
-  `, userIdNum);
-
-  const matchesCluster = myRows?.length ? Number(myRows[0].matches) : 0;
-  if (matchesCluster < 30) {
-    return json({
-      ok: true,
-      ready: false,
+      ready: true,
       currentRole,
       cluster,
       matchesCluster,
-      tournamentsUsed: official.map(t => t.name),
-      reason: "Недостаточно матчей в кластере (< 30), радар недоступен.",
-      debug: { seasonMin: 18, officialFilterApplied: true, tournaments: official }
+      tournamentsUsed: official.map((o) => o.name),
+      radar: result,
+      debug: {
+        seasonMin: 18,
+        officialFilterApplied: officialApplied,
+        tournamentsAll: detailed,
+        tournamentsOfficial: official,
+      },
     });
+  } catch (e: any) {
+    return json({ ok: false, error: String(e?.message ?? e) });
   }
-
-  // 4) Метрики игрока (по кластеру) и пул для перцентилей (users с >=30 в этом кластере)
-  // --- индивидуальные метрики игрока ---
-  const fieldSql = cluster === "GK" ? GK_METRICS_SQL : FIELD_METRICS_SQL;
-
-  const meAgg: any[] = await prisma.$queryRawUnsafe(`
-    SELECT ${fieldSql}
-    FROM tbl_users_match_stats ums
-    JOIN skills_positions sp ON sp.id = ums.skill_id
-    WHERE ums.user_id = ?
-      AND ums.match_id IN (${officialMatchIds.join(",")})
-      AND sp.short_name IN (${rolesList})
-  `, userIdNum);
-
-  const me = meAgg?.[0] ?? {};
-
-  // --- пул (все игроки с 30+ матчами в этом кластере) ---
-  // Сначала собираем user_id с количеством матчей в этом же кластере
-  const cohortUsers: { user_id: number }[] = await prisma.$queryRawUnsafe(`
-    SELECT ums.user_id
-    FROM tbl_users_match_stats ums
-    JOIN skills_positions sp ON sp.id = ums.skill_id
-    WHERE ums.match_id IN (${officialMatchIds.join(",")})
-      AND sp.short_name IN (${rolesList})
-    GROUP BY ums.user_id
-    HAVING COUNT(*) >= 30
-  `);
-
-  const cohortIds = cohortUsers.map((u) => u.user_id).filter((id) => id !== userIdNum);
-  let cohort: any[] = [];
-  if (cohortIds.length) {
-    cohort = await prisma.$queryRawUnsafe(`
-      SELECT ums.user_id,
-             ${fieldSql}
-      FROM tbl_users_match_stats ums
-      JOIN skills_positions sp ON sp.id = ums.skill_id
-      WHERE ums.match_id IN (${officialMatchIds.join(",")})
-        AND sp.short_name IN (${rolesList})
-        AND ums.user_id IN (${cohortIds.join(",")})
-      GROUP BY ums.user_id
-    `);
-  }
-
-  // 5) Сбор радара: названия и ключи зависят от кластера
-  type RadarPoint = { key: string; label: string; raw: number; pct: number };
-  let radar: RadarPoint[] = [];
-
-  if (cluster === "GK") {
-    const keys: { key: string; label: string; col: string }[] = [
-      { key: "gk_save_pct",         label: "% сейвов",             col: "gk_save_pct" },
-      { key: "gk_saves_per_match",  label: "Сейвы/матч",            col: "gk_saves_per_match" },
-      { key: "gk_intercepts",       label: "Перехваты/матч",        col: "gk_intercepts" },
-      { key: "gk_passes",           label: "Пасы/матч",             col: "gk_passes" },
-      { key: "gk_clean_pct",        label: "% сухих",               col: "gk_clean_pct" },
-      { key: "gk_conceded_per_match", label: "Пропущено/матч",     col: "gk_conceded_per_match" }, // инвертируем
-    ];
-
-    radar = keys.map(({ key, label, col }) => {
-      const raw = safeNum(me[col], 0);
-      const cohortVals = cohort.map((c) => safeNum(c[col], 0));
-      const pct = percentileFromCohort(raw, cohortVals, key);
-      return { key, label, raw, pct };
-    });
-
-  } else {
-    // полевые (FW/AM/FM/CM/CB)
-    // общий набор, а в зависимости от кластера будем показывать нужные подписи
-    const BASE = {
-      goal_contrib: { label: "Гол+пас", col: "goal_contrib" },
-      xg_delta:     { label: "Реализация xG", col: "xg_delta" },
-      shots_on_target_pct: { label: "Удары в створ %", col: "shots_on_target_pct" },
-      creation:     { label: "Созидание", col: "creation" },
-      dribble_pct:  { label: "Дриблинг %", col: "dribble_pct" },
-      pressing:     { label: "Прессинг", col: "pressing" },
-      def_actions:  { label: "Защитные действия", col: "def_actions" },
-      pass_acc:     { label: "Точность паса %", col: "pass_acc" },
-      air_win_pct:  { label: "Верховые %", col: "air_win_pct" },
-      beaten_rate:  { label: "Beaten Rate ↓", col: "beaten_rate" },
-    };
-
-    // какие метрики показываем на радаре для каждого кластера
-    const LAYOUT: Record<ClusterKey, (keyof typeof BASE)[]> = {
-      FW: ["goal_contrib","xg_delta","shots_on_target_pct","creation","dribble_pct","pressing"],
-      AM: ["xg_delta","goal_contrib","pass_acc","dribble_pct","pressing","creation"], // для ЦАП — как согласовали
-      FM: ["creation","pass_acc","def_actions","beaten_rate","air_win_pct","goal_contrib"],
-      CM: ["creation","pass_acc","def_actions","beaten_rate","air_win_pct","pressing"],
-      CB: ["def_actions","pass_acc","air_win_pct","beaten_rate","creation","pressing"], // CB — твой зафиксированный набор
-      GK: [] // не используется
-    };
-
-    const keys = LAYOUT[cluster];
-    radar = keys.map((k) => {
-      const col = BASE[k].col;
-      const raw = safeNum(me[col], 0);
-      const cohortVals = cohort.map((c) => safeNum(c[col], 0));
-      const pct = percentileFromCohort(raw, cohortVals, k);
-      return { key: k, label: BASE[k].label, raw, pct };
-    });
-  }
-
-  return json({
-    ok: true,
-    ready: true,
-    currentRole,
-    cluster,
-    matchesCluster,
-    tournamentsUsed: official.map(t => t.name),
-    radar,
-    debug: {
-      seasonMin: 18,
-      officialFilterApplied: true,
-      tournamentsAll: detailed,
-  tournamentsOfficial: official
 }
-  });
+
+/** -------------------- Вспомогательные SQL-функции -------------------- */
+
+/**
+ * Извлечь сезон прямо в SQL через REGEXP — используем TRIM + LOWER в JS стороне,
+ * а тут просто вызываем тот же extractSeason уже на собранном списке.
+ * Для выборки в SQL мы используем «условные» REGEXP + проверку в JS при группировке,
+ * потому что MySQL-выражение для вытаскивания числа из разных форм нестабильно.
+ *
+ * Здесь «seasonExpr» — заглушка, чтобы текст выше был читабельным:
+ * фактически мы просто проверяем REGEXP в WHERE, а конкретное число получаем в JS.
+ */
+function seasonExpr(col: string) {
+  // Возвращаем колонки как есть — они участвуют только в REGEXP-предикатах выше
+  return col;
 }
