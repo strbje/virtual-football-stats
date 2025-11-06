@@ -45,13 +45,13 @@ const RADAR_BY_CLUSTER: Record<ClusterKey, string[]> = {
   FM: ["creation", "passes", "pass_acc", "def_actions", "beaten_rate", "aerial_pct", "crosses", "goal_contrib"],
   CM: ["creation", "passes", "pass_acc", "def_actions", "beaten_rate", "aerial_pct"],
   CB: ["safety_coef", "def_actions", "tackle_success", "clearances", "pass_acc", "attack_participation", "aerial_pct", "beaten_rate"],
-  GK: ["saves_pct", "saves_avg", "intercepts_avg", "passes_avg", "clean_sheets_pct", "prevented_xg"],
+  GK: ["saves_pct", "saves_avg", "intercepts", "passes", "clean_sheets_pct", "prevented_xg"],
 };
 
 function resolveClusterByRole(role: string): ClusterKey | null {
   // TS не вывозит тип элемента из CLUSTERS[k], подскажем явно
   for (const k of Object.keys(CLUSTERS) as ClusterKey[]) {
-    const roles = CLUSTERS[k] as readonly string[]; // 👈 подсказали тип
+    const roles = CLUSTERS[k] as readonly string[]; // 
     if (roles.includes(role)) return k;
   }
   return null;
@@ -169,68 +169,72 @@ function buildCohortSQLCommon(roleCodesSQL: string) {
 // -----------------------------
 // SQL ДЛЯ GK
 // -----------------------------
-function buildCohortSQLGK() {
-  const roleCodesSQL = `'ВРТ'`;
-  return `
-    WITH base AS (
-      SELECT
-        ums.user_id,
-        ums.team_id,
-        ums.match_id,
-        ${XG_EXPR}               AS goal_expected,
-        ums.saved,
-        ums.scored,
-        ums.intercepts,
-        ums.allpasses,
-        ums.dry
-      FROM tbl_users_match_stats ums
-      INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      INNER JOIN tournament t ON tm.tournament_id = t.id
-      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-      WHERE fp.code IN (${roleCodesSQL})
-        ${OFFICIAL_FILTER}
-    ),
-    opp_base AS (
-      SELECT
-        b1.user_id,
-        b1.team_id,
-        b1.match_id,
-        SUM(b2.goals_expected) AS opp_xg
-      FROM base b1
-      JOIN base b2
-        ON b2.match_id = b1.match_id
-       AND b2.team_id <> b1.team_id
-      GROUP BY b1.user_id, b1.team_id, b1.match_id
-    ),
-    per_user AS (
-      SELECT
-        b.user_id,
-        COUNT(DISTINCT b.match_id)                             AS matches,
-        SUM(b.saved)                                           AS saved,
-        SUM(b.scored)                                          AS scored,
-        SUM(b.intercepts)                                      AS intercepts,
-        SUM(b.allpasses)                                       AS allpasses,
-        SUM(CASE WHEN b.dry = 1 THEN 1 ELSE 0 END)             AS dry_matches,
-        SUM(ob.opp_xg)                                         AS opp_xg
-      FROM base b
-      LEFT JOIN opp_base ob
-        ON ob.user_id = b.user_id AND ob.match_id = b.match_id AND ob.team_id = b.team_id
-      GROUP BY b.user_id
-      HAVING COUNT(*) >= 30
-    )
+const COHORT_SQL = `
+  WITH base AS (
+    SELECT
+      ums.user_id,
+      ums.match_id,
+      ums.team_id,
+
+      /* xG соперника в этом матче: ровно один агрегат → одна колонка */
+      COALESCE((
+        SELECT SUM(u2.${XG_EXPR})
+        FROM tbl_users_match_stats u2
+        WHERE u2.match_id = ums.match_id
+          AND u2.team_id <> ums.team_id
+      ), 0) AS opp_xg,
+
+      /* события вратаря */
+      ums.saved,                  -- сейвы
+      ums.scored,                 -- пропущенные (голы соперника)
+      ums.intercepts,             -- перехваты
+      ums.allpasses,              -- пасы (все)
+      ums.dry                     -- сухой матч (0/1)
+    FROM tbl_users_match_stats ums
+    INNER JOIN tournament_match tm ON ums.match_id = tm.id
+    INNER JOIN tournament t        ON tm.tournament_id = t.id
+    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+    WHERE fp.code IN ('ВРТ')
+      ${OFFICIAL_FILTER}
+  ),
+  per_user AS (
     SELECT
       user_id,
-      (matches * 1.0)                                        AS matches,
-      (saved / NULLIF(saved + scored, 0)) * 1.0              AS saves_pct,
-      (saved / NULLIF(matches, 0)) * 1.0                     AS saves_avg,
-      (intercepts / NULLIF(matches, 0)) * 1.0                AS intercepts_avg,
-      (allpasses / NULLIF(matches, 0)) * 1.0                 AS passes_avg,
-      (dry_matches / NULLIF(matches, 0)) * 1.0               AS clean_sheets_pct,
-      ((opp_xg - scored) / NULLIF(matches, 0)) * 1.0         AS prevented_xg
-    FROM per_user
-    LIMIT 20000
-  `;
-}
+      CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
+      SUM(opp_xg)   AS opp_xg,
+      SUM(scored)   AS conceded,
+      SUM(saved)    AS saved,
+      SUM(intercepts) AS intercepts,
+      SUM(allpasses)  AS allpasses,
+      SUM(dry)      AS dry_matches
+    FROM base
+    GROUP BY user_id
+  )
+  SELECT
+    user_id,
+    (matches * 1.0) AS matches,
+
+    /* % сейвов = saved / (saved + conceded) */
+    (saved / NULLIF(saved + conceded, 0)) * 1.0 AS save_pct,
+
+    /* кол-во сейвов за матч */
+    (saved / NULLIF(matches, 0)) * 1.0          AS saves_avg,
+
+    /* перехваты за матч */
+    (intercepts / NULLIF(matches, 0)) * 1.0      AS intercepts,
+
+    /* пасы за матч */
+    (allpasses / NULLIF(matches, 0)) * 1.0       AS passes,
+
+    /* % сухих матчей */
+    (dry_matches / NULLIF(matches, 0)) * 1.0     AS clean_sheets_pct,
+
+    /* предотвращённый xG за матч (может быть < 0) */
+    ((opp_xg - conceded) / NULLIF(matches, 0)) * 1.0 AS prevented_xg
+  FROM per_user
+  WHERE matches >= 30  /* пул для перцентилей: только 30+ матчей */
+  LIMIT 20000
+`;
 
 // -----------------------------
 // ХЭНДЛЕР
@@ -338,8 +342,8 @@ export async function GET(_: Request, { params }: { params: { userId: string } }
         // GK:
         .replace("saves_pct", "% сейвов")
         .replace("saves_avg", "Сейвы/матч")
-        .replace("intercepts_avg", "Перехваты/матч")
-        .replace("passes_avg", "Пасы/матч")
+        .replace("intercepts", "Перехваты/матч")
+        .replace("passes", "Пасы/матч")
         .replace("clean_sheets_pct", "% сухих матчей")
         .replace("prevented_xg", "Предотвращённый xG/матч");
 
