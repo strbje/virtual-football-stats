@@ -5,13 +5,13 @@ import prisma from "@/lib/prisma";
 // Кластеры амплуа (добавлен GK)
 // -------------------------------
 const CLUSTERS = {
-  FW: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"],
-  AM: ["ЦАП", "ЦП", "ЛЦП", "ПЦП", "ЛАП", "ПАП"],
-  FM: ["ЛП", "ПП"],
-  CM: ["ЦП", "ЦОП", "ЛЦП", "ПЦП", "ЛОП", "ПОП"],
-  CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
-  GK: ["ВРТ"], // [GK+] добавили
-} as const;
+  FW: ["ФРВ","ЦФД","ЛФД","ПФД","ЛФА","ПФА"],
+  AM: ["ЦАП","ЦП","ЛЦП","ПЦП","ЛАП","ПАП"],
+  FM: ["ЛП","ПП"],
+  CM: ["ЦП","ЦОП","ЛЦП","ПЦП","ЛОП","ПОП"],
+  CB: ["ЦЗ","ЛЦЗ","ПЦЗ","ЛЗ","ПЗ"],
+  GK: ["ВРТ"],
+} as const satisfies Record<string, readonly string[]>;
 
 type ClusterKey = keyof typeof CLUSTERS;
 type RoleCode = typeof CLUSTERS[ClusterKey][number];
@@ -20,7 +20,8 @@ type RoleCode = typeof CLUSTERS[ClusterKey][number];
 function resolveClusterByRole(role: string): ClusterKey | null {
   const keys = Object.keys(CLUSTERS) as ClusterKey[];
   for (const k of keys) {
-    if (CLUSTERS[k].includes(role as RoleCode)) return k;
+    const arr = CLUSTERS[k] as readonly string[];
+    if (arr.includes(role)) return k;
   }
   return null;
 }
