@@ -109,16 +109,20 @@ if (!currentRole) {
 }
 
 // 3) если всё ещё нет — аккуратно выходим (как у тебя было)
-if (!currentRole) {
+const cluster = resolveClusterByRole(currentRole as RoleCode);
+
+if (!cluster) {
   return NextResponse.json({
-    ok: true, ready: false,
-    currentRole: null, cluster: null, matchesCluster: 0, tournamentsUsed: [],
-    reason: "Не удалось определить актуальное амплуа",
+    ok: true,
+    ready: false,
+    currentRole,
+    cluster: null,
+    matchesCluster: 0,
+    tournamentsUsed: [],
+    reason: "Амплуа не входит в известные кластеры",
     debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
   });
-}
 
-const cluster = resolveClusterByRole(currentRole as RoleCode);
 const roleCodes = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
 
     // -------------------------------
