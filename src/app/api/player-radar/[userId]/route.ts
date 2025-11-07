@@ -69,45 +69,71 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     }
     const userIdNum = Number(userId);
 
-    // текущая роль (как и раньше — читаем из query ?role=... или из твоей логики)
-    const roleFromClient = url.searchParams.get("role"); // если страница её пробрасывает
-    let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
+   // текущая роль (как и раньше — читаем из query ?role=...)
+const roleFromClient = url.searchParams.get("role");
+let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
 
-    // Если страница не пробросила роль — можешь оставить свою авто-детекцию или подтягивание извне
-    // Здесь не навязываю: если у тебя была функция autoDetectRole(...) — просто оставь её вызов:
-    // if (!currentRole) currentRole = await autoDetectRole(prisma, userIdNum);
+// 1) авто-детект роли по последним 30 матчам БЕЗ фильтра «официальных»
+async function autoDetectRole(prisma: any, userId: number): Promise<string | null> {
+  // Берём ленту последних 30 матчей и вытаскиваем шорт-код амплуа
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT sp.short_name AS role
+    FROM tbl_users_match_stats ums
+    INNER JOIN tournament_match tm ON ums.match_id = tm.id
+    INNER JOIN skills_positions  sp ON ums.skill_id = sp.id
+    WHERE ums.user_id = ${userId}
+    ORDER BY tm.timestamp DESC
+    LIMIT 30
+  `);
 
-    // Если всё ещё нет, завершаем с понятным ответом
-    if (!currentRole) {
-      return NextResponse.json({
-        ok: true,
-        ready: false,
-        currentRole: null,
-        cluster: null,
-        matchesCluster: 0,
-        tournamentsUsed: [],
-        reason: "Не удалось определить актуальное амплуа",
-        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
-      });
-    }
+  // На приложении находим модальное амплуа
+  const map = new Map<string, number>();
+  for (const r of rows as any[]) {
+    const role = String(r.role);
+    map.set(role, (map.get(role) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCnt = -1;
+  for (const [role, cnt] of map.entries()) {
+    if (cnt > bestCnt) { best = role; bestCnt = cnt; }
+  }
+  return best;
+}
 
-    const cluster = resolveClusterByRole(currentRole);
-    if (!cluster) {
-      return NextResponse.json({
-        ok: true,
-        ready: false,
-        currentRole,
-        cluster: null,
-        matchesCluster: 0,
-        tournamentsUsed: [],
-        reason: "Амплуа не входит в известные кластеры",
-        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
-      });
-    }
+// 2) если клиент роль не передал — определяем сами
+if (!currentRole) {
+  currentRole = await autoDetectRole(prisma, userIdNum) as RoleCode | null;
+}
 
-    const roleCodes = CLUSTERS[cluster]
-      .map((r) => `'${r.replace(/'/g, "''")}'`)
-      .join(",");
+// 3) если всё ещё нет — аккуратно выходим (как у тебя было)
+if (!currentRole) {
+  return NextResponse.json({
+    ok: true,
+    ready: false,
+    currentRole: null,
+    cluster: null,
+    matchesCluster: 0,
+    tournamentsUsed: [],
+    reason: "Не удалось определить актуальное амплуа",
+    debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+  });
+}
+
+const cluster = resolveClusterByRole(currentRole);
+if (!cluster) {
+  return NextResponse.json({
+    ok: true,
+    ready: false,
+    currentRole,
+    cluster: null,
+    matchesCluster: 0,
+    tournamentsUsed: [],
+    reason: "Амплуа не входит в известные кластеры",
+    debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+  });
+}
+
+const roleCodes = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
 
     // -------------------------------
     // 1) Список «официальных» турниров для пользователя (как у тебя работало)
