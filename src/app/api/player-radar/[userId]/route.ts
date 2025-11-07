@@ -58,6 +58,8 @@ function resolveClusterByRole(role: string): ClusterKey | null {
 }
 
 const XG_EXPR = "ums.goals_expected";
+const roles = CLUSTERS[cluster];                  // например: ['ЛФД','ПФД','ЦФД', ...]
+const roleCodesSQL = roles.map(r => `'${r}'`).join(','); // "'ЛФД','ПФД','ЦФД',..."
 
 // -----------------------------
 // ФИЛЬТР ОФИЦИАЛЬНЫХ ТУРНИРОВ (>=18 сезона)
@@ -86,85 +88,80 @@ async function fetchCurrentRole(userId: number): Promise<string | null> {
 // -----------------------------
 // SQL ДЛЯ КЛАСТЕРОВ (кроме GK)
 // -----------------------------
-function buildCohortSQLCommon(roleCodesSQL: string) {
-  return `
-    WITH base AS (
-      SELECT
-        ums.user_id,
-        ums.match_id,
-        ${XG_EXPR} AS goal_expected,
-        ums.goals, ums.assists,
-        ums.kicked, ums.kickedin,
-        ums.passes        AS xa_part,
-        ums.allpasses, ums.completedpasses, ums.passes_rate,
-        ums.ipasses, ums.pregoal_passes,
-        ums.allstockes, ums.completedstockes,
-        ums.intercepts,
-        ums.allselection, ums.selection,
-        ums.completedtackles,
-        ums.blocks,
-        ums.outs,
-        ums.outplayed, ums.penalised_fails,
-        ums.duels_air, ums.duels_air_win,
-        ums.crosses
-      FROM tbl_users_match_stats ums
-      INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      INNER JOIN tournament t ON tm.tournament_id = t.id
-      INNER JOIN skills_positions sp ON ums.skill_id = sp.id
-      WHERE sp.short_name IN (${roleCodesSQL})
-        ${OFFICIAL_FILTER}
-    ),
-    per_user AS (
-      SELECT
-        user_id,
-        CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
-        SUM(goals) AS goals, SUM(assists) AS assists,
-        SUM(goals_expected) AS xg,
-        SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
-        SUM(xa_part) AS xa,
-        SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
-        SUM(ipasses) AS ipasses, SUM(pregoal_passes) AS pregoals,
-        SUM(allstockes) AS allstockes, SUM(completedstockes) AS completedstockes,
-        SUM(intercepts) AS intercepts,
-        SUM(allselection) AS allselection, SUM(selection) AS selection,
-        SUM(completedtackles) AS completedtackles,
-        SUM(blocks) AS blocks,
-        SUM(outs) AS outs,
-        SUM(outplayed) + SUM(penalised_fails) AS beaten,
-        SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
-        SUM(crosses) AS crosses
-      FROM base
-      GROUP BY user_id
-      HAVING COUNT(*) >= 30
-    )
+const AGG_SQL = `
+  WITH base AS (
     SELECT
-      user_id,
-      (matches * 1.0)                                        AS matches,
-      ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
-      ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
-      (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
-      ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
-      (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
-      ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
-      (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
-      (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
-      (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
-      (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
-      ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
-      ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
-      (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
-      (crosses / NULLIF(matches,0)) * 1.0                    AS crosses,
-      (0.5*(completedpasses/NULLIF(allpasses,0))
-        +0.3*(completedstockes/NULLIF(allstockes,0))
-        +0.15*(duels_air_win/NULLIF(duels_air,0))
-        +0.05*(selection/NULLIF(allselection,0))) * 1.0      AS safety_coef,
-      (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
-      (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
-      ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
-    FROM per_user
-    LIMIT 20000
-  `;
-}
+      ums.user_id,
+      ums.match_id,
+      ${XG_EXPR} AS goal_expected,
+      ums.goals, ums.assists,
+      ums.kicked, ums.kickedin,
+      ums.passes        AS xa_part,
+      ums.allpasses, ums.completedpasses, ums.passes_rate,
+      ums.ipasses, ums.pregoal_passes,
+      ums.allstockes, ums.completedstockes,
+      ums.intercepts,
+      ums.allselection, ums.selection,
+      ums.completedtackles,
+      ums.blocks,
+      ums.outs,
+      ums.outplayed, ums.penalised_fails,
+      ums.duels_air, ums.duels_air_win,
+      ums.crosses,
+      t.name AS tournament_name
+    FROM tbl_users_match_stats ums
+    INNER JOIN tournament_match tm ON ums.match_id = tm.id
+    INNER JOIN tournament t        ON tm.tournament_id = t.id
+    LEFT  JOIN skills_positions sp ON ums.skill_id = sp.id
+    /* НЕ используем fp.code здесь, он и даёт «0» в новых сезонах */
+    WHERE ums.user_id = ${userIdNum}
+      AND sp.short_name IN (${roleCodesSQL})
+      ${OFFICIAL_FILTER}
+  ),
+  agg AS (
+    SELECT
+      CAST(COUNT(DISTINCT match_id) AS UNSIGNED)    AS matches,
+      SUM(goals) AS goals, SUM(assists) AS assists,
+      SUM(goal_expected) AS xg,
+      SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
+      SUM(xa_part) AS xa,
+      SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
+      SUM(ipasses) AS ipasses, SUM(pregoal_passes) AS pregoals,
+      SUM(allstockes) AS allstockes, SUM(completedstockes) AS completedstockes,
+      SUM(intercepts) AS intercepts,
+      SUM(allselection) AS allselection, SUM(selection) AS selection,
+      SUM(completedtackles) AS completedtackles,
+      SUM(blocks) AS blocks,
+      SUM(outs) AS outs,
+      SUM(outplayed) + SUM(penalised_fails) AS beaten,
+      SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
+      SUM(crosses) AS crosses
+    FROM base
+  )
+  SELECT
+    matches * 1.0                         AS matches,
+    ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
+    ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
+    (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
+    ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
+    (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
+    ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
+    (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
+    (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
+    (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
+    (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
+    ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
+    ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
+    (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
+    (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
+    (0.5*(completedpasses/NULLIF(allpasses,0))
+     +0.3*(completedstockes/NULLIF(allstockes,0))
+     +0.15*(duels_air_win/NULLIF(duels_air,0))
+     +0.05*(selection/NULLIF(allselection,0))) * 1.0       AS safety_coef,
+    (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
+    (outs / NULLIF(matches,0)) * 1.0                       AS clearances
+  FROM agg
+`;
 
 // -----------------------------
 // SQL ДЛЯ GK
@@ -174,65 +171,75 @@ const COHORT_SQL = `
     SELECT
       ums.user_id,
       ums.match_id,
-      ums.team_id,
-
-      /* xG соперника в этом матче: ровно один агрегат → одна колонка */
-      COALESCE((
-        SELECT SUM(${XG_EXPR})
-        FROM tbl_users_match_stats u2
-        WHERE u2.match_id = ums.match_id
-          AND u2.team_id <> ums.team_id
-      ), 0) AS opp_xg,
-
-      /* события вратаря */
-      ums.saved,                  -- сейвы
-      ums.scored,                 -- пропущенные (голы соперника)
-      ums.intercepts,             -- перехваты
-      ums.allpasses,              -- пасы (все)
-      ums.dry                     -- сухой матч (0/1)
+      ${XG_EXPR} AS goal_expected,
+      ums.goals, ums.assists,
+      ums.kicked, ums.kickedin,
+      ums.passes        AS xa_part,
+      ums.allpasses, ums.completedpasses, ums.passes_rate,
+      ums.ipasses, ums.pregoal_passes,
+      ums.allstockes, ums.completedstockes,
+      ums.intercepts,
+      ums.allselection, ums.selection,
+      ums.completedtackles,
+      ums.blocks,
+      ums.outs,
+      ums.outplayed, ums.penalised_fails,
+      ums.duels_air, ums.duels_air_win,
+      ums.crosses
     FROM tbl_users_match_stats ums
     INNER JOIN tournament_match tm ON ums.match_id = tm.id
     INNER JOIN tournament t        ON tm.tournament_id = t.id
-    INNER JOIN skills_positions sp ON ums.skill_id = sp.id
-    WHERE sp.short_name IN ('ВРТ')
+    LEFT  JOIN skills_positions sp ON ums.skill_id = sp.id
+    WHERE sp.short_name IN (${roleCodesSQL})
       ${OFFICIAL_FILTER}
   ),
   per_user AS (
     SELECT
       user_id,
       CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
-      SUM(opp_xg)   AS opp_xg,
-      SUM(scored)   AS conceded,
-      SUM(saved)    AS saved,
+      SUM(goals) AS goals, SUM(assists) AS assists,
+      SUM(goal_expected) AS xg,
+      SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
+      SUM(xa_part) AS xa,
+      SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
+      SUM(ipasses) AS ipasses, SUM(pregoal_passes) AS pregoals,
+      SUM(allstockes) AS allstockes, SUM(completedstockes) AS completedstockes,
       SUM(intercepts) AS intercepts,
-      SUM(allpasses)  AS allpasses,
-      SUM(dry)      AS dry_matches
+      SUM(allselection) AS allselection, SUM(selection) AS selection,
+      SUM(completedtackles) AS completedtackles,
+      SUM(blocks) AS blocks,
+      SUM(outs) AS outs,
+      SUM(outplayed) + SUM(penalised_fails) AS beaten,
+      SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
+      SUM(crosses) AS crosses
     FROM base
     GROUP BY user_id
   )
   SELECT
     user_id,
-    (matches * 1.0) AS matches,
-
-    /* % сейвов = saved / (saved + conceded) */
-    (saved / NULLIF(saved + conceded, 0)) * 1.0 AS save_pct,
-
-    /* кол-во сейвов за матч */
-    (saved / NULLIF(matches, 0)) * 1.0          AS saves_avg,
-
-    /* перехваты за матч */
-    (intercepts / NULLIF(matches, 0)) * 1.0      AS intercepts,
-
-    /* пасы за матч */
-    (allpasses / NULLIF(matches, 0)) * 1.0       AS passes,
-
-    /* % сухих матчей */
-    (dry_matches / NULLIF(matches, 0)) * 1.0     AS clean_sheets_pct,
-
-    /* предотвращённый xG за матч (может быть < 0) */
-    ((opp_xg - conceded) / NULLIF(matches, 0)) * 1.0 AS prevented_xg
+    (matches * 1.0)                                        AS matches,
+    ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
+    ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
+    (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
+    ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
+    (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
+    ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
+    (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
+    (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
+    (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
+    (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
+    ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
+    ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
+    (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
+    (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
+    (0.5*(completedpasses/NULLIF(allpasses,0))
+     +0.3*(completedstockes/NULLIF(allstockes,0))
+     +0.15*(duels_air_win/NULLIF(duels_air,0))
+     +0.05*(selection/NULLIF(allselection,0))) * 1.0       AS safety_coef,
+    (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
+    (outs / NULLIF(matches,0)) * 1.0                       AS clearances
   FROM per_user
-  WHERE matches >= 30  /* пул для перцентилей: только 30+ матчей */
+  WHERE matches >= 30     /* ← порог для пула перцентилей */
   LIMIT 20000
 `;
 
