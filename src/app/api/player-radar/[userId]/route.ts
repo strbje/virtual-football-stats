@@ -75,29 +75,32 @@ let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
 
 // 1) авто-детект роли по последним 30 матчам БЕЗ фильтра «официальных»
 async function autoDetectRole(prisma: any, userId: number): Promise<string | null> {
-  // Берём ленту последних 30 матчей и вытаскиваем шорт-код амплуа
+  // Берём ленту последних 30 матчей пользователя и к каждому подтягиваем код позиции из tbl_field_positions
   const rows = await prisma.$queryRawUnsafe(`
-    SELECT sp.short_name AS role
+    SELECT
+      fp.code AS role_code
     FROM tbl_users_match_stats ums
     INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    INNER JOIN skills_positions  sp ON ums.skill_id = sp.id
+    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
     WHERE ums.user_id = ${userId}
     ORDER BY tm.timestamp DESC
     LIMIT 30
   `);
 
-  // На приложении находим модальное амплуа
-  const map = new Map<string, number>();
+  // Модальное амплуа по этим 30 записям
+  const counts = new Map<string, number>();
   for (const r of rows as any[]) {
-    const role = String(r.role);
-    map.set(role, (map.get(role) ?? 0) + 1);
+    const code = String(r.role_code ?? "").trim();
+    if (!code) continue;
+    counts.set(code, (counts.get(code) ?? 0) + 1);
   }
+
   let best: string | null = null;
   let bestCnt = -1;
-  for (const [role, cnt] of map.entries()) {
-    if (cnt > bestCnt) { best = role; bestCnt = cnt; }
+  for (const [code, cnt] of counts) {
+    if (cnt > bestCnt) { best = code; bestCnt = cnt; }
   }
-  return best;
+  return best; // вернёт, например, "ЛФД" или "ПЦП" — ровно то, что ждут кластеры
 }
 
 // 2) если клиент роль не передал — определяем сами
