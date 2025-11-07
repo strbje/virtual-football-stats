@@ -60,70 +60,88 @@ function percentile(pull: number[], x: number) {
 // -------------------------------
 // API
 // -------------------------------
-export async function GET(req: Request, { params }: { params: { userId: string } }) {
+export async function GET(
+  req: Request,
+  { params }: { params: { userId: string } }
+) {
   try {
     const url = new URL(req.url);
     const userId = url.searchParams.get("userId") || params.userId;
     if (!userId) {
-      return NextResponse.json({ ok: false, error: "userId is required" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "userId is required" },
+        { status: 400 }
+      );
     }
     const userIdNum = Number(userId);
 
-   // текущая роль (как и раньше — читаем из query ?role=...)
-const roleFromClient = url.searchParams.get("role");
-let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
+    // текущая роль (как и раньше — читаем из query ?role=...)
+    const roleFromClient = url.searchParams.get("role");
+    let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
 
-// 1) авто-детект роли по последним 30 матчам БЕЗ фильтра «официальных»
-async function autoDetectRole(prisma: any, userId: number): Promise<string | null> {
-  // Берём ленту последних 30 матчей пользователя и к каждому подтягиваем код позиции из tbl_field_positions
-  const rows = await prisma.$queryRawUnsafe(`
-    SELECT
-      fp.code AS role_code
-    FROM tbl_users_match_stats ums
-    INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-    WHERE ums.user_id = ${userId}
-    ORDER BY tm.timestamp DESC
-    LIMIT 30
-  `);
+    // 1) авто-детект роли по последним 30 матчам БЕЗ фильтра «официальных»
+    async function autoDetectRole(
+      prisma: any,
+      userId: number
+    ): Promise<RoleCode | null> {
+      const rows = await prisma.$queryRawUnsafe(`
+        SELECT fp.code AS role_code
+        FROM tbl_users_match_stats ums
+        INNER JOIN tournament_match tm ON ums.match_id = tm.id
+        LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+        WHERE ums.user_id = ${userId}
+        ORDER BY tm.timestamp DESC
+        LIMIT 30
+      `);
 
-  // Модальное амплуа по этим 30 записям
-  const counts = new Map<string, number>();
-  for (const r of rows as any[]) {
-    const code = String(r.role_code ?? "").trim();
-    if (!code) continue;
-    counts.set(code, (counts.get(code) ?? 0) + 1);
-  }
+      // модальное амплуа из последних 30
+      const counts = new Map<string, number>();
+      for (const r of rows as any[]) {
+        const code = String((r as any).role_code ?? "").trim();
+        if (!code) continue;
+        counts.set(code, (counts.get(code) ?? 0) + 1);
+      }
 
-  let best: string | null = null;
-  let bestCnt = -1;
-  for (const [code, cnt] of counts) {
-    if (cnt > bestCnt) { best = code; bestCnt = cnt; }
-  }
-  return best; // вернёт, например, "ЛФД" или "ПЦП" — ровно то, что ждут кластеры
-}
+      let best: string | null = null;
+      let bestCnt = -1;
+      for (const [code, cnt] of counts) {
+        if (cnt > bestCnt) {
+          best = code;
+          bestCnt = cnt;
+        }
+      }
+      return (best as RoleCode) || null; // вернёт, например, "ЛФД" или "ПЦП"
+    }
 
-// 2) если клиент роль не передал — определяем сами
-if (!currentRole) {
-  currentRole = await autoDetectRole(prisma, userIdNum) as RoleCode | null;
-}
+    // 2) если клиент роль не передал — определяем сами
+    if (!currentRole) {
+      currentRole = await autoDetectRole(prisma, userIdNum);
+    }
 
-// 3) если всё ещё нет — аккуратно выходим (как у тебя было)
-const cluster = resolveClusterByRole(currentRole as RoleCode);
+    // 3) кластер по роли; если не нашли — корректный ответ и выходим
+    const cluster: ClusterKey | null = currentRole
+      ? resolveClusterByRole(currentRole as RoleCode)
+      : null;
 
-if (!cluster) {
-  return NextResponse.json({
-    ok: true,
-    ready: false,
-    currentRole,
-    cluster: null,
-    matchesCluster: 0,
-    tournamentsUsed: [],
-    reason: "Амплуа не входит в известные кластеры",
-    debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
-  });
+    if (!currentRole || !cluster) {
+      return NextResponse.json({
+        ok: true,
+        ready: false,
+        currentRole: currentRole ?? null,
+        cluster: null,
+        matchesCluster: 0,
+        tournamentsUsed: [],
+        reason: !currentRole
+          ? "Не удалось определить актуальное амплуа"
+          : "Амплуа не входит в известные кластеры",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+      });
+    }
 
-const roleCodes = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
+    // 4) список кодов ролей кластера для SQL
+    const roleCodes = CLUSTERS[cluster]
+      .map((r) => `'${r.replace(/'/g, "''")}'`)
+      .join(",");
 
     // -------------------------------
     // 1) Список «официальных» турниров для пользователя (как у тебя работало)
