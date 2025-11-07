@@ -20,7 +20,7 @@ type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB" | "GK";
 
 const CLUSTERS: Record<ClusterKey, RoleCode[]> = {
   FW: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"],
-  AM: ["ЦАП", "ЦП", "ЛЦП", "ПЦП", "ЛАП", "ПАП"],
+  AM: ["ЦАП", "ЦП", "ЛАП", "ПАП"],
   FM: ["ЛП", "ПП"],                           
   CM: ["ЦП", "ЦОП", "ЛЦП", "ПЦП", "ЛОП", "ПОП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
@@ -390,6 +390,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
         { key: "creation", label: "Созидание" },
         { key: "dribble_pct", label: "Дриблинг %" },
         { key: "pressing", label: "Прессинг" },
+        { key: "xa_avg", label: "xA" },
       ],
       AM: [
         { key: "xa_avg", label: "xA" },
@@ -414,6 +415,8 @@ export async function GET(req: Request, { params }: { params: { userId: string }
         { key: "def_actions", label: "Защитные действия" },
         { key: "beaten_rate", label: "Beaten Rate ↓" },
         { key: "aerial_pct", label: "Верховые %" },
+        { key: "pxa", label: "pXA" },
+        { key: "xa_avg", label: "xA" },
       ],
       CB: [
         { key: "safety_coef", label: "Кэф безопасности" },
@@ -426,8 +429,6 @@ export async function GET(req: Request, { params }: { params: { userId: string }
         { key: "beaten_rate", label: "Beaten Rate" },
       ],
       GK: [
-        // если используешь GK — добавь сюда свои 6 метрик и соответствующий пул выше
-        // но это вне задачи BigInt; я не менял вашу текущую логику
         { key: "save_pct", label: "% сейвов" },
         { key: "saves_avg", label: "Сейвы/матч" },
         { key: "intercepts", label: "Перехваты/матч" },
