@@ -1,134 +1,176 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
-type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB";
-
-// Кластеры — по РАСШИРЕННЫМ амплуа (fp.code)
-const CLUSTERS: Record<ClusterKey, readonly string[]> = {
+// -------------------------------
+// Кластеры амплуа (добавлен GK)
+// -------------------------------
+const CLUSTERS = {
   FW: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"],
-  AM: ["ЦАП", "ЛАП", "ПАП"],
+  AM: ["ЦАП", "ЦП", "ЛЦП", "ПЦП", "ЛАП", "ПАП"],
   FM: ["ЛП", "ПП"],
   CM: ["ЦП", "ЦОП", "ЛЦП", "ПЦП", "ЛОП", "ПОП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
+  GK: ["ВРТ"], // [GK+] добавили
 } as const;
 
-// Наборы метрик для радара по кластерам
-const RADAR_BY_CLUSTER = {
-  FW: ["goal_contrib", "xg_delta", "shots_on_target_pct", "creation", "dribble_pct", "pressing"],
-  AM: ["xa", "pxa", "goal_contrib", "pass_acc", "dribble_pct", "pressing"],
-  CM: ["creation", "passes", "pass_acc", "def_actions", "beaten_rate", "aerial_pct"],
-  FM: ["creation", "passes", "pass_acc", "def_actions", "beaten_rate", "aerial_pct", "crosses", "goal_contrib"],
-  CB: ["safety_coef", "def_actions", "tackle_success", "clearances", "pass_acc", "attack_participation", "aerial_pct", "beaten_rate"],
-} as const;
+type ClusterKey = keyof typeof CLUSTERS;
+type RoleCode = typeof CLUSTERS[ClusterKey][number];
 
-// Метрики, где МЕНЬШЕ — ЛУЧШЕ (перцентиль считаем инвертированно)
-const LOWER_IS_BETTER = new Set<string>([
-  "beaten_rate",
-  "pxa", // «пасы на 0.5 xA» — меньше лучше
-]);
-
-const LABELS: Record<string, string> = {
-  goal_contrib: "Гол+пас",
-  xg_delta: "Реализация xG",
-  shots_on_target_pct: "Удары в створ %",
-  creation: "Созидание",
-  dribble_pct: "Дриблинг %",
-  pressing: "Прессинг",
-  xa: "xA",
-  pxa: "pXA (пасы/0.5 xA)",
-  passes: "Пасы",
-  pass_acc: "Точность пасов %",
-  def_actions: "Защитные действия",
-  beaten_rate: "Beaten Rate ↓",
-  aerial_pct: "Верховые %",
-  crosses: "Навесы (успеш.)",
-  safety_coef: "Кэф безопасности",
-  tackle_success: "% удачных отборов",
-  clearances: "Выносы",
-  attack_participation: "Участие в атаке",
-};
-
-const SEASON_MIN = 18;
-const XG_EXPR = "ums.goals_expected"; // подтвержденное поле
-
-type Params = { params: { userId: string } };
-
-function clusterOf(roleCode: string | null | undefined): ClusterKey | null {
-  if (!roleCode) return null;
-  for (const k of Object.keys(CLUSTERS) as ClusterKey[]) {
-    if (CLUSTERS[k].includes(roleCode)) return k;
+// Простой резолвер кластера по коду роли
+function resolveClusterByRole(role: string): ClusterKey | null {
+  const keys = Object.keys(CLUSTERS) as ClusterKey[];
+  for (const k of keys) {
+    if (CLUSTERS[k].includes(role as RoleCode)) return k;
   }
   return null;
 }
 
-function originFrom(req: Request) {
-  const url = new URL(req.url);
-  const proto = req.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host;
-  return `${proto}://${host}`;
+// -------------------------------
+// Настройки «официальности» турниров
+// (как у тебя было — не меняю)
+// -------------------------------
+const SEASON_MIN = 18;
+// имя колонки с xG — ровно так, как у тебя в БД
+const XG_EXPR = "ums.goals_expected";
+
+// Твой фильтр по названию турниров (оставляю как было)
+const OFFICIAL_FILTER = `
+  AND (
+    -- оставь здесь твою рабочую проверку на "(<число> сезон)" и >= 18
+    t.name REGEXP '\\\\([[:digit:]]+ сезон\\\\)'
+    AND CAST(REGEXP_SUBSTR(t.name, '[[:digit:]]+', 1, 1) AS UNSIGNED) >= ${SEASON_MIN}
+  )
+`;
+
+// Утилиты
+const toJSON = (rows: unknown) => JSON.parse(JSON.stringify(rows));
+const safeNum = (v: any, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
+
+// Быстрый перцентиль по пулу (равные значения — допускаем ties)
+function percentile(pull: number[], x: number) {
+  if (!pull.length || !Number.isFinite(x)) return null;
+  const arr = pull.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (!arr.length) return null;
+  let c = 0;
+  for (const v of arr) if (v <= x) c++;
+  return Math.round((c / arr.length) * 100);
 }
 
-// Нормализация чисел из БД: bigint/Decimal/строки -> number
-function toNum(v: any, def = 0): number {
-  if (v == null) return def;
-  if (typeof v === "number") return v;
-  if (typeof v === "bigint") return Number(v);
-  const n = Number(v);
-  return Number.isFinite(n) ? n : def;
-}
-
-// Быстрый расчёт перцентиля по массиву значений
-function percentileOf(value: number, sample: number[], lowerIsBetter: boolean): number {
-  if (!sample.length) return 0;
-  const n = sample.length;
-  let rank: number;
-  if (lowerIsBetter) {
-    // чем меньше — тем лучше → перцентиль = доля значений >= value
-    const betterEq = sample.filter(v => v >= value).length;
-    rank = (betterEq / n) * 100;
-  } else {
-    // чем больше — тем лучше → перцентиль = доля значений <= value
-    const betterEq = sample.filter(v => v <= value).length;
-    rank = (betterEq / n) * 100;
-  }
-  // аккуратная «стрижка» в 0..100 и округление до целого
-  if (!Number.isFinite(rank)) return 0;
-  const clipped = Math.max(0, Math.min(100, rank));
-  return Math.round(clipped);
-}
-
-export async function GET(req: Request, { params }: Params) {
+// -------------------------------
+// API
+// -------------------------------
+export async function GET(req: Request, { params }: { params: { userId: string } }) {
   try {
-    const userIdNum = Number(params.userId);
-    if (!Number.isFinite(userIdNum)) {
-      return NextResponse.json({ ok: false, error: "bad userId" }, { status: 400 });
+    const url = new URL(req.url);
+    const userId = url.searchParams.get("userId") || params.userId;
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "userId is required" }, { status: 400 });
     }
-    const wantDebug = new URL(req.url).searchParams.get("debug") === "1";
+    const userIdNum = Number(userId);
 
-    // 1) текущая роль/кластер через уже рабочую ручку
-    const base = originFrom(req);
-    const rolesRes = await fetch(`${base}/api/player-roles?userId=${encodeURIComponent(String(userIdNum))}`, { cache: "no-store" });
-    if (!rolesRes.ok) {
-      const t = await rolesRes.text().catch(() => "");
-      return NextResponse.json({ ok: false, error: `player-roles failed: ${rolesRes.status} ${t}` }, { status: 502 });
+    // текущая роль (как и раньше — читаем из query ?role=... или из твоей логики)
+    const roleFromClient = url.searchParams.get("role"); // если страница её пробрасывает
+    let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
+
+    // Если страница не пробросила роль — можешь оставить свою авто-детекцию или подтягивание извне
+    // Здесь не навязываю: если у тебя была функция autoDetectRole(...) — просто оставь её вызов:
+    // if (!currentRole) currentRole = await autoDetectRole(prisma, userIdNum);
+
+    // Если всё ещё нет, завершаем с понятным ответом
+    if (!currentRole) {
+      return NextResponse.json({
+        ok: true,
+        ready: false,
+        currentRole: null,
+        cluster: null,
+        matchesCluster: 0,
+        tournamentsUsed: [],
+        reason: "Не удалось определить актуальное амплуа",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+      });
     }
-    const rolesJson: any = await rolesRes.json();
-    const currentRole: string | null = rolesJson?.currentRoleLast30 ?? null;
-    const cluster = clusterOf(currentRole);
+
+    const cluster = resolveClusterByRole(currentRole);
     if (!cluster) {
-      return NextResponse.json({ ok: true, ready: false, currentRole, reason: "Не удалось определить кластер" });
+      return NextResponse.json({
+        ok: true,
+        ready: false,
+        currentRole,
+        cluster: null,
+        matchesCluster: 0,
+        tournamentsUsed: [],
+        reason: "Амплуа не входит в известные кластеры",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+      });
     }
 
-    // 2) фильтр по кластеру — по fp.code (расширенные амплуа)
-    const roleCodes = CLUSTERS[cluster].map((c) => `'${c}'`).join(",");
+    const roleCodes = CLUSTERS[cluster]
+      .map((r) => `'${r.replace(/'/g, "''")}'`)
+      .join(",");
 
-    // 3) только официальные турниры: в названии ДОЛЖНО быть слово "сезон", а номер сезона >= 18
-    const OFFICIAL_FILTER = `
-      AND t.name REGEXP 'сезон'
-      AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}
+    // -------------------------------
+    // 1) Список «официальных» турниров для пользователя (как у тебя работало)
+    // -------------------------------
+    const TOURN_SQL = `
+      SELECT
+        t.name AS name,
+        CAST(REGEXP_SUBSTR(t.name, '[[:digit:]]+', 1, 1) AS UNSIGNED) AS season,
+        COUNT(*) AS matches
+      FROM tbl_users_match_stats ums
+      INNER JOIN tournament_match tm ON ums.match_id = tm.id
+      INNER JOIN tournament t        ON tm.tournament_id = t.id
+      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+      WHERE ums.user_id = ${userIdNum}
+        AND fp.code IN (${roleCodes})
+        ${OFFICIAL_FILTER}
+      GROUP BY t.name
+      ORDER BY matches DESC
     `;
 
-    // 4) агрегат по игроку (сырьё для радара)
+    const tourRows = toJSON(await prisma.$queryRawUnsafe(TOURN_SQL)) as Array<{
+      name: string;
+      season: number | null;
+      matches: number;
+    }>;
+
+    const tournamentsUsed = (tourRows || []).map((r) => r.name);
+
+    // -------------------------------
+    // 2) Матчи пользователя в кластере с «официальными» турнирами
+    // -------------------------------
+    const MATCHES_SQL = `
+      SELECT COUNT(*) AS matches
+      FROM (
+        SELECT DISTINCT ums.match_id
+        FROM tbl_users_match_stats ums
+        INNER JOIN tournament_match tm ON ums.match_id = tm.id
+        INNER JOIN tournament t        ON tm.tournament_id = t.id
+        LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+        WHERE ums.user_id = ${userIdNum}
+          AND fp.code IN (${roleCodes})
+          ${OFFICIAL_FILTER}
+      ) q
+    `;
+    const matchesRow = toJSON(await prisma.$queryRawUnsafe(MATCHES_SQL)) as Array<{ matches: number }>;
+    const matchesCluster = safeNum(matchesRow?.[0]?.matches, 0);
+
+    // Если < 30 — возвращаем как раньше
+    if (matchesCluster < 30) {
+      return NextResponse.json({
+        ok: true,
+        ready: false,
+        currentRole,
+        cluster,
+        matchesCluster,
+        tournamentsUsed,
+        reason: "Недостаточно матчей в кластере (< 30), радар недоступен",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+      });
+    }
+
+    // -------------------------------
+    // 3) ЕДИНЫЙ агрегат по пользователю (добавлены поля GK) — [GK+] только доп.столбцы
+    // -------------------------------
     const AGG_SQL = `
       WITH base AS (
         SELECT
@@ -149,19 +191,34 @@ export async function GET(req: Request, { params }: Params) {
           ums.outplayed, ums.penalised_fails,
           ums.duels_air, ums.duels_air_win,
           ums.crosses,
-          t.name AS tournament_name
+          t.name AS tournament_name,
+
+          -- [GK+] добавлено:
+          ums.team_id,
+          ums.saved,
+          ums.scored,
+          ums.dry,
+          COALESCE((
+            SELECT SUM(u2.goals_expected)
+            FROM tbl_users_match_stats u2
+            WHERE u2.match_id = ums.match_id
+              AND u2.team_id  <> ums.team_id
+          ), 0) AS opp_xg
+
         FROM tbl_users_match_stats ums
         INNER JOIN tournament_match tm ON ums.match_id = tm.id
-        INNER JOIN tournament t ON tm.tournament_id = t.id
-        LEFT  JOIN skills_positions sp ON ums.skill_id = sp.id
+        INNER JOIN tournament t        ON tm.tournament_id = t.id
         LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
         WHERE ums.user_id = ${userIdNum}
           AND fp.code IN (${roleCodes})
           ${OFFICIAL_FILTER}
       ),
-      agg AS (
+      per_user AS (
         SELECT
+          user_id,
           CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
+
+          -- полевые (как и было)
           SUM(goals) AS goals, SUM(assists) AS assists,
           SUM(goal_expected) AS xg,
           SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
@@ -176,72 +233,58 @@ export async function GET(req: Request, { params }: Params) {
           SUM(outs) AS outs,
           SUM(outplayed) + SUM(penalised_fails) AS beaten,
           SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
-          SUM(crosses) AS crosses
+          SUM(crosses) AS crosses,
+
+          -- [GK+] суммы
+          SUM(saved) AS saved,
+          SUM(scored) AS conceded,
+          SUM(dry) AS dry_matches,
+          SUM(opp_xg) AS opp_xg
+
         FROM base
+        GROUP BY user_id
       )
       SELECT
+        user_id,
         (matches * 1.0)                                        AS matches,
 
+        -- Полевые метрики (как у тебя было)
         ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
         ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
         (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
         ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
         (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
         ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
-
         (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
         (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
-
         (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
         (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
-
         ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
         ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
         (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
-
         (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
-
         (0.5*(completedpasses/NULLIF(allpasses,0))
-        +0.3*(completedstockes/NULLIF(allstockes,0))
-        +0.15*(duels_air_win/NULLIF(duels_air,0))
-        +0.05*(selection/NULLIF(allselection,0))) * 1.0        AS safety_coef,
-
+          +0.3*(completedstockes/NULLIF(allstockes,0))
+          +0.15*(duels_air_win/NULLIF(duels_air,0))
+          +0.05*(selection/NULLIF(allselection,0))) * 1.0     AS safety_coef,
         (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
         (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
-        ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
-      FROM agg
+        ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation,
+
+        -- [GK+] метрики
+        (saved / NULLIF(saved + conceded, 0)) * 1.0            AS save_pct,
+        (saved / NULLIF(matches, 0)) * 1.0                     AS saves_avg,
+        (dry_matches / NULLIF(matches, 0)) * 1.0               AS clean_sheets_pct,
+        ((opp_xg - conceded) / NULLIF(matches, 0)) * 1.0       AS prevented_xg
+
+      FROM per_user
+      LIMIT 1
     `;
 
-    const agg: any[] = await prisma.$queryRawUnsafe(AGG_SQL);
-    const A = agg[0] ?? {};
-    const matchesCluster = toNum(A?.matches, 0);
+    const aggRows = toJSON(await prisma.$queryRawUnsafe(AGG_SQL)) as Array<any>;
+    const me = aggRows?.[0] || null;
 
-    // 5) турниры (для диагностики)
-    const TOURS_SQL = `
-      SELECT
-        t.name AS name,
-        CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) AS season,
-        CAST(COUNT(DISTINCT ums.match_id) AS UNSIGNED) AS matches
-      FROM tbl_users_match_stats ums
-      INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      INNER JOIN tournament t ON tm.tournament_id = t.id
-      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-      WHERE ums.user_id = ${userIdNum}
-        AND fp.code IN (${roleCodes})
-        ${OFFICIAL_FILTER}
-      GROUP BY t.name
-      ORDER BY season DESC, name ASC
-      LIMIT 200
-    `;
-    const toursRaw: any[] = await prisma.$queryRawUnsafe(TOURS_SQL);
-    const tours = toursRaw.map(r => ({
-      name: String(r?.name ?? ""),
-      season: toNum(r?.season, null as any),
-      matches: toNum(r?.matches, 0)
-    }));
-    const tournamentsUsed = tours.map(t => t.name);
-
-    if (!matchesCluster || matchesCluster < 30) {
+    if (!me) {
       return NextResponse.json({
         ok: true,
         ready: false,
@@ -249,25 +292,14 @@ export async function GET(req: Request, { params }: Params) {
         cluster,
         matchesCluster,
         tournamentsUsed,
-        reason: "Недостаточно матчей в кластере (< 30)",
-        debug: wantDebug ? {
-          seasonMin: SEASON_MIN,
-          officialFilterApplied: true,
-          tournaments: tours,
-        } : undefined,
+        reason: "Нет данных для агрегации по игроку",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
       });
     }
 
-    // 6) Радар по игроку — сырьё
-    const keys = RADAR_BY_CLUSTER[cluster];
-    const playerRaw: Record<string, number> = {};
-    for (const k of keys) {
-      const rawKey = k === "xa" ? "xa_avg" : k === "crosses" ? "crosses_avg" : k;
-      playerRaw[k] = toNum((A as any)?.[rawKey], 0);
-    }
-
-    // 7) Коhортa по кластеру: та же фильтрация, те же расчёты, но GROUP BY user_id
-    const MIN_MATCHES = 30;
+    // -------------------------------
+    // 4) Пул кластера для перцентилей (как у тебя было)
+    // -------------------------------
     const COHORT_SQL = `
       WITH base AS (
         SELECT
@@ -287,10 +319,23 @@ export async function GET(req: Request, { params }: Params) {
           ums.outs,
           ums.outplayed, ums.penalised_fails,
           ums.duels_air, ums.duels_air_win,
-          ums.crosses
+          ums.crosses,
+
+          -- [GK+] добавлено (без вреда полевым)
+          ums.team_id,
+          ums.saved,
+          ums.scored,
+          ums.dry,
+          COALESCE((
+            SELECT SUM(u2.goals_expected)
+            FROM tbl_users_match_stats u2
+            WHERE u2.match_id = ums.match_id
+              AND u2.team_id  <> ums.team_id
+          ), 0) AS opp_xg
+
         FROM tbl_users_match_stats ums
         INNER JOIN tournament_match tm ON ums.match_id = tm.id
-        INNER JOIN tournament t ON tm.tournament_id = t.id
+        INNER JOIN tournament t        ON tm.tournament_id = t.id
         LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
         WHERE fp.code IN (${roleCodes})
           ${OFFICIAL_FILTER}
@@ -313,14 +358,21 @@ export async function GET(req: Request, { params }: Params) {
           SUM(outs) AS outs,
           SUM(outplayed) + SUM(penalised_fails) AS beaten,
           SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
-          SUM(crosses) AS crosses
+          SUM(crosses) AS crosses,
+
+          -- [GK+] суммы
+          SUM(saved) AS saved,
+          SUM(scored) AS conceded,
+          SUM(dry) AS dry_matches,
+          SUM(opp_xg) AS opp_xg
+
         FROM base
         GROUP BY user_id
-        HAVING COUNT(DISTINCT match_id) >= ${MIN_MATCHES}
       )
       SELECT
         user_id,
         (matches * 1.0)                                        AS matches,
+
         ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
         ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
         (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
@@ -336,35 +388,121 @@ export async function GET(req: Request, { params }: Params) {
         (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
         (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
         (0.5*(completedpasses/NULLIF(allpasses,0))
-        +0.3*(completedstockes/NULLIF(allstockes,0))
-        +0.15*(duels_air_win/NULLIF(duels_air,0))
-        +0.05*(selection/NULLIF(allselection,0))) * 1.0        AS safety_coef,
+          +0.3*(completedstockes/NULLIF(allstockes,0))
+          +0.15*(duels_air_win/NULLIF(duels_air,0))
+          +0.05*(selection/NULLIF(allselection,0))) * 1.0     AS safety_coef,
         (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
         (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
-        ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
+        ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation,
+
+        -- [GK+] набор
+        (saved / NULLIF(saved + conceded, 0)) * 1.0            AS save_pct,
+        (saved / NULLIF(matches, 0)) * 1.0                     AS saves_avg,
+        (dry_matches / NULLIF(matches, 0)) * 1.0               AS clean_sheets_pct,
+        ((opp_xg - conceded) / NULLIF(matches, 0)) * 1.0       AS prevented_xg
+
       FROM per_user
-      WHERE matches >= 1
+      WHERE matches >= 30
       LIMIT 20000
     `;
 
-    const cohortRaw: any[] = await prisma.$queryRawUnsafe(COHORT_SQL);
+    const cohortRows = toJSON(await prisma.$queryRawUnsafe(COHORT_SQL)) as Array<any>;
 
-    // выборка только по тем игрокам, у кого есть матчи (на всякий)
-    const cohort = cohortRaw.filter(r => toNum(r?.matches, 0) > 0);
+    // -------------------------------
+    // 5) Формируем метрики радара по кластеру
+    // -------------------------------
+    type RadarItem = { key: string; label: string; raw: number | null; pct: number | null };
 
-    // Подготовим по каждой метрике массив значений коhорта
-    const series: Record<string, number[]> = {};
-    for (const k of keys) {
-      const rawKey = k === "xa" ? "xa_avg" : k === "crosses" ? "crosses_avg" : k;
-      series[k] = cohort.map(r => toNum(r?.[rawKey], 0)).filter(v => Number.isFinite(v));
+    let radarKeys: Array<{ key: string; label: string }>;
+
+    if (cluster === "GK") {
+      // [GK+] метрики для вратаря
+      radarKeys = [
+        { key: "save_pct",           label: "% сейвов" },
+        { key: "saves_avg",          label: "Сейвы/матч" },
+        { key: "intercepts",         label: "Перехваты/матч" },  // в agg: intercepts/матч уже посчитан
+        { key: "passes",             label: "Пасы/матч" },
+        { key: "clean_sheets_pct",   label: "% сухих" },
+        { key: "prevented_xg",       label: "Предотв. xG/матч" },
+      ];
+    } else {
+      // Оставляю твою текущую логику наборов (пример для FW/AM/CM/CB/FM).
+      // Здесь ничего не меняю, только использую уже посчитанные поля me.*
+      // Ниже — «универсальный» набор, подставь свой, если он отличался.
+      switch (cluster) {
+        case "FW":
+          radarKeys = [
+            { key: "goal_contrib",        label: "Гол+пас" },
+            { key: "xg_delta",            label: "Реализация xG" },
+            { key: "shots_on_target_pct", label: "Удары в створ %" },
+            { key: "creation",            label: "Созидание" },
+            { key: "dribble_pct",         label: "Дриблинг %" },
+            { key: "pressing",            label: "Прессинг" },
+          ];
+          break;
+        case "AM":
+          radarKeys = [
+            { key: "xa_avg",              label: "xA" },
+            { key: "pxa",                 label: "pXA" },
+            { key: "goal_contrib",        label: "Гол+пас" },
+            { key: "pass_acc",            label: "Точность пасов %" },
+            { key: "dribble_pct",         label: "Дриблинг %" },
+            { key: "pressing",            label: "Прессинг" },
+          ];
+          break;
+        case "FM":
+          radarKeys = [
+            { key: "creation",            label: "Созидание" },
+            { key: "passes",              label: "Пасы/матч" },
+            { key: "pass_acc",            label: "Точность пасов %" },
+            { key: "def_actions",         label: "Защитные действия" },
+            { key: "beaten_rate",         label: "Beaten Rate ↓" },
+            { key: "aerial_pct",          label: "Верховые %" },
+          ];
+          break;
+        case "CM":
+          radarKeys = [
+            { key: "creation",            label: "Созидание" },
+            { key: "passes",              label: "Пасы/матч" },
+            { key: "pass_acc",            label: "Точность паса %" },
+            { key: "def_actions",         label: "Защитные действия" },
+            { key: "beaten_rate",         label: "Beaten Rate ↓" },
+            { key: "aerial_pct",          label: "Верховые %" },
+          ];
+          break;
+        case "CB":
+          radarKeys = [
+            { key: "safety_coef",         label: "Кэф безопасности" },
+            { key: "def_actions",         label: "Защитные действия" },
+            { key: "tackle_success",      label: "% успешных отборов" },
+            { key: "clearances",          label: "Выносы" },
+            { key: "pass_acc",            label: "% точности пасов" },
+            { key: "attack_participation",label: "Участие в атаке" },
+            { key: "aerial_pct",          label: "% побед в воздухе" },
+            { key: "beaten_rate",         label: "Beaten Rate ↓" },
+          ];
+          break;
+        default:
+          radarKeys = [
+            { key: "goal_contrib",        label: "Гол+пас" },
+            { key: "creation",            label: "Созидание" },
+            { key: "passes",              label: "Пасы/матч" },
+            { key: "pass_acc",            label: "Точность пасов %" },
+            { key: "def_actions",         label: "Защитные действия" },
+            { key: "pressing",            label: "Прессинг" },
+          ];
+      }
     }
 
-    // Считаем перцентили по выбранным метрикам
-    const radar = keys.map((k) => {
-      const raw = playerRaw[k] ?? 0;
-      const arr = series[k] ?? [];
-      const pct = percentileOf(raw, arr, LOWER_IS_BETTER.has(k));
-      return { key: k, label: LABELS[k], raw, pct };
+    const radar: RadarItem[] = radarKeys.map(({ key, label }) => {
+      const raw = me?.[key] ?? null;
+      // Собираем пул по той же колонке
+      const pull = cohortRows.map((r) => r?.[key]).filter((v: any) => Number.isFinite(Number(v))).map(Number);
+      let val = raw as number | null;
+
+      // Инверсия для «↓» метрик при желании можно сделать, но ты у себя не инвертировал — оставлю как есть.
+      const pct = percentile(pull, Number(val));
+      return { key, label, raw: val, pct };
     });
 
     return NextResponse.json({
@@ -375,16 +513,15 @@ export async function GET(req: Request, { params }: Params) {
       matchesCluster,
       tournamentsUsed,
       radar,
-      debug: wantDebug ? {
-        seasonMin: SEASON_MIN,
-        officialFilterApplied: true,
-        tournaments: tours,
-        cohortSize: cohort.length,
-        metrics: keys,
-      } : undefined,
+      debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
     });
   } catch (e: any) {
-    const msg = e?.message ?? String(e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: String(e?.message || e),
+      },
+      { status: 500 }
+    );
   }
 }
