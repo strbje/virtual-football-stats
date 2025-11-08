@@ -309,10 +309,10 @@ export async function GET(req: Request, { params }: { params: { userId: string }
       ORDER BY matches DESC
     `));
 
-    const tournamentsOfficial = (tournamentsAll as any[]).filter(x => {
-      const s = safeNum(x.season, null);
-      return s !== null && s >= SEASON_MIN;
-    });
+    const tournamentsOfficial = (tournamentsAll as any[]).filter((x) => {
+  const s = Number(x.season);
+  return Number.isFinite(s) && s >= SEASON_MIN;
+});
 
     // ------------------------------------
     // 1) Пул коHORT для перцентилей
