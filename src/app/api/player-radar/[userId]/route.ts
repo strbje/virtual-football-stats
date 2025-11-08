@@ -450,7 +450,8 @@ export async function GET(req: Request, { params }: { params: { userId: string }
             ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
         `;
 
-    const playerAgg = toJSON((await prisma.$queryRawUnsafe(AGG_SQL))[0] ?? {}) as any;
+    const aggRows = toJSON(await prisma.$queryRawUnsafe(AGG_SQL)) as any[];
+    const playerAgg = (aggRows?.[0] ?? {}) as any;
     const matchesCluster = safeNum(playerAgg.matches, 0);
 
     if (!matchesCluster || matchesCluster < 30 || cohortN === 0) {
