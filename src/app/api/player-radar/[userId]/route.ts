@@ -106,7 +106,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     // 1) роль: из ?role=... или авто-детект
     const roleFromClient = url.searchParams.get("role");
 let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
-if (!currentRole) currentRole = await autoDetectRole(prisma, userIdNum);
+if (!currentRole) currentRole = await autoDetectRole(prisma, userId);
 
     const cluster = resolveClusterByRole(currentRole);
     if (!currentRole || !cluster) {
