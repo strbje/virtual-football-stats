@@ -1,99 +1,271 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
 
-// === Константы / кластеры (без изменений вашей логики) ===
+// ----------------------------------------------------
+// Константы и утилиты
+// ----------------------------------------------------
 const SEASON_MIN = 18;
 
-// Фильтр «официальных» турниров: в названии есть слово "сезон" и номер >= 18
-// Оставляю как у вас было — через проверку в приложении после выборки.
-const OFFICIAL_FILTER_SQL = ""; // фильтрации в WHERE нет — фильтруем позже по названию
+// Официальные турниры (содержат «сезон» и номер >= 18)
+const OFFICIAL_FILTER = `
+  AND (
+    t.name REGEXP 'сезон[^0-9]*([1-9][0-9]*)'
+    AND CAST(REGEXP_SUBSTR(t.name, '([1-9][0-9]*)') AS UNSIGNED) >= ${SEASON_MIN}
+  )
+`;
 
-type RoleCode =
-  | "ФРВ" | "ЦФД" | "ЛФД" | "ПФД" | "ЛФА" | "ПФА"
-  | "ЦАП" | "ЦП" | "ЛЦП" | "ПЦП" | "ЛАП" | "ПАП"
-  | "ЛП" | "ПП"
-  | "ЦОП" | "ЛОП" | "ПОП"
-  | "ЦЗ" | "ЛЦЗ" | "ПЦЗ" | "ЛЗ" | "ПЗ"
-  | "ВР";
+// В твоей схеме xG хранится в goals_expected
+const XG_EXPR = "ums.goals_expected";
+const XG_COL  = "goals_expected";
 
-type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB" | "GK";
-
-const CLUSTERS: Record<ClusterKey, RoleCode[]> = {
+// Кластеры амплуа (добавлен GK с ВР/ВРТ)
+const CLUSTERS = {
   FW: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"],
-  AM: ["ЦАП", "ЦП", "ЛАП", "ПАП"],
-  FM: ["ЛП", "ПП"],                           
-  CM: ["ЦП", "ЦОП", "ЛЦП", "ПЦП", "ЛОП", "ПОП"],
+  AM: ["ЦАП", "ЛАП", "ПАП"],
+  CM: ["ЦП", "ЛЦП", "ПЦП", "ЛОП", "ПОП", "ЦОП"],
+  FM: ["ЛП", "ПП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
-  GK: ["ВР"],
+  GK: ["ВР", "ВРТ"],
+} as const;
+
+type ClusterKey = keyof typeof CLUSTERS;
+type RoleCode = (typeof CLUSTERS)[ClusterKey][number];
+
+// Наборы метрик для радара по кластерам (добавлен GK)
+const RADAR_BY_CLUSTER: Record<ClusterKey, string[]> = {
+  FW: ["goal_contrib", "xg_delta", "shots_on_target_pct", "creation", "dribble_pct", "pressing"],
+  AM: ["xa", "pxa", "goal_contrib", "pass_acc", "dribble_pct", "pressing"],
+  CM: ["creation", "passes", "pass_acc", "def_actions", "beaten_rate", "aerial_pct"],
+  FM: ["creation", "passes", "pass_acc", "def_actions", "beaten_rate", "aerial_pct", "crosses", "goal_contrib"],
+  CB: ["safety_coef", "def_actions", "tackle_success", "clearances", "pass_acc", "attack_participation", "aerial_pct", "beaten_rate"],
+  GK: ["save_pct", "saves_avg", "intercepts", "passes", "clean_sheets_pct", "prevented_xg"],
 };
 
+// Лейблы (добавлены подписи для GK)
+const LABELS: Record<string, string> = {
+  goal_contrib: "Гол+пас",
+  xg_delta: "Реализация xG",
+  shots_on_target_pct: "Удары в створ %",
+  creation: "Созидание",
+  dribble_pct: "Дриблинг %",
+  pressing: "Прессинг",
+  xa: "xA",
+  pxa: "pXA (пасы/0.5 xA)",
+  pass_acc: "Точность пасов %",
+  passes: "Пасы/матч",
+  def_actions: "Защитные действия",
+  beaten_rate: "Beaten Rate ↓",
+  aerial_pct: "Верховые %",
+  crosses: "Навесы/матч",
+  safety_coef: "Кэф безопасности",
+  tackle_success: "Отборы удачные %",
+  clearances: "Выносы/матч",
+  attack_participation: "Участие в атаке",
+
+  // GK
+  save_pct: "Сейвы %",
+  saves_avg: "Сейвы/матч",
+  clean_sheets_pct: "Сухие %",
+  prevented_xg: "Предотв. xG",
+};
+
+// Инвертируемые метрики (меньше = лучше)
+const INVERTED = new Set<string>(["pxa", "beaten_rate"]);
+
+// Безопасная сериализация BigInt и т.п.
+function toJSON<T = any>(v: any): T {
+  return JSON.parse(
+    JSON.stringify(v, (_, val) =>
+      typeof val === "bigint" ? Number(val) : val
+    )
+  );
+}
+const safeNum = (v: any, d = 0) => {
+  const x = typeof v === "string" ? Number(v) : (v as number);
+  return Number.isFinite(x) ? x : d;
+};
+
+// Кластер по коду роли
 function resolveClusterByRole(role: RoleCode | null): ClusterKey | null {
   if (!role) return null;
   const keys = Object.keys(CLUSTERS) as ClusterKey[];
   for (const k of keys) {
-    if (CLUSTERS[k].includes(role)) return k;
+    if ((CLUSTERS[k] as readonly string[]).includes(role)) return k;
   }
   return null;
 }
 
-// === [BIGINT FIX] универсальный нормализатор результатов raw-запросов ===
-function rowsToJSON<T = any>(rows: any): T {
-  return JSON.parse(
-    JSON.stringify(rows, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
-  );
-}
-
-// Маленький helper для безопасного number
-const n = (v: any, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
-
-// === Авто-детект роли по последним 30 матчам (без сезонного фильтра) ===
-async function autoDetectRole(prisma: any, userId: number): Promise<RoleCode | null> {
-  const rows = JSON.parse(JSON.stringify(
-    await prisma.$queryRawUnsafe(`
-      SELECT
-        CASE
-          WHEN fp.code IS NOT NULL AND fp.code <> '' THEN fp.code
-          WHEN sp.short_name = 'ВР' THEN 'ВР'
-          ELSE NULL
-        END AS role_code
-      FROM tbl_users_match_stats ums
-      INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-      LEFT  JOIN skills_positions    sp ON ums.skill_id     = sp.id
-      WHERE ums.user_id = ${userId}
-      ORDER BY tm.timestamp DESC
-      LIMIT 30
-    `),
-    (_k, v) => (typeof v === "bigint" ? Number(v) : v)
-  )) as Array<{ role_code: string | null }>;
-
+// Авто-детект модального амплуа по последним 30 матчам (без OFFICIAL-фильтра)
+async function autoDetectRole(pr: PrismaClient, userId: number): Promise<RoleCode | null> {
+  const rows = await pr.$queryRawUnsafe(`
+    SELECT fp.code AS role_code
+    FROM tbl_users_match_stats ums
+    INNER JOIN tournament_match tm ON tm.id = ums.match_id
+    LEFT  JOIN tbl_field_positions fp ON fp.id = ums.position_id
+    WHERE ums.user_id = ${userId}
+    ORDER BY tm.timestamp DESC
+    LIMIT 30
+  `);
   const counts = new Map<string, number>();
-  for (const r of rows) {
+  for (const r of rows as any[]) {
     const code = String(r.role_code ?? "").trim();
     if (!code) continue;
     counts.set(code, (counts.get(code) ?? 0) + 1);
   }
-
-  let best: string | null = null, bestCnt = -1;
+  let best: string | null = null;
+  let bestCnt = -1;
   for (const [code, cnt] of counts) {
     if (cnt > bestCnt) { best = code; bestCnt = cnt; }
   }
   return (best as RoleCode) ?? null;
 }
 
-// === Вспомогательное: проверка «официальности» турнира по названию ===
-function parseSeasonFromName(name: string): number | null {
-  // ищем «(NN сезон)» и берём NN
-  const m = name.match(/(?:\(|\s)(\d{1,3})\s*сезон\)?/i);
-  if (!m) return null;
-  return Number(m[1]);
-}
-function isOfficialTournament(name: string): boolean {
-  const s = parseSeasonFromName(name);
-  return s !== null && s >= SEASON_MIN;
+// ----------------------------------------------------
+// SQL-билдеры
+// ----------------------------------------------------
+
+// Общий коHORT для пул-перцентилей (как в твоём рабочем файле; WHERE matches >= 30)
+function buildCohortSQLCommon(roleCodesSQL: string): string {
+  return `
+    WITH base AS (
+      SELECT
+        ums.user_id,
+        ums.match_id,
+        ${XG_EXPR} AS goal_expected,
+        ums.goals, ums.assists,
+        ums.kicked, ums.kickedin,
+        ums.passes        AS xa_part,
+        ums.allpasses, ums.completedpasses, ums.passes_rate,
+        ums.ipasses, ums.pregoal_passes,
+        ums.allstockes, ums.completedstockes,
+        ums.intercepts,
+        ums.allselection, ums.selection,
+        ums.completedtackles,
+        ums.blocks,
+        ums.outs,
+        ums.outplayed, ums.penalised_fails,
+        ums.duels_air, ums.duels_air_win,
+        ums.crosses
+      FROM tbl_users_match_stats ums
+      INNER JOIN tournament_match tm ON ums.match_id = tm.id
+      INNER JOIN tournament t ON tm.tournament_id = t.id
+      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+      WHERE fp.code IN (${roleCodesSQL})
+        ${OFFICIAL_FILTER}
+    ),
+    per_user AS (
+      SELECT
+        user_id,
+        CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
+        SUM(goals) AS goals, SUM(assists) AS assists,
+        SUM(goal_expected) AS xg,
+        SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
+        SUM(xa_part) AS xa,
+        SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
+        SUM(ipasses) AS ipasses, SUM(pregoal_passes) AS pregoals,
+        SUM(allstockes) AS allstockes, SUM(completedstockes) AS completedstockes,
+        SUM(intercepts) AS intercepts,
+        SUM(allselection) AS allselection, SUM(selection) AS selection,
+        SUM(completedtackles) AS completedtackles,
+        SUM(blocks) AS blocks,
+        SUM(outs) AS outs,
+        SUM(outplayed) + SUM(penalised_fails) AS beaten,
+        SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
+        SUM(crosses) AS crosses
+      FROM base
+      GROUP BY user_id
+    )
+    SELECT
+      user_id,
+      (matches * 1.0)                                        AS matches,
+      ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
+      ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
+      (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
+      ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
+      (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
+      ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
+      (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
+      (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
+      (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
+      (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
+      ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
+      ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
+      (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
+      (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
+      (0.5*(completedpasses/NULLIF(allpasses,0))
+       +0.3*(completedstockes/NULLIF(allstockes,0))
+       +0.15*(duels_air_win/NULLIF(duels_air,0))
+       +0.05*(selection/NULLIF(allselection,0))) * 1.0       AS safety_coef,
+      (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
+      (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
+      ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
+    FROM per_user
+    WHERE matches >= 30
+    LIMIT 20000
+  `;
 }
 
-// === API ===
+// Специальный коHORT для GK (WHERE matches >= 30)
+function buildCohortSQLGK(): string {
+  return `
+    WITH base AS (
+      SELECT
+        ums.user_id,
+        ums.match_id,
+        ums.team_id,
+        /* xG соперника за матч */
+        COALESCE((
+          SELECT SUM(u2.${XG_COL})
+          FROM tbl_users_match_stats u2
+          WHERE u2.match_id = ums.match_id
+            AND u2.team_id <> ums.team_id
+        ), 0) AS opp_xg,
+        /* события GK */
+        ums.saved,         -- сейвы
+        ums.scored,        -- пропущенные
+        ums.intercepts,    -- перехваты
+        ums.allpasses,     -- пасы
+        ums.dry            -- сухой (0/1)
+      FROM tbl_users_match_stats ums
+      INNER JOIN tournament_match tm ON ums.match_id = tm.id
+      INNER JOIN tournament t        ON tm.tournament_id = t.id
+      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+      WHERE fp.code IN ('ВР','ВРТ')
+        ${OFFICIAL_FILTER}
+    ),
+    per_user AS (
+      SELECT
+        user_id,
+        CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
+        SUM(opp_xg)     AS opp_xg,
+        SUM(scored)     AS conceded,
+        SUM(saved)      AS saved,
+        SUM(intercepts) AS intercepts,
+        SUM(allpasses)  AS allpasses,
+        SUM(dry)        AS dry_matches
+      FROM base
+      GROUP BY user_id
+    )
+    SELECT
+      user_id,
+      (matches * 1.0) AS matches,
+      (saved / NULLIF(saved + conceded, 0)) * 1.0      AS save_pct,
+      (saved / NULLIF(matches, 0)) * 1.0               AS saves_avg,
+      (intercepts / NULLIF(matches, 0)) * 1.0          AS intercepts,
+      (allpasses / NULLIF(matches, 0)) * 1.0           AS passes,
+      (dry_matches / NULLIF(matches, 0)) * 1.0         AS clean_sheets_pct,
+      ((opp_xg - conceded) / NULLIF(matches, 0)) * 1.0 AS prevented_xg
+    FROM per_user
+    WHERE matches >= 30
+    LIMIT 20000
+  `;
+}
+
+// ----------------------------------------------------
+// API
+// ----------------------------------------------------
 export async function GET(req: Request, { params }: { params: { userId: string } }) {
   try {
     const url = new URL(req.url);
@@ -103,17 +275,17 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     }
     const userId = Number(userIdStr);
 
-    // 1) роль: из ?role=... или авто-детект
+    // Роль из query (?role=...), иначе авто-детект по последним 30 матчам
     const roleFromClient = url.searchParams.get("role");
-let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
-if (!currentRole) currentRole = await autoDetectRole(prisma, userId);
+    let currentRole: RoleCode | null = (roleFromClient as RoleCode) || null;
+    if (!currentRole) currentRole = await autoDetectRole(prisma, userId);
 
     const cluster = resolveClusterByRole(currentRole);
     if (!currentRole || !cluster) {
       return NextResponse.json({
         ok: true,
         ready: false,
-        currentRole: currentRole ?? null,
+        currentRole,
         cluster: cluster ?? null,
         matchesCluster: 0,
         tournamentsUsed: [],
@@ -124,342 +296,201 @@ if (!currentRole) currentRole = await autoDetectRole(prisma, userId);
       });
     }
 
-    const roleCodesSQL = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
-
-    // 2) список турниров пользователя (как раньше), потом фильтр на «официальные»
-    const TOUR_SQL = `
-      SELECT
-        t.name AS tournament_name,
-        CAST(COUNT(DISTINCT ums.match_id) AS UNSIGNED) AS matches  -- [CAST]
+    // Список «официальных» турниров пользователя (для дебага; не ломал твою логику)
+    const tournamentsAll = toJSON(await prisma.$queryRawUnsafe(`
+      SELECT t.name AS name,
+             CAST(REGEXP_SUBSTR(t.name, '([1-9][0-9]*)') AS UNSIGNED) AS season,
+             COUNT(DISTINCT tm.id) AS matches
       FROM tbl_users_match_stats ums
-      INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      INNER JOIN tournament t        ON tm.tournament_id = t.id
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      JOIN tournament t        ON t.id = tm.tournament_id
       WHERE ums.user_id = ${userId}
-      GROUP BY t.name
+      GROUP BY t.id, t.name
       ORDER BY matches DESC
-    `;
-    const tourRowsRaw = await prisma.$queryRawUnsafe(TOUR_SQL);
-    const tourRows = rowsToJSON<any[]>(tourRowsRaw); // [BIGINT FIX]
+    `));
 
-    const tournamentsAll = tourRows.map(r => ({
-      name: String(r.tournament_name),
-      season: parseSeasonFromName(String(r.tournament_name)),
-      matches: n(r.matches),
-    }));
+    const tournamentsOfficial = (tournamentsAll as any[]).filter(x => {
+      const s = safeNum(x.season, null);
+      return s !== null && s >= SEASON_MIN;
+    });
 
-    const tournamentsOfficial = tournamentsAll.filter(r => isOfficialTournament(r.name));
-    if (!tournamentsOfficial.length) {
-      return NextResponse.json({
-        ok: true,
-        ready: false,
-        currentRole,
-        cluster,
-        matchesCluster: 0,
-        tournamentsUsed: [],
-        reason: "Нет официальных турниров (содержат «сезон» и номер ≥ 18)",
-        debug: {
-          seasonMin: SEASON_MIN,
-          officialFilterApplied: true,
-          tournamentsAll,
-        },
-      });
-    }
+    // ------------------------------------
+    // 1) Пул коHORT для перцентилей
+    // ------------------------------------
+    const roleCodesSQL = CLUSTERS[cluster]
+      .map(r => `'${r.replace(/'/g, "''")}'`)
+      .join(",");
 
-    // 3) агрегат по игроку под радар (как у вас было; фильтруем по кластерам роли)
-    const AGG_SQL = `
-      WITH base AS (
-        SELECT
-          ums.user_id,
-          ums.match_id,
-          ums.goals_expected AS goal_expected,
-          ums.goals, ums.assists,
-          ums.kicked, ums.kickedin,
-          ums.passes        AS xa_part,
-          ums.allpasses, ums.completedpasses, ums.passes_rate,
-          ums.ipasses, ums.pregoal_passes,
-          ums.allstockes, ums.completedstockes,
-          ums.intercepts,
-          ums.allselection, ums.selection,
-          ums.completedtackles,
-          ums.blocks,
-          ums.outs,
-          ums.outplayed, ums.penalised_fails,
-          ums.duels_air, ums.duels_air_win,
-          ums.crosses,
-          t.name AS tournament_name
-        FROM tbl_users_match_stats ums
-        INNER JOIN tournament_match tm ON ums.match_id = tm.id
-        INNER JOIN tournament t        ON tm.tournament_id = t.id
-        LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-        WHERE ums.user_id = ${userId}
-          AND fp.code IN (${roleCodesSQL})
-      ),
-      filtered AS (
-        SELECT *
-        FROM base
-        WHERE tournament_name IS NOT NULL
-          AND ${tournamentsOfficial.map(t => `tournament_name = '${t.name.replace(/'/g,"''")}'`).join(" OR ")}
-      ),
-      per_user AS (
-        SELECT
-          user_id,
-          CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,  -- [CAST]
-          SUM(goals) AS goals, SUM(assists) AS assists,
-          SUM(goal_expected) AS xg,
-          SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
-          SUM(xa_part) AS xa,
-          SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
-          SUM(ipasses) AS ipasses, SUM(pregoal_passes) AS pregoals,
-          SUM(allstockes) AS allstockes, SUM(completedstockes) AS completedstockes,
-          SUM(intercepts) AS intercepts,
-          SUM(allselection) AS allselection, SUM(selection) AS selection,
-          SUM(completedtackles) AS completedtackles,
-          SUM(blocks) AS blocks,
-          SUM(outs) AS outs,
-          SUM(outplayed) + SUM(penalised_fails) AS beaten,
-          SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
-          SUM(crosses) AS crosses
-        FROM filtered
-        GROUP BY user_id
-      )
-      SELECT
-        user_id,
-        (matches * 1.0)                                        AS matches,
-        ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
-        ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
-        (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
-        ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
-        (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
-        ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
-        (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
-        (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
-        (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
-        (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
-        ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
-        ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
-        (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
-        (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
-        (0.5*(completedpasses/NULLIF(allpasses,0))
-        +0.3*(completedstockes/NULLIF(allstockes,0))
-        +0.15*(duels_air_win/NULLIF(duels_air,0))
-        +0.05*(selection/NULLIF(allselection,0))) * 1.0        AS safety_coef,
-        (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
-        (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
-        ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
-      FROM per_user
-      LIMIT 1
-    `;
-    const aggRowRaw = await prisma.$queryRawUnsafe(AGG_SQL);
-    const aggRows = rowsToJSON<any[]>(aggRowRaw); // [BIGINT FIX]
-    const agg = aggRows[0] || null;
+    const COHORT_SQL =
+      cluster === "GK" ? buildCohortSQLGK() : buildCohortSQLCommon(roleCodesSQL);
 
-    // 4) пул для перцентилей (все игроки кластера, матчи ≥ 30)
-    const COHORT_SQL = `
-      WITH base AS (
-        SELECT
-          ums.user_id,
-          ums.match_id,
-          ums.goals_expected AS goal_expected,
-          ums.goals, ums.assists,
-          ums.kicked, ums.kickedin,
-          ums.passes        AS xa_part,
-          ums.allpasses, ums.completedpasses, ums.passes_rate,
-          ums.ipasses, ums.pregoal_passes,
-          ums.allstockes, ums.completedstockes,
-          ums.intercepts,
-          ums.allselection, ums.selection,
-          ums.completedtackles,
-          ums.blocks,
-          ums.outs,
-          ums.outplayed, ums.penalised_fails,
-          ums.duels_air, ums.duels_air_win,
-          ums.crosses,
-          t.name AS tournament_name
-        FROM tbl_users_match_stats ums
-        INNER JOIN tournament_match tm ON ums.match_id = tm.id
-        INNER JOIN tournament t        ON tm.tournament_id = t.id
-        LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-        WHERE fp.code IN (${roleCodesSQL})
-      ),
-      filtered AS (
-        SELECT *
-        FROM base
-        WHERE tournament_name IS NOT NULL
-          AND ${tournamentsOfficial.map(t => `tournament_name = '${t.name.replace(/'/g,"''")}'`).join(" OR ")}
-      ),
-      per_user AS (
-        SELECT
-          user_id,
-          CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,  -- [CAST]
-          SUM(goals) AS goals, SUM(assists) AS assists,
-          SUM(goal_expected) AS xg,
-          SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
-          SUM(xa_part) AS xa,
-          SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
-          SUM(ipasses) AS ipasses, SUM(pregoal_passes) AS pregoals,
-          SUM(allstockes) AS allstockes, SUM(completedstockes) AS completedstockes,
-          SUM(intercepts) AS intercepts,
-          SUM(allselection) AS allselection, SUM(selection) AS selection,
-          SUM(completedtackles) AS completedtackles,
-          SUM(blocks) AS blocks,
-          SUM(outs) AS outs,
-          SUM(outplayed) + SUM(penalised_fails) AS beaten,
-          SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
-          SUM(crosses) AS crosses
-        FROM filtered
-        GROUP BY user_id
-      )
-      SELECT
-        user_id,
-        (matches * 1.0)                                        AS matches,
-        ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
-        ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
-        (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
-        ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
-        (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
-        ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
-        (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
-        (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
-        (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
-        (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
-        ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
-        ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
-        (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
-        (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
-        (0.5*(completedpasses/NULLIF(allpasses,0))
-        +0.3*(completedstockes/NULLIF(allstockes,0))
-        +0.15*(duels_air_win/NULLIF(duels_air,0))
-        +0.05*(selection/NULLIF(allselection,0))) * 1.0        AS safety_coef,
-        (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
-        (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
-        ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
-      FROM per_user
-      WHERE matches >= 30
-      LIMIT 20000
-    `;
-    const cohortRows = rowsToJSON<any[]>(await prisma.$queryRawUnsafe(COHORT_SQL)); // [BIGINT FIX]
+    const cohortRows = toJSON(await prisma.$queryRawUnsafe(COHORT_SQL)) as any[];
+    const cohortN = cohortRows.length;
 
-    // 5) если матчей у игрока < 30 — не строим радар
-    const matchesCluster = n(agg?.matches, 0);
-    if (!matchesCluster || matchesCluster < 30) {
+    // ------------------------------------
+    // 2) Агрегат конкретного игрока (как раньше)
+    // ------------------------------------
+    const AGG_SQL =
+      cluster === "GK"
+        ? `
+          WITH base AS (
+            SELECT
+              ums.user_id,
+              ums.match_id,
+              ums.team_id,
+              COALESCE((
+                SELECT SUM(u2.${XG_COL})
+                FROM tbl_users_match_stats u2
+                WHERE u2.match_id = ums.match_id
+                  AND u2.team_id <> ums.team_id
+              ), 0) AS opp_xg,
+              ums.saved, ums.scored,
+              ums.intercepts, ums.allpasses, ums.dry
+            FROM tbl_users_match_stats ums
+            INNER JOIN tournament_match tm ON ums.match_id = tm.id
+            INNER JOIN tournament t        ON tm.tournament_id = t.id
+            LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+            WHERE ums.user_id = ${userId}
+              AND fp.code IN ('ВР','ВРТ')
+              ${OFFICIAL_FILTER}
+          ),
+          per_user AS (
+            SELECT
+              user_id,
+              CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
+              SUM(opp_xg)     AS opp_xg,
+              SUM(scored)     AS conceded,
+              SUM(saved)      AS saved,
+              SUM(intercepts) AS intercepts,
+              SUM(allpasses)  AS allpasses,
+              SUM(dry)        AS dry_matches
+            FROM base
+            GROUP BY user_id
+          )
+          SELECT
+            (matches * 1.0) AS matches,
+            (saved / NULLIF(saved + conceded, 0)) * 1.0      AS save_pct,
+            (saved / NULLIF(matches, 0)) * 1.0               AS saves_avg,
+            (intercepts / NULLIF(matches, 0)) * 1.0          AS intercepts,
+            (allpasses / NULLIF(matches, 0)) * 1.0           AS passes,
+            (dry_matches / NULLIF(matches, 0)) * 1.0         AS clean_sheets_pct,
+            ((opp_xg - conceded) / NULLIF(matches, 0)) * 1.0 AS prevented_xg
+          FROM per_user
+        `
+        : `
+          WITH base AS (
+            SELECT
+              ums.user_id,
+              ums.match_id,
+              ${XG_EXPR} AS goal_expected,
+              ums.goals, ums.assists,
+              ums.kicked, ums.kickedin,
+              ums.passes        AS xa_part,
+              ums.allpasses, ums.completedpasses, ums.passes_rate,
+              ums.ipasses, ums.pregoal_passes,
+              ums.allstockes, ums.completedstockes,
+              ums.intercepts,
+              ums.allselection, ums.selection,
+              ums.completedtackles,
+              ums.blocks,
+              ums.outs,
+              ums.outplayed, ums.penalised_fails,
+              ums.duels_air, ums.duels_air_win,
+              ums.crosses
+            FROM tbl_users_match_stats ums
+            INNER JOIN tournament_match tm ON ums.match_id = tm.id
+            INNER JOIN tournament t ON tm.tournament_id = t.id
+            LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+            WHERE ums.user_id = ${userId}
+              AND fp.code IN (${roleCodesSQL})
+              ${OFFICIAL_FILTER}
+          ),
+          per_user AS (
+            SELECT
+              CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
+              SUM(goals) AS goals, SUM(assists) AS assists,
+              SUM(goal_expected) AS xg,
+              SUM(kicked) AS kicked, SUM(kickedin) AS kickedin,
+              SUM(xa_part) AS xa,
+              SUM(allpasses) AS allpasses, SUM(completedpasses) AS completedpasses,
+              SUM(ipasses) AS ipasses, SUM(pregoal_passes) AS pregoals,
+              SUM(allstockes) AS allstockes, SUM(completedstockes) AS completedstockes,
+              SUM(intercepts) AS intercepts,
+              SUM(allselection) AS allselection, SUM(selection) AS selection,
+              SUM(completedtackles) AS completedtackles,
+              SUM(blocks) AS blocks,
+              SUM(outs) AS outs,
+              SUM(outplayed) + SUM(penalised_fails) AS beaten,
+              SUM(duels_air) AS duels_air, SUM(duels_air_win) AS duels_air_win,
+              SUM(crosses) AS crosses
+            FROM base
+          )
+          SELECT
+            (matches * 1.0)                                        AS matches,
+            ((goals + assists) / NULLIF(matches,0)) * 1.0          AS goal_contrib,
+            ((goals - xg) / NULLIF(matches,0)) * 1.0               AS xg_delta,
+            (kickedin / NULLIF(kicked,0)) * 1.0                    AS shots_on_target_pct,
+            ((pregoals + ipasses + 2*xa) / NULLIF(matches,0)) * 1.0 AS creation,
+            (completedstockes / NULLIF(allstockes,0)) * 1.0        AS dribble_pct,
+            ((intercepts + selection) / NULLIF(matches,0)) * 1.0   AS pressing,
+            (xa / NULLIF(matches,0)) * 1.0                         AS xa_avg,
+            (0.5 * allpasses / NULLIF(xa,0)) * 1.0                 AS pxa,
+            (allpasses / NULLIF(matches,0)) * 1.0                  AS passes,
+            (completedpasses / NULLIF(allpasses,0)) * 1.0          AS pass_acc,
+            ((intercepts + selection + completedtackles + blocks) / NULLIF(matches,0)) * 1.0  AS def_actions,
+            ((beaten) / NULLIF(intercepts + selection + completedtackles + blocks,0)) * 1.0   AS beaten_rate,
+            (duels_air_win / NULLIF(duels_air,0)) * 1.0            AS aerial_pct,
+            (crosses / NULLIF(matches,0)) * 1.0                    AS crosses_avg,
+            (0.5*(completedpasses/NULLIF(allpasses,0))
+             +0.3*(completedstockes/NULLIF(allstockes,0))
+             +0.15*(duels_air_win/NULLIF(duels_air,0))
+             +0.05*(selection/NULLIF(allselection,0))) * 1.0       AS safety_coef,
+            (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
+            (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
+            ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
+        `;
+
+    const playerAgg = toJSON((await prisma.$queryRawUnsafe(AGG_SQL))[0] ?? {}) as any;
+    const matchesCluster = safeNum(playerAgg.matches, 0);
+
+    if (!matchesCluster || matchesCluster < 30 || cohortN === 0) {
       return NextResponse.json({
         ok: true,
         ready: false,
         currentRole,
         cluster,
         matchesCluster,
-        tournamentsUsed: tournamentsOfficial.map(t => t.name),
+        tournamentsUsed: tournamentsOfficial.map((x: any) => x.name),
         reason: "Недостаточно матчей в кластере (< 30), радар недоступен",
         debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
       });
     }
 
-    // 6) собрать радар (ваши метрики; процентили считаем по cohortRows)
-    // Пример для FW/AM/FM/CM/CB — оставляю как у вас.
-    // Ниже — упрощённый пример процентилизации:
-   function pctOf(value: number, arr: number[], lowerIsBetter = false) {
-  const pool = arr.filter(x => Number.isFinite(x)).sort((a,b)=>a-b);
-  if (!pool.length || !Number.isFinite(value)) return null;
+    // ------------------------------------
+    // 3) Перцентили по набору кластера
+    // ------------------------------------
+    const metrics = RADAR_BY_CLUSTER[cluster];
 
-  let rank = 0;
-  while (rank < pool.length && pool[rank] <= value) rank++;
-  const pct = Math.round((rank / pool.length) * 100);
+    const radar = metrics.map((key) => {
+      const val = safeNum(playerAgg[key], null);
+      if (val === null) return { key, label: LABELS[key] ?? key, pct: null };
 
-  return lowerIsBetter ? (100 - pct) : pct;
-}
+      // распределение по пулу
+      const arr = cohortRows
+        .map((r: any) => safeNum(r[key], null))
+        .filter((x: any) => x !== null);
 
-    const LOWER_IS_BETTER = new Set<string>([
-  "beaten_rate", // Beaten Rate ↓
-  "pxa",         // pXA ↓
-]);
-    
-    // Вытащим пулы для нужных осей (пример для «FW»-набора; оставь свою маппу)
-    const pull = {
-      goal_contrib: cohortRows.map(r => n(r.goal_contrib)),
-      xg_delta: cohortRows.map(r => n(r.xg_delta)),
-      shots_on_target_pct: cohortRows.map(r => n(r.shots_on_target_pct)),
-      creation: cohortRows.map(r => n(r.creation)),
-      dribble_pct: cohortRows.map(r => n(r.dribble_pct)),
-      pressing: cohortRows.map(r => n(r.pressing)),
-      xa_avg: cohortRows.map(r => n(r.xa_avg)),
-      pxa: cohortRows.map(r => n(r.pxa)),
-      passes: cohortRows.map(r => n(r.passes)),
-      pass_acc: cohortRows.map(r => n(r.pass_acc)),
-      def_actions: cohortRows.map(r => n(r.def_actions)),
-      beaten_rate: cohortRows.map(r => n(r.beaten_rate)),
-      aerial_pct: cohortRows.map(r => n(r.aerial_pct)),
-      crosses_avg: cohortRows.map(r => n(r.crosses_avg)),
-      safety_coef: cohortRows.map(r => n(r.safety_coef)),
-      tackle_success: cohortRows.map(r => n(r.tackle_success)),
-      clearances: cohortRows.map(r => n(r.clearances)),
-      attack_participation: cohortRows.map(r => n(r.attack_participation)),
-    };
+      if (!arr.length) return { key, label: LABELS[key] ?? key, pct: null };
 
-    // Сформируй конкретный набор осей под кластер, как у тебя было:
-    const axesByCluster: Record<ClusterKey, { key: string; label: string }[]> = {
-      FW: [
-        { key: "goal_contrib", label: "Гол+пас" },
-        { key: "xg_delta", label: "Реализация xG" },
-        { key: "shots_on_target_pct", label: "Удары в створ %" },
-        { key: "creation", label: "Созидание" },
-        { key: "dribble_pct", label: "Дриблинг %" },
-        { key: "pressing", label: "Прессинг" },
-        { key: "xa_avg", label: "xA" },
-      ],
-      AM: [
-        { key: "xa_avg", label: "xA" },
-        { key: "pxa", label: "pXA" },
-        { key: "goal_contrib", label: "Гол+пас" },
-        { key: "pass_acc", label: "Точность пасов %" },
-        { key: "dribble_pct", label: "Дриблинг %" },
-        { key: "pressing", label: "Прессинг" },
-      ],
-      FM: [
-        { key: "creation", label: "Созидание" },
-        { key: "passes", label: "Пасы" },
-        { key: "pass_acc", label: "Точность паса %" },
-        { key: "def_actions", label: "Защитные действия" },
-        { key: "beaten_rate", label: "Beaten Rate ↓" },
-        { key: "aerial_pct", label: "Верховые %" },
-      ],
-      CM: [
-        { key: "creation", label: "Созидание" },
-        { key: "passes", label: "Пасы" },
-        { key: "pass_acc", label: "Точность паса %" },
-        { key: "def_actions", label: "Защитные действия" },
-        { key: "beaten_rate", label: "Beaten Rate ↓" },
-        { key: "aerial_pct", label: "Верховые %" },
-        { key: "pxa", label: "pXA" },
-        { key: "xa_avg", label: "xA" },
-      ],
-      CB: [
-        { key: "safety_coef", label: "Кэф безопасности" },
-        { key: "def_actions", label: "Защитные действия" },
-        { key: "tackle_success", label: "% успешных отборов" },
-        { key: "clearances", label: "Выносы" },
-        { key: "pass_acc", label: "% точности пасов" },
-        { key: "attack_participation", label: "Участие в атаке" },
-        { key: "aerial_pct", label: "% побед в воздухе" },
-        { key: "beaten_rate", label: "Beaten Rate" },
-      ],
-      GK: [
-        { key: "save_pct", label: "% сейвов" },
-        { key: "saves_avg", label: "Сейвы/матч" },
-        { key: "intercepts", label: "Перехваты/матч" },
-        { key: "passes", label: "Пасы/матч" },
-        { key: "clean_sheets_pct", label: "% сухих матчей" },
-        { key: "prevented_xg", label: "Предотвр. xG/матч" },
-      ],
-    };
+      const rank = arr.reduce((acc: number, x: number) => acc + (x <= val ? 1 : 0), 0);
+      let pct = Math.round((rank / arr.length) * 100);
 
-    // Собираем радар
-    const axes = axesByCluster[cluster].filter(a => a.key in (agg ?? {}));
-    const radar = axes.map(a => {
-  const raw = Number(agg?.[a.key]);
-  const pool = (pull as any)[a.key] as number[] | undefined;
-  const pct = pool ? pctOf(raw, pool, LOWER_IS_BETTER.has(a.key)) : null;
-  return { key: a.key, label: a.label, raw, pct };
-});
+      if (INVERTED.has(key)) pct = 100 - pct;
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+
+      return { key, label: LABELS[key] ?? key, pct };
+    });
 
     return NextResponse.json({
       ok: true,
@@ -467,13 +498,13 @@ if (!currentRole) currentRole = await autoDetectRole(prisma, userId);
       currentRole,
       cluster,
       matchesCluster,
-      tournamentsUsed: tournamentsOfficial.map(t => t.name),
+      tournamentsUsed: tournamentsOfficial.map((x: any) => x.name),
       radar,
       debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
     });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: String(e?.message || e) },
+      { ok: false, error: e?.message ?? String(e) },
       { status: 500 }
     );
   }
