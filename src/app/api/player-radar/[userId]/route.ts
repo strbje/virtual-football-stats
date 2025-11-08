@@ -385,7 +385,7 @@ function buildAggSQLGK(userId: number) {
         ums.team_id,
 
         COALESCE((
-          SELECT SUM(u2.${XG_EXPR})
+          SELECT SUM(u2.goals_expected)
           FROM tbl_users_match_stats u2
           WHERE u2.match_id = ums.match_id
             AND u2.team_id <> ums.team_id
