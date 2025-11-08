@@ -82,9 +82,10 @@ function toJSON<T = any>(v: any): T {
     )
   );
 }
-const safeNum = (v: any, d = 0) => {
+// Возвращает число или null, если не число
+const numOrNull = (v: unknown): number | null => {
   const x = typeof v === "string" ? Number(v) : (v as number);
-  return Number.isFinite(x) ? x : d;
+  return Number.isFinite(x) ? (x as number) : null;
 };
 
 // Кластер по коду роли
@@ -473,7 +474,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     const metrics = RADAR_BY_CLUSTER[cluster];
 
     const radar = metrics.map((key) => {
-      const val = safeNum(playerAgg[key], null);
+      const val = numOrNull(playerAgg[key]);
       if (val === null) return { key, label: LABELS[key] ?? key, pct: null };
 
       // распределение по пулу
