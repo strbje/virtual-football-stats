@@ -47,30 +47,36 @@ function rowsToJSON<T = any>(rows: any): T {
 const n = (v: any, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 
 // === Авто-детект роли по последним 30 матчам (без сезонного фильтра) ===
-async function autoDetectRole(userId: number): Promise<RoleCode | null> {
-  const sql = `
-    SELECT fp.code AS role_code
-    FROM tbl_users_match_stats ums
-    INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-    WHERE ums.user_id = ${userId}
-    ORDER BY tm.timestamp DESC
-    LIMIT 30
-  `;
-  const rows = rowsToJSON<any[]>(await prisma.$queryRawUnsafe(sql)); // [BIGINT FIX]
+async function autoDetectRole(prisma: any, userId: number): Promise<RoleCode | null> {
+  const rows = JSON.parse(JSON.stringify(
+    await prisma.$queryRawUnsafe(`
+      SELECT
+        CASE
+          WHEN fp.code IS NOT NULL AND fp.code <> '' THEN fp.code
+          WHEN sp.short_name = 'ВРТ' THEN 'ВРТ'
+          ELSE NULL
+        END AS role_code
+      FROM tbl_users_match_stats ums
+      INNER JOIN tournament_match tm ON ums.match_id = tm.id
+      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+      LEFT  JOIN skills_positions    sp ON ums.skill_id     = sp.id
+      WHERE ums.user_id = ${userId}
+      ORDER BY tm.timestamp DESC
+      LIMIT 30
+    `),
+    (_k, v) => (typeof v === "bigint" ? Number(v) : v)
+  )) as Array<{ role_code: string | null }>;
+
   const counts = new Map<string, number>();
   for (const r of rows) {
     const code = String(r.role_code ?? "").trim();
     if (!code) continue;
     counts.set(code, (counts.get(code) ?? 0) + 1);
   }
-  let best: string | null = null;
-  let bestCnt = -1;
-  for (const [code, cnt] of counts.entries()) {
-    if (cnt > bestCnt) {
-      best = code;
-      bestCnt = cnt;
-    }
+
+  let best: string | null = null, bestCnt = -1;
+  for (const [code, cnt] of counts) {
+    if (cnt > bestCnt) { best = code; bestCnt = cnt; }
   }
   return (best as RoleCode) ?? null;
 }
@@ -351,14 +357,22 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     // 6) собрать радар (ваши метрики; процентили считаем по cohortRows)
     // Пример для FW/AM/FM/CM/CB — оставляю как у вас.
     // Ниже — упрощённый пример процентилизации:
-    function pctOf(value: number, arr: number[]) {
-      if (!arr.length) return null;
-      const sorted = [...arr].filter(x => Number.isFinite(x)).sort((a,b)=>a-b);
-      const idx = sorted.findIndex(x => value <= x);
-      const rank = idx === -1 ? sorted.length : idx + 1;
-      return Math.round((rank / sorted.length) * 100);
-    }
+   function pctOf(value: number, arr: number[], lowerIsBetter = false) {
+  const pool = arr.filter(x => Number.isFinite(x)).sort((a,b)=>a-b);
+  if (!pool.length || !Number.isFinite(value)) return null;
 
+  let rank = 0;
+  while (rank < pool.length && pool[rank] <= value) rank++;
+  const pct = Math.round((rank / pool.length) * 100);
+
+  return lowerIsBetter ? (100 - pct) : pct;
+}
+
+    const LOWER_IS_BETTER = new Set<string>([
+  "beaten_rate", // Beaten Rate ↓
+  "pxa",         // pXA ↓
+]);
+    
     // Вытащим пулы для нужных осей (пример для «FW»-набора; оставь свою маппу)
     const pull = {
       goal_contrib: cohortRows.map(r => n(r.goal_contrib)),
@@ -441,11 +455,11 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     // Собираем радар
     const axes = axesByCluster[cluster].filter(a => a.key in (agg ?? {}));
     const radar = axes.map(a => {
-      const raw = n(agg?.[a.key], NaN);
-      const pool = (pull as any)[a.key] as number[] | undefined;
-      const pct = pool && Number.isFinite(raw) ? pctOf(raw, pool) : null;
-      return { key: a.key, label: a.label, raw, pct };
-    });
+  const raw = Number(agg?.[a.key]);
+  const pool = (pull as any)[a.key] as number[] | undefined;
+  const pct = pool ? pctOf(raw, pool, LOWER_IS_BETTER.has(a.key)) : null;
+  return { key: a.key, label: a.label, raw, pct };
+});
 
     return NextResponse.json({
       ok: true,
