@@ -88,6 +88,12 @@ const numOrNull = (v: unknown): number | null => {
   return Number.isFinite(x) ? (x as number) : null;
 };
 
+// Число с дефолтом
+const safeNum = (v: unknown, d = 0): number => {
+  const x = typeof v === "string" ? Number(v) : (v as number);
+  return Number.isFinite(x) ? (x as number) : d;
+};
+
 // Кластер по коду роли
 function resolveClusterByRole(role: RoleCode | null): ClusterKey | null {
   if (!role) return null;
