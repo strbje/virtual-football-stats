@@ -18,7 +18,7 @@ export type RoleCode =
   | "ЦОП" | "ЛОП" | "ПОП"
   | "ЦЗ"  | "ЛЦЗ" | "ПЦЗ"
   | "ЛЗ"  | "ПЗ"
-  | "ВР"; // GK — «ВР» (а не «ВРТ»)
+  | "ВР"; 
 
 const SEASON_MIN = 18;
 
@@ -29,7 +29,7 @@ const CLUSTERS: Record<ClusterKey, RoleCode[]> = {
   CM: ["ЦП", "ЛЦП", "ПЦП"],
   FM: ["ЛП", "ПП", "ЦОП", "ЛОП", "ПОП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
-  GK: ["ВР"], // вратарь
+  GK: ["ВР"], 
 } as const;
 
 /** Алиасы входной роли (из query) к RoleCode */
@@ -50,32 +50,32 @@ const RADAR_BY_CLUSTER = {
 
 /** Подписи для метрик радара */
 const LABELS: Record<string, string> = {
-  goal_contrib: "Гол+пас/90",
-  xg_delta: "ΔxG/90",
+  goal_contrib: "Гол+пас",
+  xg_delta: "Реализация xG",
   shots_on_target_pct: "Удары в створ %",
   creation: "Созидание",
-  dribble_pct: "Дриблинг %",
+  dribble_pct: "Дриблинг%",
   pressing: "Прессинг",
 
-  xa_avg: "xA/90",
-  pxa: "pXA (пасов/0.5 xA)",
-  passes: "Пасы/90",
+  xa_avg: "xA/",
+  pxa: "pXA",
+  passes: "Пасы",
   pass_acc: "Точность паса %",
-  def_actions: "Защитные действия/90",
+  def_actions: "Защитные действия",
   beaten_rate: "Beaten Rate ↓",
   aerial_pct: "Воздух %",
 
-  crosses: "Навесы/90",
+  crosses: "Навесы",
   safety_coef: "Кэф безопасности",
-  tackle_success: "Отборы % (усп.)",
-  clearances: "Выносы/90",
+  tackle_success: "Отборы %",
+  clearances: "Выносы",
   attack_participation: "Участие в атаке",
 
   save_pct: "Сейвы %",
-  saves_avg: "Сейвы/90",
+  saves_avg: "Сейвы",
   clean_sheets_pct: "Сухие %",
-  prevented_xg: "Предотвр. xG/90",
-  intercepts: "Перехваты/90",
+  prevented_xg: "Предотвр. xG",
+  intercepts: "Перехваты",
 };
 
 /** Метрики, где меньше — лучше (инвертировать перцентиль) */
@@ -245,7 +245,7 @@ function buildCohortSQLGK() {
         ums.team_id,
 
         COALESCE((
-          SELECT SUM(u2.${XG_EXPR})
+          SELECT SUM(${XG_EXPR})
           FROM tbl_users_match_stats u2
           WHERE u2.match_id = ums.match_id
             AND u2.team_id <> ums.team_id
