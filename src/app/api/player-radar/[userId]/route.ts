@@ -14,7 +14,7 @@ type RoleCode =
   | "ЛП" | "ПП"
   | "ЦОП" | "ЛОП" | "ПОП"
   | "ЦЗ" | "ЛЦЗ" | "ПЦЗ" | "ЛЗ" | "ПЗ"
-  | "ВРТ";
+  | "ВР";
 
 type ClusterKey = "FW" | "AM" | "FM" | "CM" | "CB" | "GK";
 
@@ -24,7 +24,7 @@ const CLUSTERS: Record<ClusterKey, RoleCode[]> = {
   FM: ["ЛП", "ПП"],                           
   CM: ["ЦП", "ЦОП", "ЛЦП", "ПЦП", "ЛОП", "ПОП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
-  GK: ["ВРТ"],
+  GK: ["ВР"],
 };
 
 function resolveClusterByRole(role: RoleCode | null): ClusterKey | null {
@@ -53,7 +53,7 @@ async function autoDetectRole(prisma: any, userId: number): Promise<RoleCode | n
       SELECT
         CASE
           WHEN fp.code IS NOT NULL AND fp.code <> '' THEN fp.code
-          WHEN sp.short_name = 'ВРТ' THEN 'ВРТ'
+          WHEN sp.short_name = 'ВР' THEN 'ВР'
           ELSE NULL
         END AS role_code
       FROM tbl_users_match_stats ums
