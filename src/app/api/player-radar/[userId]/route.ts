@@ -485,8 +485,8 @@ export async function GET(req: Request, { params }: { params: { userId: string }
 
       // распределение по пулу
       const arr = cohortRows
-        .map((r: any) => safeNum(r[key], null))
-        .filter((x: any) => x !== null);
+  .map((r: any) => numOrNull(r[key]))
+  .filter((x: number | null): x is number => x !== null);
 
       if (!arr.length) return { key, label: LABELS[key] ?? key, pct: null };
 
