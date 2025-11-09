@@ -122,7 +122,6 @@ function PlayerCard({
           </div>
           <div className="flex-1">
             <h4 className="font-semibold text-gray-800">{name}</h4>
-            <p className="text-sm text-gray-600">ID: {userId}</p>
           </div>
           <div className="text-lg font-bold text-blue-600">
             {suffix ? `${value}${suffix}` : value}
@@ -208,7 +207,7 @@ export default async function HomePage() {
             ))}
           </Section>
 
-          <Section title="Топ по защитным действиям (П+О+Б+УП)">
+          <Section title="Топ по защитным действиям">
             {topDefense.map(r => (
               <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
             ))}
