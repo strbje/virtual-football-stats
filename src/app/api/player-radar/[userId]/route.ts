@@ -26,8 +26,8 @@ const SEASON_MIN = 18;
 const CLUSTERS: Record<ClusterKey, RoleCode[]> = {
   FW: ["ФРВ", "ЦФД", "ЛФД", "ПФД", "ЛФА", "ПФА"],
   AM: ["ЦАП", "ЛАП", "ПАП"],
-  CM: ["ЦП", "ЛЦП", "ПЦП", "ЦОП", "ЛОП", "ПОП"],
-  FM: ["ЛП", "ПП"],
+  CM: ["ЦП", "ЛЦП", "ПЦП"],
+  FM: ["ЛП", "ПП", "ЦОП", "ЛОП", "ПОП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
   GK: ["ВР"], 
 } as const;
@@ -126,28 +126,28 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 /** ====== АВТОДЕТЕКТ РОЛИ ЗА ПОСЛЕДНИЕ 30 ====== */
-async function autoDetectRole(prisma: any, userIdNum: number): Promise<RoleCode | null> {
+async function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
   const rows = await prisma.$queryRawUnsafe(`
     SELECT fp.code AS role_code
     FROM tbl_users_match_stats ums
     INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    INNER JOIN tournament t        ON tm.tournament_id = t.id
     LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-    WHERE ums.user_id = ${userIdNum}
-      ${OFFICIAL_FILTER}
+    WHERE ums.user_id = ${userId}
     ORDER BY tm.timestamp DESC
     LIMIT 30
   `);
-
-  const counts = new Map<string, number>();
-  for (const r of rows as any[]) {
+  const map = new Map<string, number>();
+  for (const r of (rows as any[])) {
     const code = String(r.role_code ?? "").trim();
     if (!code) continue;
-    counts.set(code, (counts.get(code) ?? 0) + 1);
+    map.set(code, (map.get(code) ?? 0) + 1);
   }
-  let best: string | null = null, bestCnt = -1;
-  for (const [code, cnt] of counts) { if (cnt > bestCnt) { best = code; bestCnt = cnt; } }
-  return best as RoleCode | null;
+  let best: string | null = null;
+  let bestCnt = -1;
+  for (const [code, cnt] of map.entries()) {
+    if (cnt > bestCnt) { best = code; bestCnt = cnt; }
+  }
+  return (best ?? null) as RoleCode | null;
 }
 
 /** ====== SQL-БИЛДЕРЫ ====== */
@@ -467,31 +467,6 @@ export async function GET(req: Request, { params }: { params: { userId: string }
 
     const roleCodesSQL = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
 
-    const ROWS_FOR_MATCHES = await prisma.$queryRawUnsafe(`
-  SELECT COUNT(DISTINCT ums.match_id) AS matches
-  FROM tbl_users_match_stats ums
-  INNER JOIN tournament_match tm ON ums.match_id = tm.id
-  INNER JOIN tournament t        ON tm.tournament_id = t.id
-  LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-  WHERE ums.user_id = ${userIdNum}
-    AND fp.code IN (${roleCodesSQL})
-    ${OFFICIAL_FILTER}                -- <== те же «официальные» сезоны, что и везде
-`);
-const matchesCluster = Number((ROWS_FOR_MATCHES as any[])[0]?.matches ?? 0);
-
-if (matchesCluster < 30) {
-  return NextResponse.json({
-    ok: true,
-    ready: false,
-    currentRole,
-    cluster,
-    matchesCluster,
-    tournamentsUsed: [],  // можешь подставить свой список, если уже посчитан
-    reason: "Недостаточно матчей в кластере (< 30), радар недоступен",
-    debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
-  });
-}
-
     // 2) список официальных турниров пользователя (для debug)
     const tournamentsRows = toJSON(await prisma.$queryRawUnsafe(`
       SELECT
@@ -517,26 +492,23 @@ if (matchesCluster < 30) {
     const cohortN = cohortRows.length;
 
     // 4) агрегат игрока
-const AGG_SQL = cluster === "GK" ? buildAggSQLGK(userId) : buildAggSQLCommon(userId, roleCodesSQL);
-const aggRows = toJSON(await prisma.$queryRawUnsafe(AGG_SQL)) as any[];
-const playerAgg = (aggRows?.[0] ?? {}) as any;
+    const AGG_SQL = cluster === "GK" ? buildAggSQLGK(userId) : buildAggSQLCommon(userId, roleCodesSQL);
+    const aggRows = toJSON(await prisma.$queryRawUnsafe(AGG_SQL)) as any[];
+    const playerAgg = (aggRows?.[0] ?? {}) as any;
+    const matchesCluster = safeNum(playerAgg.matches, 0);
 
-// только для диагностики, НЕ использовать в гейтах
-const matchesFromAgg = safeNum(playerAgg.matches, 0);
-
-if (!cohortN) {
-  return NextResponse.json({
-    ok: true,
-    ready: false,
-    currentRole,
-    cluster,
-    // в ответе оставляем именно matchesCluster из блока ROWS_FOR_MATCHES
-    matchesCluster,
-    tournamentsUsed,
-    reason: "Недостаточно пула для перцентилей (нет игроков с ≥30 матчей)",
-    debug: { seasonMin: SEASON_MIN, officialFilterApplied: true, matchesFromAgg },
-  });
-}
+    if (!cohortN) {
+      return NextResponse.json({
+        ok: true,
+        ready: false,
+        currentRole,
+        cluster,
+        matchesCluster,
+        tournamentsUsed,
+        reason: "Недостаточно пула для перцентилей (нет игроков с ≥30 матчей)",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+      });
+    }
 
     // 5) расчёт перцентилей
     const metrics = RADAR_BY_CLUSTER[cluster] as readonly string[];
