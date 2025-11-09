@@ -517,23 +517,26 @@ if (matchesCluster < 30) {
     const cohortN = cohortRows.length;
 
     // 4) агрегат игрока
-    const AGG_SQL = cluster === "GK" ? buildAggSQLGK(userId) : buildAggSQLCommon(userId, roleCodesSQL);
-    const aggRows = toJSON(await prisma.$queryRawUnsafe(AGG_SQL)) as any[];
-    const playerAgg = (aggRows?.[0] ?? {}) as any;
-    const matchesCluster = safeNum(playerAgg.matches, 0);
+const AGG_SQL = cluster === "GK" ? buildAggSQLGK(userId) : buildAggSQLCommon(userId, roleCodesSQL);
+const aggRows = toJSON(await prisma.$queryRawUnsafe(AGG_SQL)) as any[];
+const playerAgg = (aggRows?.[0] ?? {}) as any;
 
-    if (!cohortN) {
-      return NextResponse.json({
-        ok: true,
-        ready: false,
-        currentRole,
-        cluster,
-        matchesCluster,
-        tournamentsUsed,
-        reason: "Недостаточно пула для перцентилей (нет игроков с ≥30 матчей)",
-        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
-      });
-    }
+// только для диагностики, НЕ использовать в гейтах
+const matchesFromAgg = safeNum(playerAgg.matches, 0);
+
+if (!cohortN) {
+  return NextResponse.json({
+    ok: true,
+    ready: false,
+    currentRole,
+    cluster,
+    // в ответе оставляем именно matchesCluster из блока ROWS_FOR_MATCHES
+    matchesCluster,
+    tournamentsUsed,
+    reason: "Недостаточно пула для перцентилей (нет игроков с ≥30 матчей)",
+    debug: { seasonMin: SEASON_MIN, officialFilterApplied: true, matchesFromAgg },
+  });
+}
 
     // 5) расчёт перцентилей
     const metrics = RADAR_BY_CLUSTER[cluster] as readonly string[];
