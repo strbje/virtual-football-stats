@@ -1,299 +1,240 @@
 // app/page.tsx
-import { PrismaClient } from "@prisma/client";
+import Link from "next/link";
+import { Users, Trophy } from "lucide-react";
+import { prisma } from "@/lib/prisma";
 
-const prisma = new PrismaClient();
-
-// официальный сезон — номер из названия турнира, берём ≥ 18
+// --- utils ---
+function toJSON<T = any>(rows: unknown): T {
+  return JSON.parse(
+    JSON.stringify(rows, (_k, v) => (typeof v === "bigint" ? Number(v) : v))
+  );
+}
 const SEASON_MIN = 18;
 
-// безопасное число
-function num(x: any, d = 0): number {
-  if (x === null || x === undefined) return d;
-  if (typeof x === "bigint") return Number(x);
-  const n = Number(x);
-  return Number.isFinite(n) ? n : d;
+// официальный турнир (как в API радаров)
+const WHERE_OFFICIAL = `
+  t.name LIKE '%сезон%'
+  AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}
+`;
+
+// --- SQL (везде тянем u.gamertag / u.username как display_name) ---
+const SQL_TOP_MATCHES = `
+  SELECT
+    ums.user_id,
+    COALESCE(NULLIF(u.gamertag,''), NULLIF(u.username,''), CONCAT('User #', ums.user_id)) AS display_name,
+    COUNT(DISTINCT ums.match_id) AS val
+  FROM tbl_users_match_stats ums
+  JOIN tournament_match tm ON tm.id = ums.match_id
+  JOIN tournament t        ON t.id  = tm.tournament_id
+  LEFT JOIN tbl_users u    ON u.id  = ums.user_id
+  WHERE ${WHERE_OFFICIAL}
+  GROUP BY ums.user_id, display_name
+  ORDER BY val DESC
+  LIMIT 3
+`;
+
+const SQL_TOP_GOALS = `
+  SELECT
+    ums.user_id,
+    COALESCE(NULLIF(u.gamertag,''), NULLIF(u.username,''), CONCAT('User #', ums.user_id)) AS display_name,
+    SUM(ums.goals) AS val
+  FROM tbl_users_match_stats ums
+  JOIN tournament_match tm ON tm.id = ums.match_id
+  JOIN tournament t        ON t.id  = tm.tournament_id
+  LEFT JOIN tbl_users u    ON u.id  = ums.user_id
+  WHERE ${WHERE_OFFICIAL}
+  GROUP BY ums.user_id, display_name
+  ORDER BY val DESC
+  LIMIT 3
+`;
+
+const SQL_TOP_ASSISTS = `
+  SELECT
+    ums.user_id,
+    COALESCE(NULLIF(u.gamertag,''), NULLIF(u.username,''), CONCAT('User #', ums.user_id)) AS display_name,
+    SUM(ums.assists) AS val
+  FROM tbl_users_match_stats ums
+  JOIN tournament_match tm ON tm.id = ums.match_id
+  JOIN tournament t        ON t.id  = tm.tournament_id
+  LEFT JOIN tbl_users u    ON u.id  = ums.user_id
+  WHERE ${WHERE_OFFICIAL}
+  GROUP BY ums.user_id, display_name
+  ORDER BY val DESC
+  LIMIT 3
+`;
+
+const SQL_TOP_DEFENSE = `
+  SELECT
+    ums.user_id,
+    COALESCE(NULLIF(u.gamertag,''), NULLIF(u.username,''), CONCAT('User #', ums.user_id)) AS display_name,
+    SUM(ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS val
+  FROM tbl_users_match_stats ums
+  JOIN tournament_match tm ON tm.id = ums.match_id
+  JOIN tournament t        ON t.id  = tm.tournament_id
+  LEFT JOIN tbl_users u    ON u.id  = ums.user_id
+  WHERE ${WHERE_OFFICIAL}
+  GROUP BY ums.user_id, display_name
+  ORDER BY val DESC
+  LIMIT 3
+`;
+
+// GK: ВР/ВРТ, >=100 матчей, сортировка по save%
+const SQL_TOP_GK_SAVEPCT = `
+  SELECT
+    ums.user_id,
+    COALESCE(NULLIF(u.gamertag,''), NULLIF(u.username,''), CONCAT('User #', ums.user_id)) AS display_name,
+    COUNT(DISTINCT ums.match_id) AS matches,
+    SUM(ums.saved)   AS saved,
+    SUM(ums.scored)  AS conceded,
+    (CAST(SUM(ums.saved) AS DECIMAL(18,6)) / NULLIF(CAST(SUM(ums.saved)+SUM(ums.scored) AS DECIMAL(18,6)),0)) AS save_pct
+  FROM tbl_users_match_stats ums
+  JOIN tournament_match tm   ON tm.id = ums.match_id
+  JOIN tournament t          ON t.id  = tm.tournament_id
+  LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
+  LEFT JOIN tbl_users u      ON u.id  = ums.user_id
+  WHERE ${WHERE_OFFICIAL}
+    AND fp.code IN ('ВР','ВРТ')
+  GROUP BY ums.user_id, display_name
+  HAVING matches >= 100 AND (saved + conceded) > 0
+  ORDER BY save_pct DESC
+  LIMIT 3
+`;
+
+// --- UI ---
+function PlayerCard({
+  userId,
+  name,
+  value,
+  suffix,
+}: {
+  userId: number;
+  name: string;
+  value: number;
+  suffix?: string;
+}) {
+  const first = (name?.trim?.() || `#${userId}`)[0]?.toUpperCase?.() ?? "?";
+  return (
+    <Link href={`/players/${userId}`}>
+      <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
+        <div className="flex items-center space-x-3">
+          <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+            <span className="text-gray-600 font-semibold">{first}</span>
+          </div>
+          <div className="flex-1">
+            <h4 className="font-semibold text-gray-800">{name}</h4>
+          </div>
+          <div className="text-lg font-bold text-blue-600">
+            {suffix ? `${value}${suffix}` : value}
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
 }
 
-// парсим номер сезона из имени турнира: "... (18 сезон)"
-function extractSeason(name: any): number | null {
-  const s = String(name ?? "");
-  const m = s.match(/(?:^|\s)\(?(\d+)\s*сезон\)?/i);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) ? n : null;
-}
-
-// общий хелпер: превращаем сырые строки из $queryRawUnsafe в обычные объекты и map’им BigInt
-function rows<T = any>(x: unknown): T[] {
-  const a = Array.isArray(x) ? x : [];
-  return a.map((r: any) => {
-    const o: any = {};
-    for (const k of Object.keys(r)) o[k] = num(r[k], r[k]);
-    return o;
-  });
-}
-
-type TopRow = { user_id: number; gamertag: string; val: number };
-type BreakdownRow = { user_id: number; season: number; val: number; matches?: number; saved?: number; conceded?: number };
-
-// ----------- КОНКРЕТНЫЕ ЗАПРОСЫ -----------
-
-// 1) Топ по матчам
-async function topMatches() {
-  const perUser = rows(await prisma.$queryRawUnsafe(`
-    SELECT u.id AS user_id, u.gamertag,
-           COUNT(*) AS val
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    WHERE 1
-    GROUP BY u.id, u.gamertag
-    ORDER BY val DESC
-    LIMIT 12
-  `)) as TopRow[];
-
-  // разбивка по сезонам
-  const perSeason = rows(await prisma.$queryRawUnsafe(`
-    SELECT u.id AS user_id, u.gamertag, t.name AS tournament_name,
-           COUNT(*) AS matches
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    GROUP BY u.id, u.gamertag, t.name
-  `)) as any[];
-
-  const breakdown: BreakdownRow[] = perSeason
-    .map(r => {
-      const season = extractSeason(r.tournament_name);
-      return season !== null ? { user_id: r.user_id, season, val: num(r.matches), matches: num(r.matches) } : null;
-    })
-    .filter(Boolean) as BreakdownRow[];
-
-  return { top: perUser, debug: breakdown };
-}
-
-// 2) Топ по голам
-async function topGoals() {
-  const perUser = rows(await prisma.$queryRawUnsafe(`
-    SELECT u.id AS user_id, u.gamertag,
-           SUM(ums.goals) AS val
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    GROUP BY u.id, u.gamertag
-    ORDER BY val DESC
-    LIMIT 12
-  `)) as TopRow[];
-
-  const perSeason = rows(await prisma.$queryRawUnsafe(`
-    SELECT u.id AS user_id, u.gamertag, t.name AS tournament_name,
-           SUM(ums.goals) AS goals
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    GROUP BY u.id, u.gamertag, t.name
-  `)) as any[];
-
-  const breakdown: BreakdownRow[] = perSeason
-    .map(r => {
-      const season = extractSeason(r.tournament_name);
-      return season !== null ? { user_id: r.user_id, season, val: num(r.goals) } : null;
-    })
-    .filter(Boolean) as BreakdownRow[];
-
-  return { top: perUser, debug: breakdown };
-}
-
-// 3) Топ по голевым
-async function topAssists() {
-  const perUser = rows(await prisma.$queryRawUnsafe(`
-    SELECT u.id AS user_id, u.gamertag,
-           SUM(ums.assists) AS val
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    GROUP BY u.id, u.gamertag
-    ORDER BY val DESC
-    LIMIT 12
-  `)) as TopRow[];
-
-  const perSeason = rows(await prisma.$queryRawUnsafe(`
-    SELECT u.id AS user_id, u.gamertag, t.name AS tournament_name,
-           SUM(ums.assists) AS assists
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    GROUP BY u.id, u.gamertag, t.name
-  `)) as any[];
-
-  const breakdown: BreakdownRow[] = perSeason
-    .map(r => {
-      const season = extractSeason(r.tournament_name);
-      return season !== null ? { user_id: r.user_id, season, val: num(r.assists) } : null;
-    })
-    .filter(Boolean) as BreakdownRow[];
-
-  return { top: perUser, debug: breakdown };
-}
-
-// 4) Топ по защитным действиям (перехват + отбор + блок + удачный подкат)
-// используем тот же состав, что и в твоём AGG_SQL: intercepts + selection + completedtackles + blocks
-async function topDefActions() {
-  const perUser = rows(await prisma.$queryRawUnsafe(`
-    SELECT u.id AS user_id, u.gamertag,
-           SUM(ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS val
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    GROUP BY u.id, u.gamertag
-    ORDER BY val DESC
-    LIMIT 12
-  `)) as TopRow[];
-
-  const perSeason = rows(await prisma.$queryRawUnsafe(`
-    SELECT u.id AS user_id, u.gamertag, t.name AS tournament_name,
-           SUM(ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS def_actions
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    GROUP BY u.id, u.gamertag, t.name
-  `)) as any[];
-
-  const breakdown: BreakdownRow[] = perSeason
-    .map(r => {
-      const season = extractSeason(r.tournament_name);
-      return season !== null ? { user_id: r.user_id, season, val: num(r.def_actions) } : null;
-    })
-    .filter(Boolean) as BreakdownRow[];
-
-  return { top: perUser, debug: breakdown };
-}
-
-// 5) Топ вратарей по % сейвов (≥100 матчей).
-// короткий код роли в БД — 'ВР'. Матчи — просто количество записей в ums, отфильтрованных по skills_positions.
-async function topGkSavePct() {
-  const perUser = rows(await prisma.$queryRawUnsafe(`
-    SELECT
-      u.id AS user_id,
-      u.gamertag,
-      SUM(ums.saved) AS saved,
-      SUM(ums.scored) AS conceded,
-      COUNT(*) AS matches,
-      (SUM(ums.saved) / NULLIF(SUM(ums.saved) + SUM(ums.scored), 0)) AS val
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN skills_positions sp ON sp.id = ums.skill_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    WHERE sp.short_name = 'ВР'
-    GROUP BY u.id, u.gamertag
-    HAVING matches >= 100
-    ORDER BY val DESC
-    LIMIT 12
-  `)) as (TopRow & { saved: number; conceded: number; matches: number })[];
-
-  const perSeason = rows(await prisma.$queryRawUnsafe(`
-    SELECT
-      u.id AS user_id,
-      u.gamertag,
-      t.name AS tournament_name,
-      SUM(ums.saved) AS saved,
-      SUM(ums.scored) AS conceded,
-      COUNT(*) AS matches
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament t ON t.id = tm.tournament_id
-    JOIN skills_positions sp ON sp.id = ums.skill_id
-    JOIN tbl_users u ON u.id = ums.user_id
-    WHERE sp.short_name = 'ВР'
-    GROUP BY u.id, u.gamertag, t.name
-  `)) as any[];
-
-  const breakdown: BreakdownRow[] = perSeason
-    .map(r => {
-      const season = extractSeason(r.tournament_name);
-      if (season === null) return null;
-      const saved = num(r.saved);
-      const conceded = num(r.conceded);
-      const matches = num(r.matches);
-      const val = (saved + conceded) > 0 ? saved / (saved + conceded) : 0;
-      return { user_id: r.user_id, season, val, saved, conceded, matches };
-    })
-    .filter(Boolean) as BreakdownRow[];
-
-  return { top: perUser, debug: breakdown };
-}
-
-// ---------------- PAGE ----------------
-export default async function Home({ searchParams }: { searchParams?: Record<string, string> }) {
-  // собираем данные параллельно
-  const [m, g, a, d, gk] = await Promise.all([
-    topMatches(),
-    topGoals(),
-    topAssists(),
-    topDefActions(),
-    topGkSavePct(),
+async function fetchTop() {
+  const [m1, m2, m3, m4, gk] = await Promise.all([
+    prisma.$queryRawUnsafe(SQL_TOP_MATCHES),
+    prisma.$queryRawUnsafe(SQL_TOP_GOALS),
+    prisma.$queryRawUnsafe(SQL_TOP_ASSISTS),
+    prisma.$queryRawUnsafe(SQL_TOP_DEFENSE),
+    prisma.$queryRawUnsafe(SQL_TOP_GK_SAVEPCT),
   ]);
 
-  // если ?debug=1 — выводим JSON с разбивкой
-  if (searchParams?.debug === "1") {
-    const payload = {
-      season_min: SEASON_MIN,
-      // Важно: оставляем и список «топов» и полную разбивку
-      matches: { top: m.top, breakdown: m.debug.filter(x => x.season >= SEASON_MIN) },
-      goals:   { top: g.top, breakdown: g.debug.filter(x => x.season >= SEASON_MIN) },
-      assists: { top: a.top, breakdown: a.debug.filter(x => x.season >= SEASON_MIN) },
-      def:     { top: d.top, breakdown: d.debug.filter(x => x.season >= SEASON_MIN) },
-      gk_save: { top: gk.top, breakdown: gk.debug.filter(x => x.season >= SEASON_MIN) },
-    };
-    // простая разметка — без JSON.stringify BigInt проблем (мы превратили всё в number)
-    return (
-      <main className="p-6">
-        <h1 className="text-xl font-semibold mb-4">DEBUG / Главная</h1>
-        <pre className="text-xs bg-gray-50 p-4 rounded border overflow-auto">
-{JSON.stringify(payload, null, 2)}
-        </pre>
-      </main>
-    );
-  }
+  const topMatches = toJSON<{ user_id: number; display_name: string; val: number }[]>(m1);
+  const topGoals   = toJSON<{ user_id: number; display_name: string; val: number }[]>(m2);
+  const topAssists = toJSON<{ user_id: number; display_name: string; val: number }[]>(m3);
+  const topDefense = toJSON<{ user_id: number; display_name: string; val: number }[]>(m4);
+  const topGk = toJSON<{
+    user_id: number; display_name: string; matches: number; saved: number; conceded: number; save_pct: number;
+  }[]>(gk);
 
-  // обычный UI — используй твои карточки; ниже каркас (показываем только ники и значения)
-  const Section = ({ title, items }: { title: string; items: TopRow[] }) => (
-    <section className="mb-8">
-      <h2 className="text-xl font-semibold mb-3">{title}</h2>
-      <div className="grid md:grid-cols-3 gap-3">
-        {items.slice(0, 12).map((r) => (
-          <div key={`${title}-${r.user_id}`} className="rounded-xl border p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-semibold">
-                {String(r.gamertag ?? "?").slice(0,1).toUpperCase()}
-              </div>
-              <div className="font-medium">{r.gamertag ?? `ID ${r.user_id}`}</div>
-            </div>
-            <div className="text-blue-600 font-semibold">
-              {title.includes("сейвов") ? `${(num((r as any).val) * 100).toFixed(1)}%` : num(r.val)}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+  return { topMatches, topGoals, topAssists, topDefense, topGk };
+}
+
+export default async function HomePage() {
+  const { topMatches, topGoals, topAssists, topDefense, topGk } = await fetchTop();
 
   return (
-    <main className="max-w-6xl mx-auto p-6">
-      <Section title="Топ по матчам" items={m.top} />
-      <Section title="Топ по голам" items={g.top} />
-      <Section title="Топ по голевым" items={a.top} />
-      <Section title="Топ по защитным действиям" items={d.top} />
-      <Section title="Топ вратарей по % сейвов (≥100 матчей)" items={gk.top} />
-    </main>
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-2xl mx-auto mb-12">
+          <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">
+            Поиск игроков и команд
+          </h2>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+          <Link href="/players" className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow cursor-pointer">
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="bg-blue-100 p-3 rounded-full"><Users className="h-8 w-8 text-blue-600" /></div>
+              <div>
+                <h3 className="text-xl font-semibold text-gray-800">Профили игроков</h3>
+                <p className="text-gray-600">Детальная статистика и рейтинги</p>
+              </div>
+            </div>
+            <div className="text-sm text-gray-500">Просмотрите статистику игроков, их рейтинги, сильные и слабые стороны</div>
+          </Link>
+
+          <Link href="/teams" className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow cursor-pointer">
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="bg-green-100 p-3 rounded-full"><Trophy className="h-8 w-8 text-green-600" /></div>
+              <div>
+                <h3 className="text-xl font-semibold text-gray-800">Профили команд</h3>
+                <p className="text-gray-600">Составы и информация о командах</p>
+              </div>
+            </div>
+            <div className="text-sm text-gray-500">Изучите составы команд, основную информацию и статистику</div>
+          </Link>
+        </div>
+
+        <div className="mt-12 space-y-10 max-w-6xl mx-auto">
+          <Section title="Топ по матчам">
+            {topMatches.map(r => (
+              <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
+            ))}
+          </Section>
+
+          <Section title="Топ по голам">
+            {topGoals.map(r => (
+              <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
+            ))}
+          </Section>
+
+          <Section title="Топ по голевым">
+            {topAssists.map(r => (
+              <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
+            ))}
+          </Section>
+
+          <Section title="Топ по защитным действиям">
+            {topDefense.map(r => (
+              <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
+            ))}
+          </Section>
+
+          <Section title="Топ вратарей по % сейвов (≥100 матчей)">
+            {topGk.map(r => (
+              <PlayerCard
+                key={r.user_id}
+                userId={r.user_id}
+                name={r.display_name}
+                value={Math.round(r.save_pct * 1000) / 10}
+                suffix="%"
+              />
+            ))}
+          </Section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="text-2xl font-bold text-gray-800 mb-4">{title}</h3>
+      <div className="grid md:grid-cols-3 gap-4">{children}</div>
+    </section>
   );
 }
