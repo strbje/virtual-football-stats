@@ -88,10 +88,12 @@ const SQL_TOP_GK_SAVEPCT = `
 // Небольшая карточка игрока (пока без ника — только ID и переход в профиль)
 function PlayerCard({
   userId,
+  name,
   value,
   suffix,
 }: {
   userId: number;
+  name: string;
   value: number;
   suffix?: string;
 }) {
@@ -100,11 +102,13 @@ function PlayerCard({
       <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
         <div className="flex items-center space-x-3">
           <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-            <span className="text-gray-600 font-semibold">{userId}</span>
+            <span className="text-gray-600 font-semibold">
+              {name?.[0]?.toUpperCase() ?? "?"}
+            </span>
           </div>
           <div className="flex-1">
-            <h4 className="font-semibold text-gray-800">ID: {userId}</h4>
-            <p className="text-sm text-gray-600">перейти в профиль</p>
+            <h4 className="font-semibold text-gray-800">{name}</h4>
+            <p className="text-sm text-gray-600">ID: {userId}</p>
           </div>
           <div className="text-lg font-bold text-blue-600">
             {suffix ? `${value}${suffix}` : value}
