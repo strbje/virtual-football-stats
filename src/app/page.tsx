@@ -21,7 +21,7 @@ const WHERE_OFFICIAL = `
 
 // ---------- SQL-запросы ----------
 const SQL_TOP_MATCHES = `
-  SELECT ums.user_id, ums.id as name COUNT(DISTINCT ums.match_id) AS val
+  SELECT ums.user_id, COUNT(DISTINCT ums.match_id) AS val
   FROM tbl_users_match_stats ums
   JOIN tournament_match tm ON tm.id = ums.match_id
   JOIN tournament t        ON t.id  = tm.tournament_id
