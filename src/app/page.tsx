@@ -28,7 +28,7 @@ const SQL_TOP_MATCHES = `
   WHERE ${WHERE_OFFICIAL}
   GROUP BY ums.user_id
   ORDER BY val DESC
-  LIMIT 10
+  LIMIT 3
 `;
 
 const SQL_TOP_GOALS = `
@@ -39,7 +39,7 @@ const SQL_TOP_GOALS = `
   WHERE ${WHERE_OFFICIAL}
   GROUP BY ums.user_id
   ORDER BY val DESC
-  LIMIT 10
+  LIMIT 3
 `;
 
 const SQL_TOP_ASSISTS = `
@@ -50,7 +50,7 @@ const SQL_TOP_ASSISTS = `
   WHERE ${WHERE_OFFICIAL}
   GROUP BY ums.user_id
   ORDER BY val DESC
-  LIMIT 10
+  LIMIT 3
 `;
 
 const SQL_TOP_DEFENSE = `
@@ -63,7 +63,7 @@ const SQL_TOP_DEFENSE = `
   WHERE ${WHERE_OFFICIAL}
   GROUP BY ums.user_id
   ORDER BY val DESC
-  LIMIT 10
+  LIMIT 3
 `;
 
 // GK: позиция «ВР»/«ВРТ», ≥100 матчей; сортировка по save%
@@ -82,7 +82,7 @@ const SQL_TOP_GK_SAVEPCT = `
   GROUP BY ums.user_id
   HAVING matches >= 100 AND (saved + conceded) > 0
   ORDER BY (saved / (saved + conceded)) DESC
-  LIMIT 10
+  LIMIT 3
 `;
 
 // Небольшая карточка игрока (пока без ника — только ID и переход в профиль)
