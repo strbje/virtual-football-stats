@@ -1,6 +1,4 @@
-// app/page.tsx  (или твой файл главной страницы)
-// Server Component: без "use client"
-
+// Server Component (без "use client")
 import Link from "next/link";
 import { Search, Users, Trophy } from "lucide-react";
 import { prisma } from "@/lib/prisma";
@@ -13,9 +11,15 @@ function toJSON<T = any>(rows: unknown): T {
 }
 const SEASON_MIN = 18;
 
-// ---------- SQL-запросы ----------
-const WHERE_OFFICIAL = `t.season IS NOT NULL AND t.season >= ${SEASON_MIN}`;
+// ---------- Фильтр "официальных" турниров по названию ----------
+// Логика как в /api/player-radar: в названии есть слово "сезон" и номер сезона >= SEASON_MIN.
+// REGEXP_SUBSTR доступен в MySQL 8.x. Если у тебя 5.7 — скажи, дам эквивалент без REGEXP_SUBSTR.
+const WHERE_OFFICIAL = `
+  t.name LIKE '%сезон%'
+  AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}
+`;
 
+// ---------- SQL-запросы ----------
 const SQL_TOP_MATCHES = `
   SELECT ums.user_id, COUNT(DISTINCT ums.match_id) AS val
   FROM tbl_users_match_stats ums
@@ -62,7 +66,7 @@ const SQL_TOP_DEFENSE = `
   LIMIT 10
 `;
 
-// GK: позиция «ВР», ≥100 матчей; сортировка по save%
+// GK: позиция «ВР»/«ВРТ», ≥100 матчей; сортировка по save%
 const SQL_TOP_GK_SAVEPCT = `
   SELECT
     ums.user_id,
@@ -74,14 +78,14 @@ const SQL_TOP_GK_SAVEPCT = `
   JOIN tournament t        ON t.id  = tm.tournament_id
   LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
   WHERE ${WHERE_OFFICIAL}
-    AND (fp.code = 'ВР')
+    AND fp.code IN ('ВР','ВРТ')
   GROUP BY ums.user_id
   HAVING matches >= 100 AND (saved + conceded) > 0
   ORDER BY (saved / (saved + conceded)) DESC
   LIMIT 10
 `;
 
-// Небольшая карточка игрока
+// Небольшая карточка игрока (пока без ника — только ID и переход в профиль)
 function PlayerCard({
   userId,
   value,
@@ -91,8 +95,6 @@ function PlayerCard({
   value: number;
   suffix?: string;
 }) {
-  // Имя игрока сейчас не тяну: схема таблицы пользователей у тебя в разных местах отличается.
-  // Сразу ведём на страницу игрока.
   return (
     <Link href={`/players/${userId}`}>
       <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
@@ -114,7 +116,6 @@ function PlayerCard({
 }
 
 async function fetchTop() {
-  // все пять запросов параллельно
   const [m1, m2, m3, m4, gk] = await Promise.all([
     prisma.$queryRawUnsafe(SQL_TOP_MATCHES),
     prisma.$queryRawUnsafe(SQL_TOP_GOALS),
@@ -150,14 +151,6 @@ export default async function HomePage() {
           <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">
             Поиск игроков и команд
           </h2>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5" />
-            <input
-              type="text"
-              placeholder="Введите имя игрока или команды..."
-              className="w-full pl-10 py-3 text-lg border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
         </div>
 
         {/* Быстрые ссылки */}
@@ -246,7 +239,7 @@ export default async function HomePage() {
   );
 }
 
-// Вспомогательный компонент секции
+// Вспомогательная секция
 function Section({
   title,
   children,
