@@ -126,30 +126,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 /** ====== АВТОДЕТЕКТ РОЛИ ЗА ПОСЛЕДНИЕ 30 ====== */
-async function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
-  const rows = await prisma.$queryRawUnsafe(`
-    SELECT fp.code AS role_code
-    FROM tbl_users_match_stats ums
-    INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-    WHERE ums.user_id = ${userId} and fp.code IN (${roleCodesSQL})
-        ${OFFICIAL_FILTER}
-    ORDER BY tm.timestamp DESC
-    LIMIT 30
-  `);
-  const map = new Map<string, number>();
-  for (const r of (rows as any[])) {
-    const code = String(r.role_code ?? "").trim();
-    if (!code) continue;
-    map.set(code, (map.get(code) ?? 0) + 1);
-  }
-  let best: string | null = null;
-  let bestCnt = -1;
-  for (const [code, cnt] of map.entries()) {
-    if (cnt > bestCnt) { best = code; bestCnt = cnt; }
-  }
-  return (best ?? null) as RoleCode | null;
-}
+
 
 /** ====== SQL-БИЛДЕРЫ ====== */
 
