@@ -126,8 +126,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 /** ====== АВТОДЕТЕКТ РОЛИ ЗА ПОСЛЕДНИЕ 30 ====== */
-
-sync function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
+async function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
   const rows = await prisma.$queryRawUnsafe(`
     SELECT fp.code AS role_code
     FROM tbl_users_match_stats ums
@@ -150,7 +149,6 @@ sync function autoDetectRole(prisma: PrismaClient, userId: number): Promise<Role
   }
   return (best ?? null) as RoleCode | null;
 }
-
 
 /** ====== SQL-БИЛДЕРЫ ====== */
 
@@ -449,7 +447,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     let currentRole: RoleCode | null = normalizeRole(roleFromClient);
 
     // 1) если роль не передали — авто-детект по последним 30 матчам (без офф. фильтра)
-   if (!currentRole) {
+    if (!currentRole) {
       currentRole = await autoDetectRole(prisma, userId);
     }
 
@@ -467,9 +465,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
       });
     }
 
-const roleCodesSQL = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
-
-    
+    const roleCodesSQL = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
 
     // 2) список официальных турниров пользователя (для debug)
     const tournamentsRows = toJSON(await prisma.$queryRawUnsafe(`
