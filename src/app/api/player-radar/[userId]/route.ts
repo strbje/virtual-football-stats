@@ -133,6 +133,7 @@ async function autoDetectRole(prisma: PrismaClient, userId: number): Promise<Rol
     INNER JOIN tournament_match tm ON ums.match_id = tm.id
     LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
     WHERE ums.user_id = ${userId}
+    ${OFFICIAL_FILTER}
     ORDER BY tm.timestamp DESC
     LIMIT 30
   `);
