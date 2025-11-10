@@ -425,23 +425,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     let currentRole: RoleCode | null = normalizeRole(roleFromClient);
 
     // 1) если роль не передали — авто-детект по последним 30 матчам (без офф. фильтра)
-    if (!currentRole) {
-      currentRole = await autoDetectRole(prisma, userId);
-    }
-
-    const cluster = resolveClusterByRole(currentRole);
-    if (!currentRole || !cluster) {
-      return NextResponse.json({
-        ok: true,
-        ready: false,
-        currentRole: currentRole ?? null,
-        cluster: cluster ?? null,
-        matchesCluster: 0,
-        tournamentsUsed: [],
-        reason: "Не удалось определить актуальное амплуа",
-        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
-      });
-    }
+   
 
     const roleCodesSQL = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
 
