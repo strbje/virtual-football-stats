@@ -427,7 +427,7 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     // 1) если роль не передали — авто-детект по последним 30 матчам (без офф. фильтра)
    
 
-    const roleCodesSQL = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
+    
 
     // 2) список официальных турниров пользователя (для debug)
     const tournamentsRows = toJSON(await prisma.$queryRawUnsafe(`
