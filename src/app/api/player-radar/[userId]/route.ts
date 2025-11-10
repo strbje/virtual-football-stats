@@ -127,6 +127,30 @@ const prisma = new PrismaClient();
 
 /** ====== АВТОДЕТЕКТ РОЛИ ЗА ПОСЛЕДНИЕ 30 ====== */
 
+sync function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT fp.code AS role_code
+    FROM tbl_users_match_stats ums
+    INNER JOIN tournament_match tm ON ums.match_id = tm.id
+    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+    WHERE ums.user_id = ${userId}
+    ORDER BY tm.timestamp DESC
+    LIMIT 30
+  `);
+  const map = new Map<string, number>();
+  for (const r of (rows as any[])) {
+    const code = String(r.role_code ?? "").trim();
+    if (!code) continue;
+    map.set(code, (map.get(code) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCnt = -1;
+  for (const [code, cnt] of map.entries()) {
+    if (cnt > bestCnt) { best = code; bestCnt = cnt; }
+  }
+  return (best ?? null) as RoleCode | null;
+}
+
 
 /** ====== SQL-БИЛДЕРЫ ====== */
 
@@ -425,7 +449,25 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     let currentRole: RoleCode | null = normalizeRole(roleFromClient);
 
     // 1) если роль не передали — авто-детект по последним 30 матчам (без офф. фильтра)
-   
+   if (!currentRole) {
+      currentRole = await autoDetectRole(prisma, userId);
+    }
+
+    const cluster = resolveClusterByRole(currentRole);
+    if (!currentRole || !cluster) {
+      return NextResponse.json({
+        ok: true,
+        ready: false,
+        currentRole: currentRole ?? null,
+        cluster: cluster ?? null,
+        matchesCluster: 0,
+        tournamentsUsed: [],
+        reason: "Не удалось определить актуальное амплуа",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+      });
+    }
+
+const roleCodesSQL = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
 
     
 
