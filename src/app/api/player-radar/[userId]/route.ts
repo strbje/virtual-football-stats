@@ -126,13 +126,15 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 /** ====== АВТОДЕТЕКТ РОЛИ ЗА ПОСЛЕДНИЕ 30 ====== */
-async function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
+async function autoDetectRole(prisma: any, userId: number): Promise<string | null> {
   const rows = await prisma.$queryRawUnsafe(`
     SELECT fp.code AS role_code
     FROM tbl_users_match_stats ums
-    INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+    JOIN tournament_match tm ON tm.id = ums.match_id
+    JOIN tournament t        ON t.id = tm.tournament_id
+    LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
     WHERE ums.user_id = ${userId}
+      ${OFFICIAL_FILTER}
     ORDER BY tm.timestamp DESC
     LIMIT 30
   `);
