@@ -131,7 +131,7 @@ function PlayerCard({
     <Link href={`/players/${userId}`}>
       <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
         <div className="flex items-center space-x-3">
-          {/* КРУГОВОЙ КОНТЕЙНЕР 48x48, без фона, картинка заполняет весь диаметр */}
+          {/* круг 48x48 без фона, картинка заполняет диаметр */}
           <div className="relative w-12 h-12 rounded-full overflow-hidden">
             <Image
               src={iconSrc}
