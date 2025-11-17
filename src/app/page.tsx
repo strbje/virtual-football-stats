@@ -279,7 +279,7 @@ export default async function HomePage() {
               ))}
             </Section>
 
-            <Section title="Топ вратарей по % сейвов (≥100 матчей)">
+            <Section title="Топ по % сейвов (≥100 матчей)">
               {topGk.map((r, idx) => (
                 <PlayerCard
                   key={r.user_id}
