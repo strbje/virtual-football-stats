@@ -114,14 +114,16 @@ function PlayerCard({
   suffix?: string;
   place?: number;
 }) {
-  const first = (name?.trim?.() || `#${userId}`)[0]?.toUpperCase?.() ?? "?";
-
   let trophyClasses = "bg-gray-200 text-gray-600";
+
   if (place === 1) {
+    // золотой кубок
     trophyClasses = "bg-yellow-100 text-yellow-700";
   } else if (place === 2) {
+    // серебряный кубок
     trophyClasses = "bg-gray-100 text-gray-700";
   } else if (place === 3) {
+    // бронзовый кубок
     trophyClasses = "bg-amber-100 text-amber-700";
   }
 
@@ -132,7 +134,7 @@ function PlayerCard({
           <div
             className={`w-12 h-12 rounded-full flex items-center justify-center ${trophyClasses}`}
           >
-            {/* вместо иконки/инициала — кубок по месту */}
+            {/* условный кубок по месту */}
             <span className="text-xl">🏆</span>
           </div>
           <div className="flex-1">
@@ -226,7 +228,7 @@ export default async function HomePage() {
           </Link>
         </div>
 
-        {/* блок топов: категории слева направо, внутри — топ-3 сверху вниз */}
+        {/* Номинации слева направо, внутри каждой — топ-3 сверху вниз */}
         <div className="mt-12 max-w-6xl mx-auto">
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-8">
             <Section title="Топ по матчам">
@@ -307,4 +309,7 @@ function Section({
     <section>
       <h3 className="text-2xl font-bold text-gray-800 mb-4">{title}</h3>
       {/* топ-3 сверху вниз */}
-      <div classNam
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
