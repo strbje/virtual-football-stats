@@ -497,6 +497,19 @@ export async function GET(req: Request, { params }: { params: { userId: string }
     const playerAgg = (aggRows?.[0] ?? {}) as any;
     const matchesCluster = safeNum(playerAgg.matches, 0);
 
+    if (matchesCluster < 30) {
+      return NextResponse.json({
+        ok: true,
+        ready: false,
+        currentRole,
+        cluster,
+        matchesCluster,
+        tournamentsUsed,
+        reason: "Недостаточно матчей на актуальном амплуа (нужно ≥ 30 официальных матчей)",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+      });
+    }
+
     if (!cohortN) {
       return NextResponse.json({
         ok: true,
