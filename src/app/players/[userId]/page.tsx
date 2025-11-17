@@ -87,6 +87,7 @@ async function fetchPlayerRadar(userId: string) {
     return (await res.json()) as {
       ok: boolean;
       ready?: boolean;
+      currentRole?: string | null;
       radar?: { label: string; pct: number | null }[];
     } | null;
   } catch {
