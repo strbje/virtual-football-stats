@@ -153,9 +153,6 @@ function PlayerCard({
   );
 }
 
-  const iconSrc =
-    place && TROPHY_ICON_BY_PLACE[place] ? TROPHY_ICON_BY_PLACE[place] : TROPHY_ICON_BY_PLACE[3];
-
   return (
     <Link href={`/players/${userId}`}>
       <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
