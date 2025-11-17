@@ -153,35 +153,6 @@ function PlayerCard({
   );
 }
 
-  return (
-    <Link href={`/players/${userId}`}>
-      <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
-        <div className="flex items-center space-x-3">
-          <div
-            className={`w-12 h-12 rounded-full flex items-center justify-center ${trophyClasses}`}
-          >
-            {/* картинка-кубок по месту */}
-            <Image
-              src={iconSrc}
-              alt={`place-${place ?? 3}`}
-              width={24}
-              height={24}
-              className="w-6 h-6"
-            />
-          </div>
-          <div className="flex-1">
-            <h4 className="font-semibold text-gray-800">{name}</h4>
-          </div>
-          <div className="text-lg font-bold text-blue-600">
-            {suffix ? `${value}${suffix}` : value}
-          </div>
-        </div>
-      </div>
-    </Link>
-  );
-}
-
-
 async function fetchTop() {
   const [m1, m2, m3, m4, gk] = await Promise.all([
     prisma.$queryRawUnsafe(SQL_TOP_MATCHES),
