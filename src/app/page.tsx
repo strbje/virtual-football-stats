@@ -122,18 +122,36 @@ function PlayerCard({
   suffix?: string;
   place?: number;
 }) {
-  let trophyClasses = "bg-gray-200 text-gray-600";
+  const iconSrc =
+    place && TROPHY_ICON_BY_PLACE[place]
+      ? TROPHY_ICON_BY_PLACE[place]
+      : TROPHY_ICON_BY_PLACE[3];
 
-  if (place === 1) {
-    // золотой кубок
-    trophyClasses = "bg-yellow-100 text-yellow-700";
-  } else if (place === 2) {
-    // серебряный кубок
-    trophyClasses = "bg-gray-100 text-gray-700";
-  } else if (place === 3) {
-    // бронзовый кубок
-    trophyClasses = "bg-amber-100 text-amber-700";
-  }
+  return (
+    <Link href={`/players/${userId}`}>
+      <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
+        <div className="flex items-center space-x-3">
+          {/* КРУГОВОЙ КОНТЕЙНЕР 48x48, без фона, картинка заполняет весь диаметр */}
+          <div className="relative w-12 h-12 rounded-full overflow-hidden">
+            <Image
+              src={iconSrc}
+              alt={`place-${place ?? 3}`}
+              fill
+              className="object-contain"
+            />
+          </div>
+
+          <div className="flex-1">
+            <h4 className="font-semibold text-gray-800">{name}</h4>
+          </div>
+          <div className="text-lg font-bold text-blue-600">
+            {suffix ? `${value}${suffix}` : value}
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
 
   const iconSrc =
     place && TROPHY_ICON_BY_PLACE[place] ? TROPHY_ICON_BY_PLACE[place] : TROPHY_ICON_BY_PLACE[3];
