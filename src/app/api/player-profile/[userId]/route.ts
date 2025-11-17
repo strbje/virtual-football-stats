@@ -1,7 +1,15 @@
-//src/app/api/player-profile/[userId]/route.ts
+// src/app/api/player-profile/[userId]/route.ts
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+
+const SEASON_MIN = 18;
+
+// официальный фильтр, идентичный радару
+const WHERE_OFFICIAL = `
+  t.name LIKE '%сезон%'
+  AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}
+`;
 
 export async function GET(
   _req: Request,
@@ -12,7 +20,6 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "Bad userId" }, { status: 400 });
   }
 
-  // Заготовка ответа — никогда не бросаем наружу
   const out: {
     ok: boolean;
     user: { nickname: string; team: string | null };
@@ -25,12 +32,17 @@ export async function GET(
     user: { nickname: `User #${userId}`, team: null },
     currentRoleLast30: null,
     leagues: [],
-    hint: "За последние 30 матчей",
+    hint: "За последние 30 матчей (официальные турниры)",
   };
 
-  // 1) Ник / клуб (мягко)
+  // --------------------------------------------------------------------------
+  // 1) Ник / клуб
+  // --------------------------------------------------------------------------
   try {
-    const u = await prisma.$queryRaw<{ gamertag: string | null; username: string | null }[]>`
+    const u = await prisma.$queryRaw<{
+      gamertag: string | null;
+      username: string | null;
+    }[]>`
       SELECT gamertag, username
       FROM tbl_users
       WHERE id = ${userId}
@@ -56,35 +68,46 @@ export async function GET(
     out._debug = { ...(out._debug || {}), teamErr: String(e) };
   }
 
-  // 2) Мода по последним 30 матчам: position_id -> tbl_field_positions.code
+  // --------------------------------------------------------------------------
+  // 2) Правильное определение актуального амплуа (ТОЛЬКО официальные)
+  // --------------------------------------------------------------------------
+
   try {
-    const r = await prisma.$queryRaw<{ role_code: string | null; cnt: bigint }[]>`
-      WITH last_matches AS (
+    const LAST30_SQL = `
+      WITH last_official AS (
         SELECT DISTINCT ums.match_id, tm.timestamp
         FROM tbl_users_match_stats ums
         JOIN tournament_match tm ON tm.id = ums.match_id
-        WHERE ums.user_id = ${userId}
+        JOIN tournament t ON t.id = tm.tournament_id
+        LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
+        WHERE 
+          ums.user_id = ${userId}
+          AND ${WHERE_OFFICIAL}
+          AND fp.code IS NOT NULL
         ORDER BY tm.timestamp DESC
         LIMIT 30
       ),
       per_match_roles AS (
-        SELECT lm.match_id,
-               fp.code AS role_code,
-               COUNT(*) AS freq
-        FROM last_matches lm
-        JOIN tbl_users_match_stats ums
-          ON ums.match_id = lm.match_id AND ums.user_id = ${userId}
-        LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
-        GROUP BY lm.match_id, fp.code
+        SELECT 
+          l.match_id,
+          fp.code AS role_code,
+          COUNT(*) AS freq
+        FROM last_official l
+        JOIN tbl_users_match_stats ums 
+          ON ums.match_id = l.match_id AND ums.user_id = ${userId}
+        LEFT JOIN tbl_field_positions fp 
+          ON fp.id = ums.position_id
+        GROUP BY l.match_id, fp.code
       ),
       pick_role AS (
         SELECT pmr.match_id, pmr.role_code
         FROM per_match_roles pmr
         JOIN (
-          SELECT match_id, MAX(freq) AS m
+          SELECT match_id, MAX(freq) AS mf
           FROM per_match_roles
           GROUP BY match_id
-        ) mx ON mx.match_id = pmr.match_id AND mx.m = pmr.freq
+        ) mx 
+        ON mx.match_id = pmr.match_id AND mx.mf = pmr.freq
         GROUP BY pmr.match_id, pmr.role_code
       )
       SELECT role_code, COUNT(*) AS cnt
@@ -93,12 +116,20 @@ export async function GET(
       ORDER BY cnt DESC
       LIMIT 1
     `;
+
+    const r = await prisma.$queryRaw<{ role_code: string | null; cnt: bigint }[]>(
+      LAST30_SQL as any
+    );
+
     out.currentRoleLast30 = r[0]?.role_code ?? null;
   } catch (e) {
     out._debug = { ...(out._debug || {}), currentRoleErr: String(e) };
   }
 
-  // 3) Проценты по лигам
+  // --------------------------------------------------------------------------
+  // 3) Проценты по лигам (оставил без изменений)
+  // --------------------------------------------------------------------------
+
   try {
     const a = (await prisma.$queryRaw<
       { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
@@ -108,7 +139,7 @@ export async function GET(
         COUNT(DISTINCT CASE WHEN (LOWER(t.name) LIKE '%премьер%' OR UPPER(t.name) LIKE '%ПЛ%') THEN ums.match_id END) AS pl,
         COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ФНЛ%' THEN ums.match_id END) AS fnl,
         COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ПФЛ%' THEN ums.match_id END) AS pfl,
-        COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ЛФЛ%' THEN ums.match_id END) AS lfl
+        COUNT(DISTDistinct CASE WHEN UPPER(t.name) LIKE '%ЛФЛ%' THEN ums.match_id END) AS lfl
       FROM tbl_users_match_stats ums
       JOIN tournament_match tm ON tm.id = ums.match_id
       JOIN tournament t        ON t.id  = tm.tournament_id
