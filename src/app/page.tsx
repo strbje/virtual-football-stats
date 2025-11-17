@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { Users, Trophy } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import Image from "next/image";
+
 
 // --- utils ---
 function toJSON<T = any>(rows: unknown): T {
@@ -100,6 +102,12 @@ const SQL_TOP_GK_SAVEPCT = `
   LIMIT 3
 `;
 
+const TROPHY_ICON_BY_PLACE: Record<number, string> = {
+  1: "/trophies/gold.png",
+  2: "/trophies/silver.png",
+  3: "/trophies/bronze.png",
+};
+
 // --- UI ---
 function PlayerCard({
   userId,
@@ -127,6 +135,9 @@ function PlayerCard({
     trophyClasses = "bg-amber-100 text-amber-700";
   }
 
+  const iconSrc =
+    place && TROPHY_ICON_BY_PLACE[place] ? TROPHY_ICON_BY_PLACE[place] : TROPHY_ICON_BY_PLACE[3];
+
   return (
     <Link href={`/players/${userId}`}>
       <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
@@ -134,8 +145,14 @@ function PlayerCard({
           <div
             className={`w-12 h-12 rounded-full flex items-center justify-center ${trophyClasses}`}
           >
-            {/* условный кубок по месту */}
-            <span className="text-xl">🏆</span>
+            {/* картинка-кубок по месту */}
+            <Image
+              src={iconSrc}
+              alt={`place-${place ?? 3}`}
+              width={24}
+              height={24}
+              className="w-6 h-6"
+            />
           </div>
           <div className="flex-1">
             <h4 className="font-semibold text-gray-800">{name}</h4>
@@ -148,6 +165,7 @@ function PlayerCard({
     </Link>
   );
 }
+
 
 async function fetchTop() {
   const [m1, m2, m3, m4, gk] = await Promise.all([
