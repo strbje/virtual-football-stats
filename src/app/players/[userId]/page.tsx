@@ -123,7 +123,6 @@ export default async function PlayerPage({ params }: { params: Params }) {
   const nickname = (data.user?.nickname ?? `User #${userId}`) as string;
   const teamName = (data.user?.team ?? "") as string;
   const matches = n(data.matches);
-  const currentRole = data.currentRoleLast30 ?? "—";
 
   // барчарты
   const rolesForChart = groupRolePercents(data.roles);
@@ -136,6 +135,8 @@ export default async function PlayerPage({ params }: { params: Params }) {
     Array.isArray(radarResp?.radar) &&
     (radarResp!.radar!.length ?? 0) > 0;
   const radarData = radarResp?.radar ?? [];
+
+  const currentRole = data.currentRoleLast30 || radarResp?.currentRole || "—";
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
