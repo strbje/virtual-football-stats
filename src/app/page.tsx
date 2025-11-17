@@ -279,7 +279,8 @@ export default async function HomePage() {
               ))}
             </Section>
 
-            <Section title="Топ по % сейвов (≥100 матчей)">
+            //>=100 матчей
+            <Section title="Топ по % сейвов">
               {topGk.map((r, idx) => (
                 <PlayerCard
                   key={r.user_id}
