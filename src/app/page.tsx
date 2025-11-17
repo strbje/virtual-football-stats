@@ -106,19 +106,34 @@ function PlayerCard({
   name,
   value,
   suffix,
+  place,
 }: {
   userId: number;
   name: string;
   value: number;
   suffix?: string;
+  place?: number;
 }) {
   const first = (name?.trim?.() || `#${userId}`)[0]?.toUpperCase?.() ?? "?";
+
+  let trophyClasses = "bg-gray-200 text-gray-600";
+  if (place === 1) {
+    trophyClasses = "bg-yellow-100 text-yellow-700";
+  } else if (place === 2) {
+    trophyClasses = "bg-gray-100 text-gray-700";
+  } else if (place === 3) {
+    trophyClasses = "bg-amber-100 text-amber-700";
+  }
+
   return (
     <Link href={`/players/${userId}`}>
       <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
         <div className="flex items-center space-x-3">
-          <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-            <span className="text-gray-600 font-semibold">{first}</span>
+          <div
+            className={`w-12 h-12 rounded-full flex items-center justify-center ${trophyClasses}`}
+          >
+            {/* вместо иконки/инициала — кубок по месту */}
+            <span className="text-xl">🏆</span>
           </div>
           <div className="flex-1">
             <h4 className="font-semibold text-gray-800">{name}</h4>
@@ -165,76 +180,131 @@ export default async function HomePage() {
         </div>
 
         <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          <Link href="/players" className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow cursor-pointer">
+          <Link
+            href="/players"
+            className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow cursor-pointer"
+          >
             <div className="flex items-center space-x-4 mb-4">
-              <div className="bg-blue-100 p-3 rounded-full"><Users className="h-8 w-8 text-blue-600" /></div>
+              <div className="bg-blue-100 p-3 rounded-full">
+                <Users className="h-8 w-8 text-blue-600" />
+              </div>
               <div>
-                <h3 className="text-xl font-semibold text-gray-800">Профили игроков</h3>
-                <p className="text-gray-600">Детальная статистика и рейтинги</p>
+                <h3 className="text-xl font-semibold text-gray-800">
+                  Профили игроков
+                </h3>
+                <p className="text-gray-600">
+                  Детальная статистика и рейтинги
+                </p>
               </div>
             </div>
-            <div className="text-sm text-gray-500">Просмотрите статистику игроков, их рейтинги, сильные и слабые стороны</div>
+            <div className="text-sm text-gray-500">
+              Просмотрите статистику игроков, их рейтинги, сильные и слабые
+              стороны
+            </div>
           </Link>
 
-          <Link href="/teams" className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow cursor-pointer">
+          <Link
+            href="/teams"
+            className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow cursor-pointer"
+          >
             <div className="flex items-center space-x-4 mb-4">
-              <div className="bg-green-100 p-3 rounded-full"><Trophy className="h-8 w-8 text-green-600" /></div>
+              <div className="bg-green-100 p-3 rounded-full">
+                <Trophy className="h-8 w-8 text-green-600" />
+              </div>
               <div>
-                <h3 className="text-xl font-semibold text-gray-800">Профили команд</h3>
-                <p className="text-gray-600">Составы и информация о командах</p>
+                <h3 className="text-xl font-semibold text-gray-800">
+                  Профили команд
+                </h3>
+                <p className="text-gray-600">
+                  Составы и информация о командах
+                </p>
               </div>
             </div>
-            <div className="text-sm text-gray-500">Изучите составы команд, основную информацию и статистику</div>
+            <div className="text-sm text-gray-500">
+              Изучите составы команд, основную информацию и статистику
+            </div>
           </Link>
         </div>
 
-        <div className="mt-12 space-y-10 max-w-6xl mx-auto">
-          <Section title="Топ по матчам">
-            {topMatches.map(r => (
-              <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
-            ))}
-          </Section>
+        {/* блок топов: категории слева направо, внутри — топ-3 сверху вниз */}
+        <div className="mt-12 max-w-6xl mx-auto">
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-8">
+            <Section title="Топ по матчам">
+              {topMatches.map((r, idx) => (
+                <PlayerCard
+                  key={r.user_id}
+                  userId={r.user_id}
+                  name={r.display_name}
+                  value={r.val}
+                  place={idx + 1}
+                />
+              ))}
+            </Section>
 
-          <Section title="Топ по голам">
-            {topGoals.map(r => (
-              <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
-            ))}
-          </Section>
+            <Section title="Топ по голам">
+              {topGoals.map((r, idx) => (
+                <PlayerCard
+                  key={r.user_id}
+                  userId={r.user_id}
+                  name={r.display_name}
+                  value={r.val}
+                  place={idx + 1}
+                />
+              ))}
+            </Section>
 
-          <Section title="Топ по голевым">
-            {topAssists.map(r => (
-              <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
-            ))}
-          </Section>
+            <Section title="Топ по голевым">
+              {topAssists.map((r, idx) => (
+                <PlayerCard
+                  key={r.user_id}
+                  userId={r.user_id}
+                  name={r.display_name}
+                  value={r.val}
+                  place={idx + 1}
+                />
+              ))}
+            </Section>
 
-          <Section title="Топ по защитным действиям">
-            {topDefense.map(r => (
-              <PlayerCard key={r.user_id} userId={r.user_id} name={r.display_name} value={r.val} />
-            ))}
-          </Section>
+            <Section title="Топ по защитным действиям">
+              {topDefense.map((r, idx) => (
+                <PlayerCard
+                  key={r.user_id}
+                  userId={r.user_id}
+                  name={r.display_name}
+                  value={r.val}
+                  place={idx + 1}
+                />
+              ))}
+            </Section>
 
-          <Section title="Топ вратарей по % сейвов (≥100 матчей)">
-            {topGk.map(r => (
-              <PlayerCard
-                key={r.user_id}
-                userId={r.user_id}
-                name={r.display_name}
-                value={Math.round(r.save_pct * 1000) / 10}
-                suffix="%"
-              />
-            ))}
-          </Section>
+            <Section title="Топ вратарей по % сейвов (≥100 матчей)">
+              {topGk.map((r, idx) => (
+                <PlayerCard
+                  key={r.user_id}
+                  userId={r.user_id}
+                  name={r.display_name}
+                  value={Math.round(r.save_pct * 1000) / 10}
+                  suffix="%"
+                  place={idx + 1}
+                />
+              ))}
+            </Section>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section>
       <h3 className="text-2xl font-bold text-gray-800 mb-4">{title}</h3>
-      <div className="grid md:grid-cols-3 gap-4">{children}</div>
-    </section>
-  );
-}
+      {/* топ-3 сверху вниз */}
+      <div classNam
