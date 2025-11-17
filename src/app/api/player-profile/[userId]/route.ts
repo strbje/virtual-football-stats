@@ -69,9 +69,8 @@ export async function GET(
   }
 
   // --------------------------------------------------------------------------
-  // 2) Правильное определение актуального амплуа (ТОЛЬКО официальные)
+  // 2) Актуальное амплуа за последние 30 ОФИЦИАЛЬНЫХ матчей
   // --------------------------------------------------------------------------
-
   try {
     const LAST30_SQL = `
       WITH last_official AS (
@@ -127,9 +126,8 @@ export async function GET(
   }
 
   // --------------------------------------------------------------------------
-  // 3) Проценты по лигам (оставил без изменений)
+  // 3) Проценты по лигам (без изменений по логике)
   // --------------------------------------------------------------------------
-
   try {
     const a = (await prisma.$queryRaw<
       { total: bigint; pl: bigint; fnl: bigint; pfl: bigint; lfl: bigint }[]
@@ -139,7 +137,7 @@ export async function GET(
         COUNT(DISTINCT CASE WHEN (LOWER(t.name) LIKE '%премьер%' OR UPPER(t.name) LIKE '%ПЛ%') THEN ums.match_id END) AS pl,
         COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ФНЛ%' THEN ums.match_id END) AS fnl,
         COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ПФЛ%' THEN ums.match_id END) AS pfl,
-        COUNT(DISTDistinct CASE WHEN UPPER(t.name) LIKE '%ЛФЛ%' THEN ums.match_id END) AS lfl
+        COUNT(DISTINCT CASE WHEN UPPER(t.name) LIKE '%ЛФЛ%' THEN ums.match_id END) AS lfl
       FROM tbl_users_match_stats ums
       JOIN tournament_match tm ON tm.id = ums.match_id
       JOIN tournament t        ON t.id  = tm.tournament_id
