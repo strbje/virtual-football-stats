@@ -72,56 +72,65 @@ export async function GET(req: Request) {
       .sort((a, b) => b.percent - a.percent);
 
     // ----------------------------------------------------------------------
-    // ❗ 2) «Актуальное амплуа»: только официальные турниры (%сезон%, ≥18)
+    // 2) «Актуальное амплуа»: только официальные турниры (%сезон%, ≥18)
+    //    — делаем мягким, чтобы не валить весь эндпоинт при ошибке SQL
     // ----------------------------------------------------------------------
-    const last30 = await prisma.$queryRaw<{ role_code: string | null; cnt: bigint }[]>`
-      WITH last_official AS (
-        SELECT DISTINCT ums.match_id, tm.timestamp
-        FROM tbl_users_match_stats ums
-        JOIN tournament_match tm ON tm.id = ums.match_id
-        JOIN tournament t ON t.id = tm.tournament_id
-        LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
-        WHERE 
-          ums.user_id = ${userId}
-          AND fp.code IS NOT NULL
-          AND ${WHERE_OFFICIAL}
-        ORDER BY tm.timestamp DESC
-        LIMIT 30
-      ),
-      per_match_roles AS (
-        SELECT 
-          l.match_id,
-          fp.code AS role_code,
-          COUNT(*) AS freq
-        FROM last_official l
-        JOIN tbl_users_match_stats ums 
-          ON ums.match_id = l.match_id AND ums.user_id = ${userId}
-        LEFT JOIN tbl_field_positions fp 
-          ON fp.id = ums.position_id
-        GROUP BY l.match_id, fp.code
-      ),
-      pick_role AS (
-        SELECT pmr.match_id, pmr.role_code
-        FROM per_match_roles pmr
-        JOIN (
-          SELECT match_id, MAX(freq) AS mf
-          FROM per_match_roles
-          GROUP BY match_id
-        ) mx 
-        ON mx.match_id = pmr.match_id AND mx.mf = pmr.freq
-        GROUP BY pmr.match_id, pmr.role_code
-      )
-      SELECT role_code, COUNT(*) AS cnt
-      FROM pick_role
-      GROUP BY role_code
-      ORDER BY cnt DESC
-      LIMIT 1
-    `;
+    let currentRoleLast30: RoleCode | null = null;
 
-    const last30Code = last30[0]?.role_code ?? null;
+    try {
+      const last30Sql = `
+        WITH last_official AS (
+          SELECT DISTINCT ums.match_id, tm.timestamp
+          FROM tbl_users_match_stats ums
+          JOIN tournament_match tm ON tm.id = ums.match_id
+          JOIN tournament t ON t.id = tm.tournament_id
+          LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
+          WHERE 
+            ums.user_id = ${userId}
+            AND fp.code IS NOT NULL
+            AND ${WHERE_OFFICIAL}
+          ORDER BY tm.timestamp DESC
+          LIMIT 30
+        ),
+        per_match_roles AS (
+          SELECT 
+            l.match_id,
+            fp.code AS role_code,
+            COUNT(*) AS freq
+          FROM last_official l
+          JOIN tbl_users_match_stats ums 
+            ON ums.match_id = l.match_id AND ums.user_id = ${userId}
+          LEFT JOIN tbl_field_positions fp 
+            ON fp.id = ums.position_id
+          GROUP BY l.match_id, fp.code
+        ),
+        pick_role AS (
+          SELECT pmr.match_id, pmr.role_code
+          FROM per_match_roles pmr
+          JOIN (
+            SELECT match_id, MAX(freq) AS mf
+            FROM per_match_roles
+            GROUP BY match_id
+          ) mx 
+          ON mx.match_id = pmr.match_id AND mx.mf = pmr.freq
+          GROUP BY pmr.match_id, pmr.role_code
+        )
+        SELECT role_code, COUNT(*) AS cnt
+        FROM pick_role
+        GROUP BY role_code
+        ORDER BY cnt DESC
+        LIMIT 1
+      `;
 
-    const currentRoleLast30: RoleCode | null =
-      last30Code ? ((ROLE_CODE_FROM_POSITION as any)[last30Code] ?? last30Code) : null;
+      const last30 = await prisma.$queryRawUnsafe<{ role_code: string | null; cnt: bigint }[]>(last30Sql);
+      const last30Code = last30[0]?.role_code ?? null;
+
+      currentRoleLast30 =
+        last30Code ? ((ROLE_CODE_FROM_POSITION as any)[last30Code] ?? last30Code) : null;
+    } catch (e) {
+      // не валим весь эндпоинт, просто логируем и оставляем currentRoleLast30 = null
+      console.error("player-roles last30 error for user", userId, e);
+    }
 
     // 3) проценты матчей по лигам — как было
     const leagueAgg = await prisma.$queryRaw<
