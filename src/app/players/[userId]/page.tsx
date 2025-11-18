@@ -65,8 +65,8 @@ function withOthersBucket(leagues?: ApiLeague[]) {
   for (const [label, pct] of need) list.push({ label, pct });
 
   // добавляем «Прочие» и сортируем фиксированно
-  list.push({ label: "Прочие", pct: others });
   const ORDER = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"];
+  list.push({ label: "Прочие", pct: others });
   list.sort((a, b) => ORDER.indexOf(a.label) - ORDER.indexOf(b.label));
   return list;
 }
@@ -112,8 +112,12 @@ export default async function PlayerPage({ params }: { params: Params }) {
     return (
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <h1 className="text-2xl font-semibold">{`User #${userId}`}</h1>
-        <p className="text-red-600 mt-4">Ошибка загрузки: {res.status} {res.statusText}</p>
-        <Link href="/players" className="text-blue-600 mt-3 inline-block">← Ко всем игрокам</Link>
+        <p className="text-red-600 mt-4">
+          Ошибка загрузки: {res.status} {res.statusText}
+        </p>
+        <Link href="/players" className="text-blue-600 mt-3 inline-block">
+          ← Ко всем игрокам
+        </Link>
       </div>
     );
   }
@@ -137,6 +141,7 @@ export default async function PlayerPage({ params }: { params: Params }) {
     (radarResp!.radar!.length ?? 0) > 0;
   const radarData = radarResp?.radar ?? [];
 
+  // актуальное амплуа: сначала last30, если нет — currentRole из радара, иначе прочерк
   const currentRole = data.currentRoleLast30 || radarResp?.currentRole || "—";
 
   return (
@@ -145,7 +150,9 @@ export default async function PlayerPage({ params }: { params: Params }) {
       <div>
         <h1 className="text-2xl font-semibold">{nickname}</h1>
         {teamName ? <div className="text-zinc-500 text-sm mt-1">{teamName}</div> : null}
-        <Link href="/players" className="text-blue-600 mt-3 inline-block">← Ко всем игрокам</Link>
+        <Link href="/players" className="text-blue-600 mt-3 inline-block">
+          ← Ко всем игрокам
+        </Link>
       </div>
 
       {/* Верхние плитки */}
