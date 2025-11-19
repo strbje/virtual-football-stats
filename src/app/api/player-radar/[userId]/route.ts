@@ -1,14 +1,16 @@
-/* src/app/api/player-radar/[userId]/route.ts
- * Основано на вашем рабочем файле + правки под GK и устойчивость.
- */
+// src/app/api/player-radar/[userId]/route.ts
+// Радар по игроку: кластеры + официальные турниры (с 18 сезона)
 
 import { NextResponse } from "next/server";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 /** ====== КОНСТАНТЫ / ТИПЫ ====== */
 
 type ClusterKey = "FW" | "AM" | "CM" | "FM" | "CB" | "GK";
 
-/** Коды позиций из tbl_field_positions.fp.code */
+/** Коды позиций из tbl_field_positions.code */
 export type RoleCode =
   | "ФРВ" | "ЦФД" | "ЛФД" | "ПФД"
   | "ЛФА" | "ПФА"
@@ -18,7 +20,7 @@ export type RoleCode =
   | "ЦОП" | "ЛОП" | "ПОП"
   | "ЦЗ"  | "ЛЦЗ" | "ПЦЗ"
   | "ЛЗ"  | "ПЗ"
-  | "ВР"; 
+  | "ВР";
 
 const SEASON_MIN = 18;
 
@@ -29,16 +31,16 @@ const CLUSTERS: Record<ClusterKey, RoleCode[]> = {
   CM: ["ЦП", "ЛЦП", "ПЦП", "ЦОП", "ЛОП", "ПОП"],
   FM: ["ЛП", "ПП"],
   CB: ["ЦЗ", "ЛЦЗ", "ПЦЗ", "ЛЗ", "ПЗ"],
-  GK: ["ВР"], 
+  GK: ["ВР"],
 } as const;
 
-/** Алиасы входной роли (из query) к RoleCode */
+/** Алиасы входной роли к RoleCode (на всякий случай) */
 const ROLE_ALIASES: Record<string, RoleCode> = {
-  "ВРТ": "ВР", // исторический алиас
-  "НАП": "ФРВ", // на всякий случай, если с фронта придёт кластерная метка
+  ВРТ: "ВР",
+  НАП: "ФРВ",
 };
 
-/** Метрики радара по кластерам (алиасы из SELECT) */
+/** Метрики радара по кластерам */
 const RADAR_BY_CLUSTER = {
   FW: ["goal_contrib", "xg_delta", "shots_on_target_pct", "creation", "dribble_pct", "pressing"] as const,
   AM: ["xa_avg", "pxa", "goal_contrib", "pass_acc", "dribble_pct", "pressing"] as const,
@@ -57,7 +59,7 @@ const LABELS: Record<string, string> = {
   dribble_pct: "Дриблинг%",
   pressing: "Прессинг",
 
-  xa_avg: "xA/",
+  xa_avg: "xA/матч",
   pxa: "pXA",
   passes: "Пасы",
   pass_acc: "Точность паса %",
@@ -78,19 +80,18 @@ const LABELS: Record<string, string> = {
   intercepts: "Перехваты",
 };
 
-/** Метрики, где меньше — лучше (инвертировать перцентиль) */
+/** Метрики, где меньше — лучше (инверсия перцентиля) */
 const INVERTED = new Set<string>(["pxa", "beaten_rate"]);
 
-/** Поле xG в БД (у вас есть goals_expected) */
+/** Поле xG в БД */
 const XG_EXPR = "ums.goals_expected";
 
-/** Единый OFFICIAL-фильтр (вставляется в WHERE) */
-const OFFICIAL_FILTER = `
-  AND (
-    t.name REGEXP '\\\\([0-9]+ сезон\\\\)'
-    AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}
-  )
-`;
+/** Официальные турниры: (.. сезон) и номер сезона ≥ SEASON_MIN */
+const OFFICIAL_CLAUSE = `(
+  t.name REGEXP '\\\\([0-9]+ сезон\\\\)'
+  AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}
+)`;
+const OFFICIAL_FILTER = ` AND ${OFFICIAL_CLAUSE}`;
 
 /** ====== УТИЛИТЫ ====== */
 
@@ -109,48 +110,70 @@ function resolveClusterByRole(role: RoleCode | null): ClusterKey | null {
   return null;
 }
 
-/** Безопасная конвертация BigInt/unknown → plain JSON */
+/** JSON-приведение BigInt/unknown */
 function toJSON<T = any>(x: unknown): T {
   return JSON.parse(
     JSON.stringify(x, (_, v) => (typeof v === "bigint" ? Number(v) : v))
   );
 }
-const numOrNull = (v: any): number | null => (v === null || v === undefined ? null : Number(v));
-const safeNum = (v: any, d: number = 0): number => {
+const numOrNull = (v: any): number | null =>
+  v === null || v === undefined ? null : Number(v);
+const safeNum = (v: any, d = 0): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
 };
 
-/** Prisma клиент — берём так, как у вас подключено в проекте */
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
-
-/** ====== АВТОДЕТЕКТ РОЛИ ЗА ПОСЛЕДНИЕ 30 ====== */
-async function autoDetectRole(prisma: PrismaClient, userId: number): Promise<RoleCode | null> {
-  const rows = await prisma.$queryRawUnsafe(`
-    SELECT fp.code AS role_code
-    FROM tbl_users_match_stats ums
-    INNER JOIN tournament_match tm ON ums.match_id = tm.id
-    LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-    WHERE ums.user_id = ${userId}
-    ORDER BY tm.timestamp DESC
-    LIMIT 30
-  `);
-  const map = new Map<string, number>();
-  for (const r of (rows as any[])) {
-    const code = String(r.role_code ?? "").trim();
-    if (!code) continue;
-    map.set(code, (map.get(code) ?? 0) + 1);
-  }
-  let best: string | null = null;
-  let bestCnt = -1;
-  for (const [code, cnt] of map.entries()) {
-    if (cnt > bestCnt) { best = code; bestCnt = cnt; }
-  }
-  return (best ?? null) as RoleCode | null;
+/** ====== Актуальное амплуа по последним 30 ОФФ. матчам ====== */
+async function getCurrentRoleLast30Official(userId: number): Promise<RoleCode | null> {
+  const sql = `
+    WITH last_official AS (
+      SELECT DISTINCT ums.match_id, tm.timestamp
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      JOIN tournament t        ON t.id = tm.tournament_id
+      LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
+      WHERE 
+        ums.user_id = ${userId}
+        AND fp.code IS NOT NULL
+        AND ${OFFICIAL_CLAUSE}
+      ORDER BY tm.timestamp DESC
+      LIMIT 30
+    ),
+    per_match_roles AS (
+      SELECT 
+        l.match_id,
+        fp.code AS role_code,
+        COUNT(*) AS freq
+      FROM last_official l
+      JOIN tbl_users_match_stats ums 
+        ON ums.match_id = l.match_id AND ums.user_id = ${userId}
+      LEFT JOIN tbl_field_positions fp 
+        ON fp.id = ums.position_id
+      GROUP BY l.match_id, fp.code
+    ),
+    pick_role AS (
+      SELECT pmr.match_id, pmr.role_code
+      FROM per_match_roles pmr
+      JOIN (
+        SELECT match_id, MAX(freq) AS mf
+        FROM per_match_roles
+        GROUP BY match_id
+      ) mx 
+        ON mx.match_id = pmr.match_id AND mx.mf = pmr.freq
+      GROUP BY pmr.match_id, pmr.role_code
+    )
+    SELECT role_code, COUNT(*) AS cnt
+    FROM pick_role
+    GROUP BY role_code
+    ORDER BY cnt DESC
+    LIMIT 1
+  `;
+  const rows = await prisma.$queryRawUnsafe<{ role_code: string | null; cnt: bigint }[]>(sql);
+  const code = rows[0]?.role_code ?? null;
+  return normalizeRole(code);
 }
 
-/** ====== SQL-БИЛДЕРЫ ====== */
+/** ====== SQL-билдеры ====== */
 
 /** Пул сравнения (не GK) — ≥30 матчей */
 function buildCohortSQLCommon(roleCodesSQL: string) {
@@ -178,7 +201,7 @@ function buildCohortSQLCommon(roleCodesSQL: string) {
 
       FROM tbl_users_match_stats ums
       INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      INNER JOIN tournament t ON tm.tournament_id = t.id
+      INNER JOIN tournament t        ON tm.tournament_id = t.id
       LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
       WHERE fp.code IN (${roleCodesSQL})
         ${OFFICIAL_FILTER}
@@ -225,7 +248,7 @@ function buildCohortSQLCommon(roleCodesSQL: string) {
       (0.5*(completedpasses/NULLIF(allpasses,0))
        +0.3*(completedstockes/NULLIF(allstockes,0))
        +0.15*(duels_air_win/NULLIF(duels_air,0))
-       +0.05*(selection/NULLIF(allselection,0))) * 1.0        AS safety_coef,
+       +0.05*(selection/NULLIF(allselection,0))) * 1.0       AS safety_coef,
       (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
       (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
       ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
@@ -292,7 +315,7 @@ function buildCohortSQLGK() {
   `;
 }
 
-/** Агрегат текущего игрока (не GK) — БЕЗ порога 30 */
+/** Агрегат текущего игрока (не GK) — без порога 30 */
 function buildAggSQLCommon(userId: number, roleCodesSQL: string) {
   return `
     WITH base AS (
@@ -318,7 +341,7 @@ function buildAggSQLCommon(userId: number, roleCodesSQL: string) {
 
       FROM tbl_users_match_stats ums
       INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      INNER JOIN tournament t ON tm.tournament_id = t.id
+      INNER JOIN tournament t        ON tm.tournament_id = t.id
       LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
       WHERE ums.user_id = ${userId}
         AND fp.code IN (${roleCodesSQL})
@@ -366,7 +389,7 @@ function buildAggSQLCommon(userId: number, roleCodesSQL: string) {
       (0.5*(completedpasses/NULLIF(allpasses,0))
        +0.3*(completedstockes/NULLIF(allstockes,0))
        +0.15*(duels_air_win/NULLIF(duels_air,0))
-       +0.05*(selection/NULLIF(allselection,0))) * 1.0        AS safety_coef,
+       +0.05*(selection/NULLIF(allselection,0))) * 1.0       AS safety_coef,
       (selection / NULLIF(allselection,0)) * 1.0             AS tackle_success,
       (outs / NULLIF(matches,0)) * 1.0                       AS clearances,
       ((ipasses + pregoals + 2*(goals + assists)) / NULLIF(matches,0)) * 1.0 AS attack_participation
@@ -375,7 +398,7 @@ function buildAggSQLCommon(userId: number, roleCodesSQL: string) {
   `;
 }
 
-/** Агрегат текущего игрока (GK) — БЕЗ порога 30 */
+/** Агрегат текущего игрока (GK) — без порога 30 */
 function buildAggSQLGK(userId: number) {
   return `
     WITH base AS (
@@ -433,63 +456,68 @@ function buildAggSQLGK(userId: number) {
 }
 
 /** ====== API ====== */
-async function getCurrentRoleLast30Official(userId: number): Promise<string | null> {
-  const sql = `
-    WITH last_official AS (
-      SELECT DISTINCT ums.match_id, tm.timestamp
-      FROM tbl_users_match_stats ums
-      JOIN tournament_match tm ON tm.id = ums.match_id
-      JOIN tournament t ON t.id = tm.tournament_id
-      LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
-      WHERE 
-        ums.user_id = ${userId}
-        AND fp.code IS NOT NULL
-        AND ${WHERE_OFFICIAL}
-      ORDER BY tm.timestamp DESC
-      LIMIT 30
-    ),
-    per_match_roles AS (
-      SELECT 
-        l.match_id,
-        fp.code AS role_code,
-        COUNT(*) AS freq
-      FROM last_official l
-      JOIN tbl_users_match_stats ums 
-        ON ums.match_id = l.match_id AND ums.user_id = ${userId}
-      LEFT JOIN tbl_field_positions fp 
-        ON fp.id = ums.position_id
-      GROUP BY l.match_id, fp.code
-    ),
-    pick_role AS (
-      SELECT pmr.match_id, pmr.role_code
-      FROM per_match_roles pmr
-      JOIN (
-        SELECT match_id, MAX(freq) AS mf
-        FROM per_match_roles
-        GROUP BY match_id
-      ) mx 
-      ON mx.match_id = pmr.match_id AND mx.mf = pmr.freq
-      GROUP BY pmr.match_id, pmr.role_code
-    )
-    SELECT role_code, COUNT(*) AS cnt
-    FROM pick_role
-    GROUP BY role_code
-    ORDER BY cnt DESC
-    LIMIT 1
-  `;
-  const rows = await prisma.$queryRawUnsafe<{ role_code: string | null; cnt: bigint }[]>(sql);
-  const code = rows[0]?.role_code ?? null;
-  return code ? ((ROLE_CODE_FROM_POSITION as any)[code] ?? code) : null;
-}
 
+export async function GET(
+  req: Request,
+  { params }: { params: { userId: string } }
+) {
+  try {
+    const userId = Number(params.userId);
+    if (!userId || Number.isNaN(userId)) {
+      return NextResponse.json(
+        { ok: false, error: "Bad userId" },
+        { status: 400 }
+      );
+    }
+
+    // 1) актуальное амплуа по официальным матчам
+    const roleOfficial = await getCurrentRoleLast30Official(userId);
+    if (!roleOfficial) {
+      return NextResponse.json({
+        ok: true,
+        ready: false,
+        currentRole: null,
+        cluster: null,
+        matchesCluster: 0,
+        tournamentsUsed: [],
+        reason:
+          "Недостаточно матчей на актуальном амплуа (нужно ≥ 30 официальных матчей)",
+        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
+      });
+    }
+
+    const currentRole = roleOfficial;
+    const cluster = resolveClusterByRole(currentRole) ?? "CM";
+    const roleCodes = CLUSTERS[cluster];
+    const roleCodesSQL = roleCodes.map((c) => `'${c}'`).join(", ");
+
+    // 2) список использованных турниров по этому кластеру
+    const tournamentsRows = await prisma.$queryRawUnsafe<{ name: string }[]>(`
+      SELECT DISTINCT t.name AS name
+      FROM tbl_users_match_stats ums
+      INNER JOIN tournament_match tm ON ums.match_id = tm.id
+      INNER JOIN tournament t        ON tm.tournament_id = t.id
+      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
+      WHERE ums.user_id = ${userId}
+        AND fp.code IN (${roleCodesSQL})
+        ${OFFICIAL_FILTER}
+      ORDER BY t.name ASC
+    `);
+    const tournamentsUsed = (tournamentsRows ?? []).map((r) => String(r.name));
 
     // 3) пул сравнения
-    const COHORT_SQL = cluster === "GK" ? buildCohortSQLGK() : buildCohortSQLCommon(roleCodesSQL);
+    const COHORT_SQL =
+      cluster === "GK"
+        ? buildCohortSQLGK()
+        : buildCohortSQLCommon(roleCodesSQL);
     const cohortRows = toJSON(await prisma.$queryRawUnsafe(COHORT_SQL)) as any[];
     const cohortN = cohortRows.length;
 
     // 4) агрегат игрока
-    const AGG_SQL = cluster === "GK" ? buildAggSQLGK(userId) : buildAggSQLCommon(userId, roleCodesSQL);
+    const AGG_SQL =
+      cluster === "GK"
+        ? buildAggSQLGK(userId)
+        : buildAggSQLCommon(userId, roleCodesSQL);
     const aggRows = toJSON(await prisma.$queryRawUnsafe(AGG_SQL)) as any[];
     const playerAgg = (aggRows?.[0] ?? {}) as any;
     const matchesCluster = safeNum(playerAgg.matches, 0);
@@ -502,7 +530,8 @@ async function getCurrentRoleLast30Official(userId: number): Promise<string | nu
         cluster,
         matchesCluster,
         tournamentsUsed,
-        reason: "Недостаточно матчей на актуальном амплуа (нужно ≥ 30 официальных матчей)",
+        reason:
+          "Недостаточно матчей на актуальном амплуа (нужно ≥ 30 официальных матчей)",
         debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
       });
     }
@@ -515,7 +544,8 @@ async function getCurrentRoleLast30Official(userId: number): Promise<string | nu
         cluster,
         matchesCluster,
         tournamentsUsed,
-        reason: "Недостаточно пула для перцентилей (нет игроков с ≥30 матчей)",
+        reason:
+          "Недостаточно пула для перцентилей (нет игроков с ≥30 матчей)",
         debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
       });
     }
@@ -525,16 +555,19 @@ async function getCurrentRoleLast30Official(userId: number): Promise<string | nu
 
     const radar = metrics.map((key) => {
       const val = numOrNull(playerAgg[key]);
-      if (val === null) return { key, label: LABELS[key] ?? key, pct: null };
+      if (val === null) {
+        return { key, label: LABELS[key] ?? key, pct: null };
+      }
 
       const arr = cohortRows
         .map((r: any) => numOrNull(r[key]))
         .filter((x: number | null): x is number => x !== null)
         .sort((a, b) => a - b);
 
-      if (!arr.length) return { key, label: LABELS[key] ?? key, pct: null };
+      if (!arr.length) {
+        return { key, label: LABELS[key] ?? key, pct: null };
+      }
 
-      // позиция значения в отсортированном массиве
       let idx = 0;
       while (idx < arr.length && arr[idx] <= val) idx++;
       let pct = Math.round((idx / arr.length) * 100);
