@@ -433,58 +433,55 @@ function buildAggSQLGK(userId: number) {
 }
 
 /** ====== API ====== */
-export async function GET(req: Request, { params }: { params: { userId: string } }) {
-  try {
-    const url = new URL(req.url);
-    const userIdRaw = url.searchParams.get("userId") || params.userId;
-    if (!userIdRaw) {
-      return NextResponse.json({ ok: false, error: "userId is required" }, { status: 400 });
-    }
-    const userId = Number(userIdRaw);
-
-    // 0) роль из query + нормализация
-    const roleFromClient = url.searchParams.get("role");
-    let currentRole: RoleCode | null = normalizeRole(roleFromClient);
-
-    // 1) если роль не передали — авто-детект по последним 30 матчам (без офф. фильтра)
-    if (!currentRole) {
-      currentRole = await autoDetectRole(prisma, userId);
-    }
-
-    const cluster = resolveClusterByRole(currentRole);
-    if (!currentRole || !cluster) {
-      return NextResponse.json({
-        ok: true,
-        ready: false,
-        currentRole: currentRole ?? null,
-        cluster: cluster ?? null,
-        matchesCluster: 0,
-        tournamentsUsed: [],
-        reason: "Не удалось определить актуальное амплуа",
-        debug: { seasonMin: SEASON_MIN, officialFilterApplied: true },
-      });
-    }
-
-    const roleCodesSQL = CLUSTERS[cluster].map(r => `'${r.replace(/'/g, "''")}'`).join(",");
-
-    // 2) список официальных турниров пользователя (для debug)
-    const tournamentsRows = toJSON(await prisma.$queryRawUnsafe(`
-      SELECT
-        t.name AS name,
-        CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) AS season,
-        COUNT(*) AS matches
+async function getCurrentRoleLast30Official(userId: number): Promise<string | null> {
+  const sql = `
+    WITH last_official AS (
+      SELECT DISTINCT ums.match_id, tm.timestamp
       FROM tbl_users_match_stats ums
-      INNER JOIN tournament_match tm ON ums.match_id = tm.id
-      INNER JOIN tournament t        ON tm.tournament_id = t.id
-      LEFT  JOIN tbl_field_positions fp ON ums.position_id = fp.id
-      WHERE ums.user_id = ${userId}
-        AND fp.code IN (${roleCodesSQL})
-        ${OFFICIAL_FILTER}
-      GROUP BY t.name
-      ORDER BY season, name
-    `)) as any[];
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      JOIN tournament t ON t.id = tm.tournament_id
+      LEFT JOIN tbl_field_positions fp ON fp.id = ums.position_id
+      WHERE 
+        ums.user_id = ${userId}
+        AND fp.code IS NOT NULL
+        AND ${WHERE_OFFICIAL}
+      ORDER BY tm.timestamp DESC
+      LIMIT 30
+    ),
+    per_match_roles AS (
+      SELECT 
+        l.match_id,
+        fp.code AS role_code,
+        COUNT(*) AS freq
+      FROM last_official l
+      JOIN tbl_users_match_stats ums 
+        ON ums.match_id = l.match_id AND ums.user_id = ${userId}
+      LEFT JOIN tbl_field_positions fp 
+        ON fp.id = ums.position_id
+      GROUP BY l.match_id, fp.code
+    ),
+    pick_role AS (
+      SELECT pmr.match_id, pmr.role_code
+      FROM per_match_roles pmr
+      JOIN (
+        SELECT match_id, MAX(freq) AS mf
+        FROM per_match_roles
+        GROUP BY match_id
+      ) mx 
+      ON mx.match_id = pmr.match_id AND mx.mf = pmr.freq
+      GROUP BY pmr.match_id, pmr.role_code
+    )
+    SELECT role_code, COUNT(*) AS cnt
+    FROM pick_role
+    GROUP BY role_code
+    ORDER BY cnt DESC
+    LIMIT 1
+  `;
+  const rows = await prisma.$queryRawUnsafe<{ role_code: string | null; cnt: bigint }[]>(sql);
+  const code = rows[0]?.role_code ?? null;
+  return code ? ((ROLE_CODE_FROM_POSITION as any)[code] ?? code) : null;
+}
 
-    const tournamentsUsed = tournamentsRows.map(r => String(r.name));
 
     // 3) пул сравнения
     const COHORT_SQL = cluster === "GK" ? buildCohortSQLGK() : buildCohortSQLCommon(roleCodesSQL);
