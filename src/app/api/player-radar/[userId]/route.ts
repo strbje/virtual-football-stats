@@ -2,9 +2,7 @@
 // Радар по игроку: кластеры + официальные турниры (с 18 сезона)
 
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/prisma";
 
 /** ====== КОНСТАНТЫ / ТИПЫ ====== */
 
