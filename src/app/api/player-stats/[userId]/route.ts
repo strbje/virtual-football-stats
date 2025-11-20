@@ -406,11 +406,12 @@ export async function GET(
   // aerial_pct, off_duels_win_pct, cross_acc
 
     return NextResponse.json({
-      ok: true,
-      userId,
-      matches: totals.matches,
-      totals,
-    });
+  ok: true,
+  userId,
+  matches,
+  totals,
+  perMatch,
+});
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || String(e) },
