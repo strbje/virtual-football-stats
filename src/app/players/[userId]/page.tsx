@@ -65,6 +65,7 @@ type ApiStatsResponse = {
   userId: number;
   matches: number;
   totals: ApiStatsTotals;
+  perMatch?: Partial<ApiStatsTotals>;
 };
 
 // ---------- URL helpers ----------
@@ -119,6 +120,39 @@ function withOthersBucket(leagues?: ApiLeague[]) {
   return list;
 }
 
+function fmtStat(
+  total: string | number | null | undefined,
+  perMatch: string | number | null | undefined,
+  opts: { digitsTotal?: number; digitsPerMatch?: number; isPercent?: boolean } = {}
+) {
+  const { digitsTotal = 0, digitsPerMatch = 2, isPercent = false } = opts;
+
+  const toNum = (v: any) =>
+    v === null || v === undefined || v === "" ? null : Number(v);
+
+  const t = toNum(total);
+  const p = toNum(perMatch);
+
+  if (t === null && p === null) return "—";
+
+  if (isPercent) {
+    // total/perMatch здесь храним как долю 0..1
+    const tStr = t === null ? "—" : (t * 100).toFixed(digitsTotal) + "%";
+    const pStr =
+      p === null ? "—" : (p * 100).toFixed(digitsPerMatch) + "% за матч";
+    return `${tStr} (${pStr})`;
+  }
+
+  const fmt = (v: number | null, digits: number) =>
+    v === null ? "—" : v.toFixed(digits);
+
+  const tStr = fmt(t, digitsTotal);
+  const pStr = fmt(p, digitsPerMatch);
+
+  return `${tStr} (${pStr} за матч)`;
+}
+
+
 // ---------- Radar fetch ----------
 async function buildBaseURL() {
   const h = await headers();
@@ -142,6 +176,12 @@ async function fetchPlayerRadar(userId: string) {
     return null;
   }
 }
+
+  const statsTotals: ApiStatsTotals | null =
+    stats && stats.ok ? stats.totals : null;
+  const statsPerMatch: Partial<ApiStatsTotals> | null =
+    stats && stats.ok && (stats as any).perMatch ? (stats as any).perMatch : null;
+
 
 // ---------- Page ----------
 type Params = { userId: string };
