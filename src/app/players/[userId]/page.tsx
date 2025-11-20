@@ -6,6 +6,8 @@ import { headers } from "next/headers";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 import PlayerRadar from "@/components/players/PlayerRadar";
+import PlayerStatsSection from "@/components/players/PlayerStatsSection";
+
 
 // ---------- API types ----------
 type ApiRole = { role: string; percent: number };
@@ -97,6 +99,13 @@ async function fetchPlayerRadar(userId: string) {
 
 // ---------- Page ----------
 type Params = { userId: string };
+
+type PlayerStatsResponse = {
+  ok: boolean;
+  userId: number;
+  matches: number;
+  totals: any; // структура совпадает с PlayerStatsSection Totals
+};
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   return { title: `Игрок #${params.userId} — Virtual Football Stats` };
@@ -190,11 +199,47 @@ export default async function PlayerPage({ params }: { params: Params }) {
         </div>
       </section>
 
-      {/* Тепловая карта */}
+            {/* Тепловая карта */}
       <div>
-        <h3 className="text-sm font-semibold text-zinc-800 mb-3">Тепловая карта амплуа</h3>
+        <h3 className="text-sm font-semibold text-zinc-800 mb-3">
+          Тепловая карта амплуа
+        </h3>
         <RoleHeatmap data={data.roles as any} />
       </div>
+
+      {/* Подробная статистика */}
+      {statsTotals && statsMatches > 0 && (
+        <PlayerStatsSection matches={statsMatches} totals={statsTotals} />
+      )}
     </div>
   );
 }
+
+
+  // радар
+  const radarResp = await fetchPlayerRadar(userId);
+  const radarReady =
+    Boolean(radarResp?.ready) &&
+    Array.isArray(radarResp?.radar) &&
+    (radarResp!.radar!.length ?? 0) > 0;
+  const radarData = radarResp?.radar ?? [];
+
+  const currentRole = data.currentRoleLast30 || radarResp?.currentRole || "—";
+
+  // подробная статистика
+  let statsMatches = 0;
+  let statsTotals: any | null = null;
+  try {
+    const statsUrl = abs(`/api/player-stats/${encodeURIComponent(userId)}`);
+    const statsRes = await fetch(statsUrl, { cache: "no-store" });
+    if (statsRes.ok) {
+      const statsJson = (await statsRes.json()) as PlayerStatsResponse;
+      if (statsJson.ok && statsJson.totals) {
+        statsMatches = statsJson.matches ?? 0;
+        statsTotals = statsJson.totals;
+      }
+    }
+  } catch {
+    // глушим ошибку, страница профиля всё равно должна грузиться
+  }
+
