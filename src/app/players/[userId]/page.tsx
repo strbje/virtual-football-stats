@@ -1,4 +1,5 @@
 // src/app/players/[userId]/page.tsx
+
 import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
@@ -6,12 +7,11 @@ import { headers } from "next/headers";
 import RoleDistributionSection from "@/components/players/RoleDistributionSection";
 import RoleHeatmap from "@/components/players/RoleHeatmap";
 import PlayerRadar from "@/components/players/PlayerRadar";
-import PlayerStatsSection from "@/components/players/PlayerStatsSection";
 
 // ---------- API types ----------
 type ApiRole = { role: string; percent: number };
 type ApiLeague = { label: string; pct: number };
-type ApiResponse = {
+type ApiProfileResponse = {
   ok: boolean;
   matches: number;
   currentRoleLast30?: string | null;
@@ -20,11 +20,51 @@ type ApiResponse = {
   user?: { nickname?: string | null; team?: string | null } | null;
 };
 
-type PlayerStatsResponse = {
+type ApiStatsTotals = {
+  matches: number;
+  goals: string;
+  assists: string;
+  goal_contrib: string;
+  xg: string;
+  xg_delta: string;
+  shots: string;
+  shots_on_target_pct: string;
+  shots_per_goal: string;
+  passes_xa: string;
+  key_passes: string;
+  pre_assists: string;
+  allpasses: string;
+  completedpasses: string;
+  pass_acc: string;
+  pxa: string;
+  allstockes: string;
+  completedstockes: string;
+  dribble_pct: string;
+  intercepts: string;
+  selection: string;
+  completedtackles: string;
+  blocks: string;
+  allselection: string;
+  def_actions: string;
+  beaten_rate: string;
+  outs: string;
+  duels_air: string;
+  duels_air_win: string;
+  aerial_pct: string;
+  duels_off_win: string;
+  duels_off_lose: string;
+  off_duels_total: string;
+  off_duels_win_pct: string;
+  crosses: string;
+  allcrosses: string;
+  cross_acc: string;
+};
+
+type ApiStatsResponse = {
   ok: boolean;
   userId: number;
   matches: number;
-  totals: any;
+  totals: ApiStatsTotals;
 };
 
 // ---------- URL helpers ----------
@@ -41,13 +81,13 @@ const n = (v: unknown, d = 0) => {
 // ---------- Group roles for left bar chart ----------
 function groupRolePercents(roles: ApiRole[]) {
   const GROUPS: Record<string, string[]> = {
-    "Форвард": ["ЛФД", "ЦФД", "ПФД", "ФРВ"],
+    Форвард: ["ЛФД", "ЦФД", "ПФД", "ФРВ", "ЛФА", "ПФА"],
     "Атакующий полузащитник": ["ЛАП", "ЦАП", "ПАП"],
     "Крайний полузащитник": ["ЛП", "ПП"],
     "Центральный полузащитник": ["ЛЦП", "ЦП", "ПЦП", "ЛОП", "ПОП", "ЦОП"],
     "Крайний защитник": ["ЛЗ", "ПЗ"],
     "Центральный защитник": ["ЦЗ", "ЛЦЗ", "ПЦЗ"],
-    "Вратарь": ["ВРТ"],
+    Вратарь: ["ВРТ", "ВР"],
   };
 
   return Object.entries(GROUPS).map(([label, codes]) => {
@@ -73,8 +113,8 @@ function withOthersBucket(leagues?: ApiLeague[]) {
   for (const l of list) if (need.has(l.label)) need.delete(l.label);
   for (const [label, pct] of need) list.push({ label, pct });
 
-  const ORDER = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"];
   list.push({ label: "Прочие", pct: others });
+  const ORDER = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"];
   list.sort((a, b) => ORDER.indexOf(a.label) - ORDER.indexOf(b.label));
   return list;
 }
@@ -90,9 +130,7 @@ async function buildBaseURL() {
 async function fetchPlayerRadar(userId: string) {
   try {
     const base = await buildBaseURL();
-    const res = await fetch(`${base}/api/player-radar/${userId}`, {
-      cache: "no-store",
-    });
+    const res = await fetch(`${base}/api/player-radar/${userId}`, { cache: "no-store" });
     if (!res.ok) return null;
     return (await res.json()) as {
       ok: boolean;
@@ -124,11 +162,12 @@ export default async function PlayerPage({
   searchParams?: { tab?: string };
 }) {
   const userId = params.userId;
-  const activeTab = searchParams?.tab === "stats" ? "stats" : "overview";
+  const tab = searchParams?.tab === "stats" ? "stats" : "profile";
 
-  // основной API
+  // основной API (амплуа + лиги + ник)
   const url = abs(`/api/player-roles?userId=${encodeURIComponent(userId)}`);
   const res = await fetch(url, { cache: "no-store" });
+
   if (!res.ok) {
     return (
       <div className="mx-auto max-w-6xl p-4 md:p-6">
@@ -143,7 +182,7 @@ export default async function PlayerPage({
     );
   }
 
-  const data: ApiResponse = await res.json();
+  const data: ApiProfileResponse = await res.json();
 
   const nickname = (data.user?.nickname ?? `User #${userId}`) as string;
   const teamName = (data.user?.team ?? "") as string;
@@ -160,27 +199,23 @@ export default async function PlayerPage({
     (radarResp!.radar!.length ?? 0) > 0;
   const radarData = radarResp?.radar ?? [];
 
-  const currentRole = data.currentRoleLast30 || radarResp?.currentRole || "—";
+  const currentRole =
+    data.currentRoleLast30 || radarResp?.currentRole || "—";
 
-  // подробная статистика (для вкладки "Статистика")
-  let statsMatches = 0;
-  let statsTotals: any | null = null;
-  try {
-    const statsUrl = abs(`/api/player-stats/${encodeURIComponent(userId)}`);
-    const statsRes = await fetch(statsUrl, { cache: "no-store" });
-    if (statsRes.ok) {
-      const statsJson = (await statsRes.json()) as PlayerStatsResponse;
-      if (statsJson.ok && statsJson.totals) {
-        statsMatches = statsJson.matches ?? 0;
-        statsTotals = statsJson.totals;
+  // --- если таб = stats — тянем статистику
+  let stats: ApiStatsResponse | null = null;
+  if (tab === "stats") {
+    try {
+      const statsRes = await fetch(abs(`/api/player-stats/${encodeURIComponent(userId)}`), {
+        cache: "no-store",
+      });
+      if (statsRes.ok) {
+        stats = (await statsRes.json()) as ApiStatsResponse;
       }
+    } catch {
+      stats = null;
     }
-  } catch {
-    // глушим ошибки
   }
-
-  // helper для ссылок вкладок
-  const basePath = `/players/${encodeURIComponent(userId)}`;
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
@@ -206,42 +241,39 @@ export default async function PlayerPage({
         </div>
         <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
           <div className="text-sm text-zinc-500 mb-1">Актуальное амплуа</div>
-          <div className="text-2xl font-semibold" title="За последние 30 матчей">
+          <div className="text-2xl font-semibold" title="За последние 30 официальных матчей">
             {currentRole}
           </div>
         </div>
       </div>
 
-      {/* Вкладки */}
-      <div className="border-b border-zinc-200 mt-4">
-        <nav className="-mb-px flex gap-4 text-sm">
+      {/* Табы */}
+      <div className="border-b border-zinc-200 mt-2">
+        <nav className="flex gap-4 text-sm">
           <Link
-            href={basePath}
-            className={
-              "py-2 border-b-2 px-1" +
-              (activeTab === "overview"
-                ? " border-blue-600 text-blue-600 font-medium"
-                : " border-transparent text-zinc-500 hover:text-zinc-800")
-            }
+            href={`/players/${userId}`}
+            className={`pb-2 ${
+              tab === "profile"
+                ? "border-b-2 border-blue-600 text-blue-600 font-medium"
+                : "text-zinc-500 hover:text-zinc-800"
+            }`}
           >
-            Обзор
+            Профиль
           </Link>
           <Link
-            href={`${basePath}?tab=stats`}
-            className={
-              "py-2 border-b-2 px-1" +
-              (activeTab === "stats"
-                ? " border-blue-600 text-blue-600 font-medium"
-                : " border-transparent text-zinc-500 hover:text-zinc-800")
-            }
+            href={`/players/${userId}?tab=stats`}
+            className={`pb-2 ${
+              tab === "stats"
+                ? "border-b-2 border-blue-600 text-blue-600 font-medium"
+                : "text-zinc-500 hover:text-zinc-800"
+            }`}
           >
             Статистика
           </Link>
         </nav>
       </div>
 
-      {/* Контент вкладок */}
-      {activeTab === "overview" ? (
+      {tab === "profile" ? (
         <>
           {/* Средняя зона: слева барчарты, справа радар */}
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:max-w-[1100px]">
@@ -278,15 +310,199 @@ export default async function PlayerPage({
           </div>
         </>
       ) : (
-        <div className="mt-4">
-          {statsTotals && statsMatches > 0 ? (
-            <PlayerStatsSection matches={statsMatches} totals={statsTotals} />
+        // ====== TAB: STATISTICS ======
+        <section className="mt-4">
+          {!stats || !stats.ok ? (
+            <div className="text-sm text-red-600">
+              Не удалось загрузить статистику игрока.
+            </div>
           ) : (
-            <div className="text-sm text-zinc-500">
-              Подробная статистика пока недоступна.
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Блок Атака */}
+              <div className="rounded-xl border border-zinc-200 p-4">
+                <h3 className="font-semibold mb-2 text-sm">Атака</h3>
+                <dl className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <dt>Голы</dt>
+                    <dd>{stats.totals.goals}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Голевые передачи</dt>
+                    <dd>{stats.totals.assists}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Гол+пас</dt>
+                    <dd>{stats.totals.goal_contrib}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>xG (ожидаемые голы)</dt>
+                    <dd>{Number(stats.totals.xg).toFixed(1)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Реализация от xG</dt>
+                    <dd>{Number(stats.totals.xg_delta).toFixed(1)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Удары</dt>
+                    <dd>{stats.totals.shots}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Точность ударов</dt>
+                    <dd>
+                      {(Number(stats.totals.shots_on_target_pct) * 100).toFixed(1)}%
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Ударов на гол</dt>
+                    <dd>{Number(stats.totals.shots_per_goal).toFixed(2)}</dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Блок Созидание / Пасы */}
+              <div className="rounded-xl border border-zinc-200 p-4">
+                <h3 className="font-semibold mb-2 text-sm">Созидание и пасы</h3>
+                <dl className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <dt>Важные передачи</dt>
+                    <dd>{stats.totals.key_passes}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Предголевые передачи</dt>
+                    <dd>{stats.totals.pre_assists}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>xA-передачи (пасы под xG)</dt>
+                    <dd>{stats.totals.passes_xa}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Всего пасов</dt>
+                    <dd>{stats.totals.allpasses}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Точные пасы</dt>
+                    <dd>{stats.totals.completedpasses}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Точность пасов</dt>
+                    <dd>
+                      {(Number(stats.totals.pass_acc) * 100).toFixed(1)}%
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>pXA (пасов на 0.5 xA)</dt>
+                    <dd>{Number(stats.totals.pxa).toFixed(1)}</dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Блок Дриблинг / удержание мяча */}
+              <div className="rounded-xl border border-zinc-200 p-4">
+                <h3 className="font-semibold mb-2 text-sm">Дриблинг и удержание</h3>
+                <dl className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <dt>Обводки</dt>
+                    <dd>{stats.totals.allstockes}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Успешные обводки</dt>
+                    <dd>{stats.totals.completedstockes}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Успешность дриблинга</dt>
+                    <dd>
+                      {(Number(stats.totals.dribble_pct) * 100).toFixed(1)}%
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Атак. единоборства</dt>
+                    <dd>{stats.totals.off_duels_total}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Выигранные атак. единоборства</dt>
+                    <dd>{stats.totals.duels_off_win}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Успешность атак. дуэлей</dt>
+                    <dd>
+                      {(Number(stats.totals.off_duels_win_pct) * 100).toFixed(1)}%
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Блок Оборона / борьба */}
+              <div className="rounded-xl border border-zinc-200 p-4">
+                <h3 className="font-semibold mb-2 text-sm">Оборона и борьба</h3>
+                <dl className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <dt>Перехваты</dt>
+                    <dd>{stats.totals.intercepts}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Попытки отбора</dt>
+                    <dd>{stats.totals.allselection}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Удачные отборы</dt>
+                    <dd>{stats.totals.selection}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>% удачных отборов</dt>
+                    <dd>
+                      {(Number(stats.totals.selection) /
+                        Math.max(1, Number(stats.totals.allselection)) *
+                        100
+                      ).toFixed(1)}
+                      %
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Всего защитных действий</dt>
+                    <dd>{stats.totals.def_actions}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Beaten Rate</dt>
+                    <dd>
+                      {(Number(stats.totals.beaten_rate) * 100).toFixed(1)}%
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Воздушные дуэли</dt>
+                    <dd>{stats.totals.duels_air}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>% побед в воздухе</dt>
+                    <dd>
+                      {(Number(stats.totals.aerial_pct) * 100).toFixed(1)}%
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Блок Навесы */}
+              <div className="rounded-xl border border-zinc-200 p-4">
+                <h3 className="font-semibold mb-2 text-sm">Навесы</h3>
+                <dl className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <dt>Все навесы</dt>
+                    <dd>{stats.totals.allcrosses}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Успешные навесы</dt>
+                    <dd>{stats.totals.crosses}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Точность навесов</dt>
+                    <dd>
+                      {(Number(stats.totals.cross_acc) * 100).toFixed(1)}%
+                    </dd>
+                  </div>
+                </dl>
+              </div>
             </div>
           )}
-        </div>
+        </section>
       )}
     </div>
   );
