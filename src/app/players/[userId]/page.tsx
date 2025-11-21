@@ -11,6 +11,7 @@ import PlayerRadar from "@/components/players/PlayerRadar";
 // ---------- API types ----------
 type ApiRole = { role: string; percent: number };
 type ApiLeague = { label: string; pct: number };
+
 type ApiProfileResponse = {
   ok: boolean;
   matches: number;
@@ -22,42 +23,48 @@ type ApiProfileResponse = {
 
 type ApiStatsTotals = {
   matches: number;
-  goals: string;
-  assists: string;
-  goal_contrib: string;
-  xg: string;
-  xg_delta: string;
-  shots: string;
-  shots_on_target_pct: string;
-  shots_per_goal: string;
-  passes_xa: string;
-  key_passes: string;
-  pre_assists: string;
-  allpasses: string;
-  completedpasses: string;
-  pass_acc: string;
-  pxa: string;
-  allstockes: string;
-  completedstockes: string;
-  dribble_pct: string;
-  intercepts: string;
-  selection: string;
-  completedtackles: string;
-  blocks: string;
-  allselection: string;
-  def_actions: string;
-  beaten_rate: string;
-  outs: string;
-  duels_air: string;
-  duels_air_win: string;
-  aerial_pct: string;
-  duels_off_win: string;
-  duels_off_lose: string;
-  off_duels_total: string;
-  off_duels_win_pct: string;
-  crosses: string;
-  allcrosses: string;
-  cross_acc: string;
+
+  goals: number;
+  assists: number;
+  goal_contrib: number;
+  xg: number;
+  xg_delta: number;
+  shots: number;
+  shots_on_target_pct: number | null;
+  shots_per_goal: number | null;
+
+  passes_xa: number;
+  key_passes: number;
+  pre_assists: number;
+  allpasses: number;
+  completedpasses: number;
+  pass_acc: number | null;
+  pxa: number | null;
+
+  allstockes: number;
+  completedstockes: number;
+  dribble_pct: number | null;
+
+  intercepts: number;
+  selection: number;
+  completedtackles: number;
+  blocks: number;
+  allselection: number;
+  def_actions: number;
+  beaten_rate: number | null;
+
+  outs: number;
+  duels_air: number;
+  duels_air_win: number;
+  aerial_pct: number | null;
+  duels_off_win: number;
+  duels_off_lose: number;
+  off_duels_total: number;
+  off_duels_win_pct: number | null;
+
+  crosses: number;
+  allcrosses: number;
+  cross_acc: number | null;
 };
 
 type ApiStatsResponse = {
@@ -65,7 +72,7 @@ type ApiStatsResponse = {
   userId: number;
   matches: number;
   totals: ApiStatsTotals;
-  perMatch?: Partial<ApiStatsTotals>;
+  perMatch?: Partial<ApiStatsTotals> | null;
 };
 
 // ---------- URL helpers ----------
@@ -120,39 +127,6 @@ function withOthersBucket(leagues?: ApiLeague[]) {
   return list;
 }
 
-function fmtStat(
-  total: string | number | null | undefined,
-  perMatch: string | number | null | undefined,
-  opts: { digitsTotal?: number; digitsPerMatch?: number; isPercent?: boolean } = {}
-) {
-  const { digitsTotal = 0, digitsPerMatch = 2, isPercent = false } = opts;
-
-  const toNum = (v: any) =>
-    v === null || v === undefined || v === "" ? null : Number(v);
-
-  const t = toNum(total);
-  const p = toNum(perMatch);
-
-  if (t === null && p === null) return "—";
-
-  if (isPercent) {
-    // total/perMatch здесь храним как долю 0..1
-    const tStr = t === null ? "—" : (t * 100).toFixed(digitsTotal) + "%";
-    const pStr =
-      p === null ? "—" : (p * 100).toFixed(digitsPerMatch) + "% за матч";
-    return `${tStr} (${pStr})`;
-  }
-
-  const fmt = (v: number | null, digits: number) =>
-    v === null ? "—" : v.toFixed(digits);
-
-  const tStr = fmt(t, digitsTotal);
-  const pStr = fmt(p, digitsPerMatch);
-
-  return `${tStr} (${pStr} за матч)`;
-}
-
-
 // ---------- Radar fetch ----------
 async function buildBaseURL() {
   const h = await headers();
@@ -176,12 +150,6 @@ async function fetchPlayerRadar(userId: string) {
     return null;
   }
 }
-
-  const statsTotals: ApiStatsTotals | null =
-    stats && stats.ok ? stats.totals : null;
-  const statsPerMatch: Partial<ApiStatsTotals> | null =
-    stats && stats.ok && (stats as any).perMatch ? (stats as any).perMatch : null;
-
 
 // ---------- Page ----------
 type Params = { userId: string };
@@ -239,8 +207,7 @@ export default async function PlayerPage({
     (radarResp!.radar!.length ?? 0) > 0;
   const radarData = radarResp?.radar ?? [];
 
-  const currentRole =
-    data.currentRoleLast30 || radarResp?.currentRole || "—";
+  const currentRole = data.currentRoleLast30 || radarResp?.currentRole || "—";
 
   // --- если таб = stats — тянем статистику
   let stats: ApiStatsResponse | null = null;
@@ -256,6 +223,14 @@ export default async function PlayerPage({
       stats = null;
     }
   }
+
+  // производные: totals / perMatch (пока только считаем, UI пока показывает totals)
+  const statsTotals: ApiStatsTotals | null =
+    stats && stats.ok ? stats.totals : null;
+  const statsPerMatch: Partial<ApiStatsTotals> | null =
+    stats && stats.ok && (stats as any).perMatch
+      ? ((stats as any).perMatch as Partial<ApiStatsTotals>)
+      : null;
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
@@ -376,25 +351,31 @@ export default async function PlayerPage({
                   </div>
                   <div className="flex justify-between">
                     <dt>xG (ожидаемые голы)</dt>
-                    <dd>{Number(stats.totals.xg).toFixed(1)}</dd>
+                    <dd>{stats.totals.xg.toFixed(1)}</dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Реализация от xG</dt>
-                    <dd>{Number(stats.totals.xg_delta).toFixed(1)}</dd>
+                    <dd>{stats.totals.xg_delta.toFixed(1)}</dd>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify между">
                     <dt>Удары</dt>
                     <dd>{stats.totals.shots}</dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Точность ударов</dt>
                     <dd>
-                      {(Number(stats.totals.shots_on_target_pct) * 100).toFixed(1)}%
+                      {stats.totals.shots_on_target_pct !== null
+                        ? (stats.totals.shots_on_target_pct * 100).toFixed(1) + "%"
+                        : "—"}
                     </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>Ударов на гол</dt>
-                    <dd>{Number(stats.totals.shots_per_goal).toFixed(2)}</dd>
+                    <dd>
+                      {stats.totals.shots_per_goal !== null
+                        ? stats.totals.shots_per_goal.toFixed(2)
+                        : "—"}
+                    </dd>
                   </div>
                 </dl>
               </div>
@@ -426,12 +407,18 @@ export default async function PlayerPage({
                   <div className="flex justify-between">
                     <dt>Точность пасов</dt>
                     <dd>
-                      {(Number(stats.totals.pass_acc) * 100).toFixed(1)}%
+                      {stats.totals.pass_acc !== null
+                        ? (stats.totals.pass_acc * 100).toFixed(1) + "%"
+                        : "—"}
                     </dd>
                   </div>
                   <div className="flex justify-between">
                     <dt>pXA (пасов на 0.5 xA)</dt>
-                    <dd>{Number(stats.totals.pxa).toFixed(1)}</dd>
+                    <dd>
+                      {stats.totals.pxa !== null
+                        ? stats.totals.pxa.toFixed(1)
+                        : "—"}
+                    </dd>
                   </div>
                 </dl>
               </div>
@@ -451,7 +438,9 @@ export default async function PlayerPage({
                   <div className="flex justify-between">
                     <dt>Успешность дриблинга</dt>
                     <dd>
-                      {(Number(stats.totals.dribble_pct) * 100).toFixed(1)}%
+                      {stats.totals.dribble_pct !== null
+                        ? (stats.totals.dribble_pct * 100).toFixed(1) + "%"
+                        : "—"}
                     </dd>
                   </div>
                   <div className="flex justify-between">
@@ -465,7 +454,9 @@ export default async function PlayerPage({
                   <div className="flex justify-between">
                     <dt>Успешность атак. дуэлей</dt>
                     <dd>
-                      {(Number(stats.totals.off_duels_win_pct) * 100).toFixed(1)}%
+                      {stats.totals.off_duels_win_pct !== null
+                        ? (stats.totals.off_duels_win_pct * 100).toFixed(1) + "%"
+                        : "—"}
                     </dd>
                   </div>
                 </dl>
@@ -490,11 +481,11 @@ export default async function PlayerPage({
                   <div className="flex justify-between">
                     <dt>% удачных отборов</dt>
                     <dd>
-                      {(Number(stats.totals.selection) /
-                        Math.max(1, Number(stats.totals.allselection)) *
-                        100
-                      ).toFixed(1)}
-                      %
+                      {stats.totals.allselection > 0
+                        ? ((stats.totals.selection / stats.totals.allselection) * 100).toFixed(
+                            1
+                          ) + "%"
+                        : "—"}
                     </dd>
                   </div>
                   <div className="flex justify-between">
@@ -504,7 +495,9 @@ export default async function PlayerPage({
                   <div className="flex justify-between">
                     <dt>Beaten Rate</dt>
                     <dd>
-                      {(Number(stats.totals.beaten_rate) * 100).toFixed(1)}%
+                      {stats.totals.beaten_rate !== null
+                        ? (stats.totals.beaten_rate * 100).toFixed(1) + "%"
+                        : "—"}
                     </dd>
                   </div>
                   <div className="flex justify-between">
@@ -514,7 +507,9 @@ export default async function PlayerPage({
                   <div className="flex justify-between">
                     <dt>% побед в воздухе</dt>
                     <dd>
-                      {(Number(stats.totals.aerial_pct) * 100).toFixed(1)}%
+                      {stats.totals.aerial_pct !== null
+                        ? (stats.totals.aerial_pct * 100).toFixed(1) + "%"
+                        : "—"}
                     </dd>
                   </div>
                 </dl>
@@ -535,7 +530,9 @@ export default async function PlayerPage({
                   <div className="flex justify-between">
                     <dt>Точность навесов</dt>
                     <dd>
-                      {(Number(stats.totals.cross_acc) * 100).toFixed(1)}%
+                      {stats.totals.cross_acc !== null
+                        ? (stats.totals.cross_acc * 100).toFixed(1) + "%"
+                        : "—"}
                     </dd>
                   </div>
                 </dl>
