@@ -336,29 +336,33 @@ export default async function PlayerPage({
           ) : (
             <>
               {/* Переключатель периода */}
-              <div className="mb-3 flex items-center gap-2 text-xs text-zinc-500">
-                <span className="mr-1">Период:</span>
-                <Link
-                  href={`/players/${userId}?tab=stats&scope=from18`}
-                  className={`px-2 py-1 rounded-full border text-xs ${
-                    scope === "from18"
-                      ? "border-blue-600 text-blue-600 bg-blue-50"
-                      : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-                  }`}
-                >
-                  С 18 сезона
-                </Link>
-                <Link
-                  href={`/players/${userId}?tab=stats&scope=career`}
-                  className={`px-2 py-1 rounded-full border text-xs ${
-                    scope === "career"
-                      ? "border-blue-600 text-blue-600 bg-blue-50"
-                      : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-                  }`}
-                >
-                  За всю карьеру
-                </Link>
-              </div>
+              <div className="flex items-center gap-3 text-xs text-zinc-600">
+  <span className="text-zinc-500">Период:</span>
+
+  {/* С 18 сезона (= recent) */}
+  <Link
+    href={`/players/${userId}?tab=stats&scope=recent`}
+    className={`px-2 py-1 rounded-full border text-xs ${
+      scope === "recent"
+        ? "border-blue-600 text-blue-600 bg-blue-50"
+        : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+    }`}
+  >
+    C 18 сезона
+  </Link>
+
+  {/* За всю карьеру (= all) */}
+  <Link
+    href={`/players/${userId}?tab=stats&scope=all`}
+    className={`px-2 py-1 rounded-full border text-xs ${
+      scope === "all"
+        ? "border-blue-600 text-blue-600 bg-blue-50"
+        : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+    }`}
+  >
+    За всю карьеру
+  </Link>
+</div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 {/* Блок Атака */}
