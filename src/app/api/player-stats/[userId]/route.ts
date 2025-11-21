@@ -129,6 +129,15 @@ export async function GET(
     );
   }
 
+  const url = new URL(req.url);
+  const scopeParam = url.searchParams.get("scope");
+  const scope: "recent" | "all" = scopeParam === "all" ? "all" : "recent";
+    const seasonFilter =
+    scope === "all"
+      ? `t.name REGEXP '\\\\([0-9]+ сезон\\\\)'` // любой сезон
+      : OFFICIAL_FILTER;
+
+
   try {
     const sql = `
       WITH base AS (
@@ -174,7 +183,7 @@ export async function GET(
         JOIN tournament_match tm ON tm.id = ums.match_id
         JOIN tournament t        ON t.id  = tm.tournament_id
         WHERE ums.user_id = ${userId}
-          AND (${OFFICIAL_FILTER})
+          AND (${seasonFilter})
       ),
       per_user AS (
         SELECT
@@ -406,6 +415,7 @@ export async function GET(
       matches,
       totals,
       perMatch,
+      scope,
     });
   } catch (e: any) {
     return NextResponse.json(
