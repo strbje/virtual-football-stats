@@ -129,7 +129,7 @@ export async function GET(
     );
   }
 
-  const url = new URL(req.url);
+  const url = new URL(_req.url);
   const scopeParam = url.searchParams.get("scope");
   const scope: "recent" | "all" = scopeParam === "all" ? "all" : "recent";
     const seasonFilter =
