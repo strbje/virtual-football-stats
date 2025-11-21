@@ -67,6 +67,7 @@ type ApiStatsResponse = {
   matches: number;
   totals: ApiStatsTotals;
   perMatch?: Partial<ApiStatsTotals>;
+  scope?: "recent" | "all";
 };
 
 // ---------- URL helpers ----------
@@ -176,6 +177,7 @@ export default async function PlayerPage({
 }) {
   const userId = params.userId;
   const tab = searchParams?.tab === "stats" ? "stats" : "profile";
+  const scope = searchParams?.scope === "all" ? "all" : "recent";
 
   // основной API
   const url = abs(`/api/player-roles?userId=${encodeURIComponent(userId)}`);
@@ -216,20 +218,19 @@ export default async function PlayerPage({
     data.currentRoleLast30 || radarResp?.currentRole || "—";
 
   // --- если таб = stats — тянем статистику
-  let stats: ApiStatsResponse | null = null;
+    let stats: ApiStatsResponse | null = null;
   if (tab === "stats") {
     try {
       const statsRes = await fetch(
-        abs(`/api/player-stats/${encodeURIComponent(userId)}`),
-        { cache: "no-store" },
+        abs(`/api/player-stats/${encodeURIComponent(userId)}?scope=${scope}`),
+        { cache: "no-store" }
       );
-      if (statsRes.ok) {
-        stats = (await statsRes.json()) as ApiStatsResponse;
-      }
+      if (statsRes.ok) stats = (await statsRes.json()) as ApiStatsResponse;
     } catch {
       stats = null;
     }
   }
+
 
   const statsTotals: ApiStatsTotals | null =
     stats && stats.ok ? stats.totals : null;
@@ -301,6 +302,37 @@ export default async function PlayerPage({
           </Link>
         </nav>
       </div>
+      <section className="mt-4">
+  {!stats || !stats.ok ? (
+    <div className="text-sm text-red-600">
+      Не удалось загрузить статистику игрока.
+    </div>
+  ) : (
+    <>
+      <div className="mb-3 flex gap-3 text-xs text-zinc-600">
+        <span className="mt-[2px]">Период:</span>
+        <Link
+          href={`/players/${userId}?tab=stats`}
+          className={
+            scope === "recent"
+              ? "px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200"
+              : "px-2 py-1 rounded-full hover:bg-zinc-100"
+          }
+        >
+          С&nbsp;18 сезона
+        </Link>
+        <Link
+          href={`/players/${userId}?tab=stats&scope=all`}
+          className={
+            scope === "all"
+              ? "px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200"
+              : "px-2 py-1 rounded-full hover:bg-zinc-100"
+          }
+        >
+          За&nbsp;всю карьеру
+        </Link>
+      </div>
+
 
       {tab === "profile" ? (
         <>
