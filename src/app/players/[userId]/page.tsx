@@ -160,7 +160,7 @@ export default async function PlayerPage({
   searchParams,
 }: {
   params: Params;
-  searchParams?: { tab?: string; period?: string };
+  searchParams?: { tab?: string; scope?: string };
 }) {
   const userId = params.userId;
   const tab = searchParams?.tab === "stats" ? "stats" : "profile";
