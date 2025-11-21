@@ -283,7 +283,7 @@ export default async function PlayerPage({
             Профиль
           </Link>
           <Link
-            href={`/players/${userId}?tab=stats&period=${period}`}
+            href={`/players/${userId}?tab=stats&scope=${scope}`}
             className={`pb-2 ${
               tab === "stats"
                 ? "border-b-2 border-blue-600 text-blue-600 font-medium"
@@ -339,9 +339,9 @@ export default async function PlayerPage({
               <div className="mb-3 flex items-center gap-2 text-xs text-zinc-500">
                 <span className="mr-1">Период:</span>
                 <Link
-                  href={`/players/${userId}?tab=stats&period=from18`}
+                  href={`/players/${userId}?tab=stats&scope=from18`}
                   className={`px-2 py-1 rounded-full border text-xs ${
-                    period === "from18"
+                    scope === "from18"
                       ? "border-blue-600 text-blue-600 bg-blue-50"
                       : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
                   }`}
@@ -349,9 +349,9 @@ export default async function PlayerPage({
                   С 18 сезона
                 </Link>
                 <Link
-                  href={`/players/${userId}?tab=stats&period=career`}
+                  href={`/players/${userId}?tab=stats&scope=career`}
                   className={`px-2 py-1 rounded-full border text-xs ${
-                    period === "career"
+                    scope === "career"
                       ? "border-blue-600 text-blue-600 bg-blue-50"
                       : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
                   }`}
