@@ -450,7 +450,7 @@ export default async function PlayerPage({
                     </dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt>xA-передачи (пасы под xG)</dt>
+                    <dt>xA (ожидаемые голевые)</dt>
                     <dd>
                       {statsTotals.passes_xa}
                       {statsPerMatch?.passes_xa != null && (
@@ -496,7 +496,7 @@ export default async function PlayerPage({
                     </dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt>pXA (пасов на 0.5 xA)</dt>
+                    <dt>pXA</dt>
                     <dd>{Number(statsTotals.pxa).toFixed(1)}</dd>
                   </div>
                 </dl>
