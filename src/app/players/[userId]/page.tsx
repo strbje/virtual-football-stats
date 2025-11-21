@@ -164,7 +164,7 @@ export default async function PlayerPage({
 }) {
   const userId = params.userId;
   const tab = searchParams?.tab === "stats" ? "stats" : "profile";
-  const period = searchParams?.period === "career" ? "career" : "from18";
+  const scope = searchParams?.scope === "all" ? "all" : "recent";
 
   // основной API (амплуа + лиги + ник)
   const url = abs(`/api/player-roles?userId=${encodeURIComponent(userId)}`);
@@ -208,9 +208,11 @@ export default async function PlayerPage({
   if (tab === "stats") {
     try {
       const statsRes = await fetch(
-        abs(`/api/player-stats/${encodeURIComponent(userId)}?period=${period}`),
-        { cache: "no-store" }
-      );
+      abs(
+        `/api/player-stats/${encodeURIComponent(userId)}?scope=${scope}`,
+      ),
+      { cache: "no-store" },
+    );
       if (statsRes.ok) {
         stats = (await statsRes.json()) as ApiStatsResponse;
       }
