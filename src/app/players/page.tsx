@@ -4,8 +4,6 @@ import FiltersClient from "@/components/players/FiltersClient";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
-// если захочешь лёгкий кеш, можно раскомментировать:
-// export const revalidate = 60;
 
 type SearchParamsDict = Record<string, string | string[] | undefined>;
 
@@ -86,61 +84,24 @@ export default async function Page({
     )
   ).map((r) => r.role);
 
-  // агрегированная выборка по игрокам
+  // УПРОЩЁННАЯ агрегированная выборка по игрокам
   const rows = await prisma.$queryRawUnsafe<Row[]>(
     `
-    WITH base AS (
-      SELECT
-        u.id          AS user_id,
-        u.gamertag,
-        u.username,
-        sp.short_name AS role,
-        c.team_name,
-        t.name        AS tournament_name,
-        tm.timestamp,
-        ums.match_id
-      FROM tbl_users_match_stats ums
-      JOIN tournament_match tm ON ums.match_id = tm.id
-      JOIN skills_positions sp ON ums.skill_id = sp.id
-      JOIN tbl_users u        ON ums.user_id  = u.id
-      JOIN tournament t       ON tm.tournament_id = t.id
-      JOIN teams c            ON ums.team_id = c.id
-      ${whereSql}
-    ),
-    matches_per_user AS (
-      SELECT
-        user_id,
-        COUNT(DISTINCT match_id) AS matches
-      FROM base
-      GROUP BY user_id
-    ),
-    latest_time AS (
-      SELECT
-        user_id,
-        MAX(timestamp) AS last_ts
-      FROM base
-      GROUP BY user_id
-    ),
-    latest_team AS (
-      SELECT
-        b.user_id,
-        b.gamertag,
-        b.username,
-        b.team_name,
-        b.timestamp
-      FROM base b
-      JOIN latest_time lt
-        ON lt.user_id = b.user_id AND lt.last_ts = b.timestamp
-    )
     SELECT
-      m.user_id,
-      lt.gamertag,
-      lt.username,
-      lt.team_name,
-      m.matches
-    FROM matches_per_user m
-    JOIN latest_team lt ON lt.user_id = m.user_id
-    ORDER BY m.matches DESC, m.user_id ASC
+      u.id                    AS user_id,
+      u.gamertag,
+      u.username,
+      MAX(c.team_name)        AS team_name,
+      COUNT(DISTINCT ums.match_id) AS matches
+    FROM tbl_users_match_stats ums
+    JOIN tournament_match tm ON ums.match_id = tm.id
+    JOIN skills_positions sp ON ums.skill_id = sp.id
+    JOIN tbl_users u        ON ums.user_id  = u.id
+    JOIN tournament t       ON tm.tournament_id = t.id
+    JOIN teams c            ON ums.team_id = c.id
+    ${whereSql}
+    GROUP BY u.id, u.gamertag, u.username
+    ORDER BY matches DESC, u.id ASC
     LIMIT 30
     `,
     ...params,
