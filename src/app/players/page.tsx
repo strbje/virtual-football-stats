@@ -4,6 +4,8 @@ import FiltersClient from "@/components/players/FiltersClient";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
+// если захочешь лёгкий кеш, можно раскомментировать:
+// export const revalidate = 60;
 
 type SearchParamsDict = Record<string, string | string[] | undefined>;
 
@@ -14,10 +16,7 @@ function getVal(d: SearchParamsDict, k: string): string {
 
 function parseRange(range?: string): { from?: string; to?: string } {
   if (!range) return {};
-  const [start, end] = range
-    .split(":")
-    .map((s) => s?.trim())
-    .filter(Boolean);
+  const [start, end] = range.split(":").map((s) => s?.trim()).filter(Boolean);
   return {
     from: start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : undefined,
     to: end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : undefined,
@@ -76,7 +75,7 @@ export default async function Page({
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  // значения для выпадашки амплуа (как было)
+  // значения для выпадашки амплуа
   const rolesRows = (
     await prisma.$queryRawUnsafe<{ role: string }[]>(
       `
@@ -87,52 +86,62 @@ export default async function Page({
     )
   ).map((r) => r.role);
 
-  // основная выборка: агрегируем по игроку
+  // агрегированная выборка по игрокам
   const rows = await prisma.$queryRawUnsafe<Row[]>(
     `
-      WITH base AS (
-        SELECT
-          ums.user_id,
-          ums.match_id,
-          u.gamertag,
-          u.username,
-          c.team_name,
-          tm.timestamp
-        FROM tbl_users_match_stats ums
-        JOIN tournament_match tm ON ums.match_id = tm.id
-        JOIN skills_positions sp ON ums.skill_id = sp.id
-        JOIN tbl_users u        ON ums.user_id  = u.id
-        JOIN tournament t       ON tm.tournament_id = t.id
-        JOIN teams c            ON ums.team_id = c.id
-        ${whereSql}
-      ),
-      matches_per_user AS (
-        SELECT
-          user_id,
-          COUNT(DISTINCT match_id) AS matches
-        FROM base
-        GROUP BY user_id
-      ),
-      latest_team AS (
-        SELECT
-          user_id,
-          team_name,
-          gamertag,
-          username,
-          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY timestamp DESC) AS rn
-        FROM base
-      )
+    WITH base AS (
       SELECT
-        m.user_id,
-        lt.gamertag,
-        lt.username,
-        lt.team_name,
-        m.matches
-      FROM matches_per_user m
-      LEFT JOIN latest_team lt
-        ON lt.user_id = m.user_id AND lt.rn = 1
-      ORDER BY m.matches DESC, m.user_id ASC
-      LIMIT 30
+        u.id          AS user_id,
+        u.gamertag,
+        u.username,
+        sp.short_name AS role,
+        c.team_name,
+        t.name        AS tournament_name,
+        tm.timestamp,
+        ums.match_id
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON ums.match_id = tm.id
+      JOIN skills_positions sp ON ums.skill_id = sp.id
+      JOIN tbl_users u        ON ums.user_id  = u.id
+      JOIN tournament t       ON tm.tournament_id = t.id
+      JOIN teams c            ON ums.team_id = c.id
+      ${whereSql}
+    ),
+    matches_per_user AS (
+      SELECT
+        user_id,
+        COUNT(DISTINCT match_id) AS matches
+      FROM base
+      GROUP BY user_id
+    ),
+    latest_time AS (
+      SELECT
+        user_id,
+        MAX(timestamp) AS last_ts
+      FROM base
+      GROUP BY user_id
+    ),
+    latest_team AS (
+      SELECT
+        b.user_id,
+        b.gamertag,
+        b.username,
+        b.team_name,
+        b.timestamp
+      FROM base b
+      JOIN latest_time lt
+        ON lt.user_id = b.user_id AND lt.last_ts = b.timestamp
+    )
+    SELECT
+      m.user_id,
+      lt.gamertag,
+      lt.username,
+      lt.team_name,
+      m.matches
+    FROM matches_per_user m
+    JOIN latest_team lt ON lt.user_id = m.user_id
+    ORDER BY m.matches DESC, m.user_id ASC
+    LIMIT 30
     `,
     ...params,
   );
@@ -150,8 +159,8 @@ export default async function Page({
         <table className="min-w-full border-collapse">
           <thead>
             <tr className="text-left border-b">
-              <th className="py-2 pr-4">Игрок</th>
-              <th className="py-2 pr-4">Команда (последний матч)</th>
+              <th className="py-2 pr-4 px-4">Игрок</th>
+              <th className="py-2 pr-4">Команда</th>
               <th className="py-2 pr-4">Матчи</th>
             </tr>
           </thead>
@@ -161,20 +170,20 @@ export default async function Page({
                 <td className="px-4 py-2">
                   <Link
                     href={`/players/${r.user_id}${
-                      range ? `?range=${range}` : ""
+                      range ? `?range=${encodeURIComponent(range)}` : ""
                     }`}
                     className="hover:underline"
                   >
                     {r.gamertag || r.username || `User #${r.user_id}`}
                   </Link>
                 </td>
-                <td className="py-2 pr-4">{r.team_name ?? "—"}</td>
+                <td className="py-2 pr-4">{r.team_name || "—"}</td>
                 <td className="py-2 pr-4">{r.matches}</td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td className="py-3 text-gray-500" colSpan={3}>
+                <td className="py-3 text-gray-500 px-4" colSpan={3}>
                   Ничего не найдено.
                 </td>
               </tr>
