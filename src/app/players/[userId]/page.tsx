@@ -476,7 +476,7 @@ export default async function PlayerPage({
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt>xA-передачи (пасы под xG)</dt>
+                      <dt>xA (ожидаемые голевые)</dt>
                       <dd>
                         {withPerMatch(
                           statsTotals.passes_xa,
@@ -509,7 +509,7 @@ export default async function PlayerPage({
                       </dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt>pXA (пасов на 0.5 xA)</dt>
+                      <dt>pXA</dt>
                       <dd>{Number(statsTotals.pxa).toFixed(1)}</dd>
                     </div>
                   </dl>
@@ -630,13 +630,15 @@ export default async function PlayerPage({
                           statsPerMatch?.def_actions
                         )}
                       </dd>
-                    </div>
-                    <div className="flex justify_between">
-                      <dt>Beaten Rate</dt>
-                      <dd>
-                        {(Number(statsTotals.beaten_rate) * 100).toFixed(1)}%
-                      </dd>
-                    </div>
+                    <div className="flex justify-between">
+  <dt>Beaten Rate</dt>
+  <dd>
+    {statsTotals && statsTotals.beaten_rate != null
+      ? `${(Number(statsTotals.beaten_rate) * 100).toFixed(1)}%`
+      : "—"}
+  </dd>
+</div>
+
                     <div className="flex justify-between">
                       <dt>Воздушные дуэли</dt>
                       <dd>
