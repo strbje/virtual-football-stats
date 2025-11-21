@@ -15,37 +15,36 @@ const OFFICIAL_FILTER = `
 // утилита для BigInt -> number
 function toJSON<T = any>(x: unknown): T {
   return JSON.parse(
-    JSON.stringify(x, (_, v) => (typeof v === "bigint" ? Number(v) : v))
+    JSON.stringify(x, (_, v) => (typeof v === "bigint" ? Number(v) : v)),
   );
 }
 
 type Totals = {
-  // база
   matches: number;
 
   // атака
   goals: number;
   assists: number;
-  goal_contrib: number;      // goals + assists
+  goal_contrib: number;
   xg: number;
-  xg_delta: number;          // goals - xg
-  shots: number;             // kickedin + kickedout
-  shots_on_target_pct: number | null; // 0..1
-  shots_per_goal: number | null;      // удары / голы
+  xg_delta: number;
+  shots: number;
+  shots_on_target_pct: number | null;
+  shots_per_goal: number | null;
 
   // созидание / пасы
-  passes_xa: number;         // passes (xA-суррогат)
-  key_passes: number;        // ipasses
-  pre_assists: number;       // pregoal_passes
+  passes_xa: number;
+  key_passes: number;
+  pre_assists: number;
   allpasses: number;
   completedpasses: number;
-  pass_acc: number | null;   // 0..1
-  pxa: number | null;        // 0.5 * allpasses / passes_xa
+  pass_acc: number | null;
+  pxa: number | null;
 
   // дриблинг
   allstockes: number;
   completedstockes: number;
-  dribble_pct: number | null; // 0..1
+  dribble_pct: number | null;
 
   // оборона
   intercepts: number;
@@ -54,22 +53,22 @@ type Totals = {
   blocks: number;
   allselection: number;
   def_actions: number;
-  beaten_rate: number | null; // 0..1
+  beaten_rate: number | null;
 
   // дуэли / выносы
   outs: number;
   duels_air: number;
   duels_air_win: number;
-  aerial_pct: number | null;       // 0..1
+  aerial_pct: number | null;
   duels_off_win: number;
   duels_off_lose: number;
   off_duels_total: number;
-  off_duels_win_pct: number | null; // 0..1
+  off_duels_win_pct: number | null;
 
   // навесы
   crosses: number;
   allcrosses: number;
-  cross_acc: number | null;        // 0..1
+  cross_acc: number | null;
 };
 
 const EMPTY_TOTALS: Totals = {
@@ -120,13 +119,13 @@ const EMPTY_TOTALS: Totals = {
 
 export async function GET(
   _req: Request,
-  { params }: { params: { userId: string } }
+  { params }: { params: { userId: string } },
 ) {
   const userId = Number(params.userId);
   if (!userId || Number.isNaN(userId)) {
     return NextResponse.json(
       { ok: false, error: "Bad userId" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -315,7 +314,7 @@ export async function GET(
         userId,
         matches: 0,
         totals: EMPTY_TOTALS,
-        perMatch: EMPTY_TOTALS,
+        perMatch: EMPTY_TOTALS, // всё нули
       });
     }
 
@@ -366,48 +365,40 @@ export async function GET(
       cross_acc: row.cross_acc,
     };
 
-    // матчи для расчёта "за матч"
-    const matches = Number(totals.matches ?? 0) || 0;
+    const matches = totals.matches || 0;
 
-    // хелпер: делим на матчи, если они есть
+    const perMatch: any = { ...totals };
     const div = (v: any) =>
       matches > 0 && v !== null && v !== undefined ? Number(v) / matches : null;
 
-    // базируемся на totals
-    const perMatch: any = { ...totals };
-
-    // счётчики → делим на матчи
-    perMatch.goals            = div(totals.goals);
-    perMatch.assists          = div(totals.assists);
-    perMatch.goal_contrib     = div(totals.goal_contrib);
-    perMatch.xg               = div(totals.xg);
-    perMatch.shots            = div(totals.shots);
-    perMatch.passes_xa        = div(totals.passes_xa);
-    perMatch.key_passes       = div(totals.key_passes);
-    perMatch.pre_assists      = div(totals.pre_assists);
-    perMatch.allpasses        = div(totals.allpasses);
-    perMatch.completedpasses  = div(totals.completedpasses);
-    perMatch.allstockes       = div(totals.allstockes);
+    perMatch.goals = div(totals.goals);
+    perMatch.assists = div(totals.assists);
+    perMatch.goal_contrib = div(totals.goal_contrib);
+    perMatch.xg = div(totals.xg);
+    perMatch.shots = div(totals.shots);
+    perMatch.passes_xa = div(totals.passes_xa);
+    perMatch.key_passes = div(totals.key_passes);
+    perMatch.pre_assists = div(totals.pre_assists);
+    perMatch.allpasses = div(totals.allpasses);
+    perMatch.completedpasses = div(totals.completedpasses);
+    perMatch.allstockes = div(totals.allstockes);
     perMatch.completedstockes = div(totals.completedstockes);
-    perMatch.intercepts       = div(totals.intercepts);
-    perMatch.selection        = div(totals.selection);
+    perMatch.intercepts = div(totals.intercepts);
+    perMatch.selection = div(totals.selection);
     perMatch.completedtackles = div(totals.completedtackles);
-    perMatch.blocks           = div(totals.blocks);
-    perMatch.allselection     = div(totals.allselection);
-    perMatch.def_actions      = div(totals.def_actions);
-    perMatch.outs             = div(totals.outs);
-    perMatch.duels_air        = div(totals.duels_air);
-    perMatch.duels_air_win    = div(totals.duels_air_win);
-    perMatch.duels_off_win    = div(totals.duels_off_win);
-    perMatch.duels_off_lose   = div(totals.duels_off_lose);
-    perMatch.off_duels_total  = div(totals.off_duels_total);
-    perMatch.crosses          = div(totals.crosses);
-    perMatch.allcrosses       = div(totals.allcrosses);
+    perMatch.blocks = div(totals.blocks);
+    perMatch.allselection = div(totals.allselection);
+    perMatch.def_actions = div(totals.def_actions);
+    perMatch.outs = div(totals.outs);
+    perMatch.duels_air = div(totals.duels_air);
+    perMatch.duels_air_win = div(totals.duels_air_win);
+    perMatch.duels_off_win = div(totals.duels_off_win);
+    perMatch.duels_off_lose = div(totals.duels_off_lose);
+    perMatch.off_duels_total = div(totals.off_duels_total);
+    perMatch.crosses = div(totals.crosses);
+    perMatch.allcrosses = div(totals.allcrosses);
 
-    // проценты/отношения и так уже нормированы:
-    // xg_delta, shots_on_target_pct, shots_per_goal,
-    // pass_acc, pxa, dribble_pct, beaten_rate,
-    // aerial_pct, off_duels_win_pct, cross_acc — НЕ трогаем
+    // проценты и отношения (shots_on_target_pct, pass_acc, beaten_rate и т.п.) не трогаем
 
     return NextResponse.json({
       ok: true,
@@ -419,7 +410,7 @@ export async function GET(
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || String(e) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
