@@ -7,17 +7,19 @@ import "flatpickr/dist/flatpickr.css";
 
 type Props = {
   initial: {
-    q: string;
+    team: string;
+    tournament: string;
     range: string;
   };
 };
 
 export default function TeamsFiltersClient({ initial }: Props) {
-  const [q, setQ] = useState(initial.q ?? "");
+  const [team, setTeam] = useState(initial.team ?? "");
+  const [tournament, setTournament] = useState(initial.tournament ?? "");
   const [range, setRange] = useState(initial.range ?? "");
   const dateInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Инициализация flatpickr так же, как у игроков
+  // Инициализация flatpickr (как у игроков)
   useEffect(() => {
     if (!dateInputRef.current) return;
 
@@ -45,14 +47,16 @@ export default function TeamsFiltersClient({ initial }: Props) {
 
   const apply = () => {
     const params = new URLSearchParams();
-    if (q.trim()) params.set("q", q.trim());
+    if (team.trim()) params.set("team", team.trim());
+    if (tournament.trim()) params.set("tournament", tournament.trim());
     if (range) params.set("range", range);
     const search = params.toString();
     window.location.search = search ? `?${search}` : "";
   };
 
   const reset = () => {
-    setQ("");
+    setTeam("");
+    setTournament("");
     setRange("");
     window.location.search = "";
   };
@@ -62,8 +66,14 @@ export default function TeamsFiltersClient({ initial }: Props) {
       <input
         className="border rounded px-2 py-1 text-sm"
         placeholder="Команда"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
+        value={team}
+        onChange={(e) => setTeam(e.target.value)}
+      />
+      <input
+        className="border rounded px-2 py-1 text-sm"
+        placeholder="Турнир"
+        value={tournament}
+        onChange={(e) => setTournament(e.target.value)}
       />
       <input
         ref={dateInputRef}
