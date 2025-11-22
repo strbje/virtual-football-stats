@@ -8,32 +8,31 @@ export const dynamic = "force-dynamic";
 type Params = { teamId: string };
 
 export async function generateMetadata({ params }: { params: Params }) {
-  const id = Number(params.teamId) || 0;
+  const id = String(params.teamId);
+
   let title = `Команда #${id} — Virtual Football Stats`;
 
-  if (id > 0) {
-    try {
-      const team = await prisma.team.findUnique({
-        where: { id },
-        select: { team_name: true },
-      });
-      if (team?.team_name) {
-        title = `${team.team_name} — Virtual Football Stats`;
-      }
-    } catch {
-      // игнорируем, оставляем дефолтный title
+  try {
+    const team = await prisma.team.findUnique({
+      where: { id },
+      select: { team_name: true },
+    });
+
+    if (team?.team_name) {
+      title = `${team.team_name} — Virtual Football Stats`;
     }
-  }
+  } catch {}
 
   return { title };
 }
+
 
 type TournamentRow = {
   tournament_name: string;
   matches: number;
 };
 
-async function getTeamData(teamId: number) {
+async function getTeamData(teamId: string) {
   const tournaments = await prisma.$queryRawUnsafe<TournamentRow[]>(
     `
       SELECT
@@ -78,7 +77,7 @@ export default async function TeamPage({ params }: { params: Params }) {
   });
 
   const name = team?.team_name ?? `Команда #${teamId}`;
-  const { tournaments, totalMatches } = await getTeamData(teamId);
+  const { tournaments, totalMatches } = await getTeamData(id);
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
