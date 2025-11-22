@@ -13,18 +13,27 @@ export async function generateMetadata({ params }: { params: Params }) {
   let title = `Команда #${id} — Virtual Football Stats`;
 
   try {
-    const team = await prisma.team.findUnique({
-      where: { id },
-      select: { team_name: true },
-    });
+    const rows = await prisma.$queryRawUnsafe<{ team_name: string }[]>(
+      `
+        SELECT team_name
+        FROM teams
+        WHERE id = ?
+        LIMIT 1
+      `,
+      id,
+    );
 
-    if (team?.team_name) {
-      title = `${team.team_name} — Virtual Football Stats`;
+    const teamName = rows[0]?.team_name;
+    if (teamName) {
+      title = `${teamName} — Virtual Football Stats`;
     }
-  } catch {}
+  } catch {
+    // если что-то упало — оставляем дефолтный title
+  }
 
   return { title };
 }
+
 
 
 type TournamentRow = {
