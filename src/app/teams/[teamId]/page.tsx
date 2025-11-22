@@ -164,12 +164,12 @@ export default async function TeamPage({ params }: { params: Params }) {
 
   const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
     const row = leagueRows.find((r) => r.league_label === label);
-    const cnt = row ? Number(row.cnt) : 0;
+    const cnt = row ? Number(r.cnt) : 0;
     const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
     return { label, cnt, pct };
   });
 
-  // 3) Все официальные матчи против соперников (для формы и head-to-head)
+  // 3) Все официальные матчи против соперников
   const headToHeadRaw = await prisma.$queryRawUnsafe<{
     opponent_id: number;
     opponent_name: string | null;
@@ -234,6 +234,77 @@ export default async function TeamPage({ params }: { params: Params }) {
     };
   });
 
+  // агрегат по соперникам — для топ-3 удобных/неудобных
+  type OpponentAgg = {
+    id: number;
+    name: string;
+    matches: number;
+    wins: number;
+    draws: number;
+    loses: number;
+    ourPoints: number;
+    oppPoints: number;
+    goalsFor: number;
+    goalsAgainst: number;
+    goalDiff: number;
+  };
+
+  const aggMap = new Map<number, OpponentAgg>();
+
+  for (const m of opponentMatches) {
+    if (!aggMap.has(m.opponentId)) {
+      aggMap.set(m.opponentId, {
+        id: m.opponentId,
+        name: m.opponentName,
+        matches: 0,
+        wins: 0,
+        draws: 0,
+        loses: 0,
+        ourPoints: 0,
+        oppPoints: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        goalDiff: 0,
+      });
+    }
+    const agg = aggMap.get(m.opponentId)!;
+
+    agg.matches += 1;
+    agg.goalsFor += m.scored;
+    agg.goalsAgainst += m.missed;
+    agg.goalDiff = agg.goalsFor - agg.goalsAgainst;
+
+    if (m.res === "W") {
+      agg.wins += 1;
+      agg.ourPoints += 3;
+    } else if (m.res === "D") {
+      agg.draws += 1;
+      agg.ourPoints += 1;
+      agg.oppPoints += 1;
+    } else if (m.res === "L") {
+      agg.loses += 1;
+      agg.oppPoints += 3;
+    }
+  }
+
+  const allOpponentsAgg = Array.from(aggMap.values());
+
+  const bestOpponents = [...allOpponentsAgg].sort(
+    (a, b) =>
+      b.ourPoints - a.ourPoints ||
+      b.goalDiff - a.goalDiff ||
+      b.matches - a.matches ||
+      a.name.localeCompare(b.name),
+  );
+
+  const worstOpponents = [...allOpponentsAgg].sort(
+    (a, b) =>
+      b.oppPoints - a.oppPoints ||
+      a.goalDiff - b.goalDiff ||
+      b.matches - a.matches ||
+      a.name.localeCompare(b.name),
+  );
+
   // 4) Форма = 10 последних официальных матчей
   const form = opponentMatches.slice(0, 10);
 
@@ -266,7 +337,7 @@ export default async function TeamPage({ params }: { params: Params }) {
 
       {/* Вторая строка: слева распределение по лигам, справа форма + head-to-head */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Распределение по лигам */}
+        {/* Распределение по лигам + топ-3 соперника */}
         <section className="rounded-xl border border-zinc-200 p-4">
           <h3 className="text-sm font-semibold text-zinc-800 mb-3">
             Распределение матчей по лигам
@@ -287,6 +358,50 @@ export default async function TeamPage({ params }: { params: Params }) {
               </div>
             ))}
           </div>
+
+          {allOpponentsAgg.length > 0 && (
+            <div className="mt-4 border-t border-zinc-100 pt-3 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div>
+                <div className="font-semibold text-zinc-800 mb-2">
+                  Самые удобные соперники
+                </div>
+                <ul className="space-y-1">
+                  {bestOpponents.slice(0, 3).map((o) => (
+                    <li
+                      key={o.id}
+                      className="flex justify-between gap-2"
+                    >
+                      <span className="truncate">{o.name}</span>
+                      <span className="text-zinc-500 text-right">
+                        {o.wins}-{o.draws}-{o.loses} · {o.ourPoints} очк. ·{" "}
+                        {o.goalsFor}:{o.goalsAgainst}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <div className="font-semibold text-zinc-800 mb-2">
+                  Самые неудобные соперники
+                </div>
+                <ul className="space-y-1">
+                  {worstOpponents.slice(0, 3).map((o) => (
+                    <li
+                      key={o.id}
+                      className="flex justify-between gap-2"
+                    >
+                      <span className="truncate">{o.name}</span>
+                      <span className="text-zinc-500 text-right">
+                        {o.wins}-{o.draws}-{o.loses} · их {o.oppPoints} очк. ·{" "}
+                        {o.goalsFor}:{o.goalsAgainst}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Форма команды + история соперников */}
@@ -328,7 +443,7 @@ export default async function TeamPage({ params }: { params: Params }) {
                 })}
               </div>
 
-              {/* Селектор соперника + список очных матчей */}
+              {/* Соперник + список очных матчей (клиентский компонент) */}
               <OpponentsHistoryClient matches={opponentMatches} />
             </div>
           )}
