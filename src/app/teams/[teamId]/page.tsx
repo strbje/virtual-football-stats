@@ -289,21 +289,21 @@ export default async function TeamPage({ params }: { params: Params }) {
 
   const allOpponentsAgg = Array.from(aggMap.values());
 
-  const bestOpponents = [...allOpponentsAgg].sort(
-    (a, b) =>
-      b.ourPoints - a.ourPoints ||
-      b.goalDiff - a.goalDiff ||
-      b.matches - a.matches ||
-      a.name.localeCompare(b.name),
-  );
+  // фильтр по минимальному количеству матчей
+  const eligibleOpponents = allOpponentsAgg.filter((o) => o.matches >= 5);
 
-  const worstOpponents = [...allOpponentsAgg].sort(
-    (a, b) =>
-      b.oppPoints - a.oppPoints ||
-      a.goalDiff - b.goalDiff ||
-      b.matches - a.matches ||
-      a.name.localeCompare(b.name),
-  );
+  // сортировка по win-rate
+  const sortedByWinRate = [...eligibleOpponents].sort((a, b) => {
+    const aw = a.matches > 0 ? a.wins / a.matches : 0;
+    const bw = b.matches > 0 ? b.wins / b.matches : 0;
+
+    if (bw !== aw) return bw - aw; // выше % побед
+    if (b.matches !== a.matches) return b.matches - a.matches; // больше матчей
+    return a.name.localeCompare(b.name); // стабильный порядок
+  });
+
+  const bestOpponents = sortedByWinRate.slice(0, 3);
+  const worstOpponents = [...sortedByWinRate].reverse().slice(0, 3);
 
   // 4) Форма = 10 последних официальных матчей
   const form = opponentMatches.slice(0, 10);
@@ -360,7 +360,7 @@ export default async function TeamPage({ params }: { params: Params }) {
           </div>
 
           {/* Самые удобные / неудобные соперники */}
-          {allOpponentsAgg.length > 0 && (
+          {eligibleOpponents.length > 0 && (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               {/* Удобные */}
               <div>
@@ -368,15 +368,19 @@ export default async function TeamPage({ params }: { params: Params }) {
                   Самые удобные соперники
                 </h4>
                 <ul className="space-y-1">
-  {bestOpponents.slice(0, 3).map((o) => (
-    <li key={o.id} className="flex justify-between gap-2">
-      <span className="text-emerald-700">{o.name}</span>
-      <span className="text-emerald-700 font-semibold">
-        {o.wins}-{o.draws}-{o.loses}
-      </span>
-    </li>
-  ))}
-</ul>
+                  {bestOpponents.map((o) => (
+                    <li
+                      key={o.id}
+                      className="flex justify-between gap-2"
+                    >
+                      <span className="text-emerald-700">{o.name}</span>
+                      <span className="text-emerald-700 font-semibold">
+                        {o.wins}-{o.draws}-{o.loses}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
               {/* Неудобные */}
               <div>
@@ -384,15 +388,18 @@ export default async function TeamPage({ params }: { params: Params }) {
                   Самые неудобные соперники
                 </h4>
                 <ul className="space-y-1">
-  {worstOpponents.slice(0, 3).map((o) => (
-    <li key={o.id} className="flex justify-between gap-2">
-      <span className="text-red-700">{o.name}</span>
-      <span className="text-red-700 font-semibold">
-        {o.wins}-{o.draws}-{o.loses}
-      </span>
-    </li>
-  ))}
-</ul>
+                  {worstOpponents.map((o) => (
+                    <li
+                      key={o.id}
+                      className="flex justify-between gap-2"
+                    >
+                      <span className="text-red-700">{o.name}</span>
+                      <span className="text-red-700 font-semibold">
+                        {o.wins}-{o.draws}-{o.loses}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
           )}
