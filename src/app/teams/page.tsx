@@ -1,7 +1,7 @@
 // src/app/teams/page.tsx
-
 import { prisma } from "@/lib/prisma";
 import TeamsFiltersClient from "@/components/teams/TeamsFiltersClient";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,10 @@ function getVal(d: SearchParamsDict, k: string): string {
 
 function parseRange(range?: string): { from?: string; to?: string } {
   if (!range) return {};
-  const [start, end] = range.split(":").map((s) => s?.trim()).filter(Boolean);
+  const [start, end] = range
+    .split(":")
+    .map((s) => s?.trim())
+    .filter(Boolean);
   return {
     from: start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : undefined,
     to: end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : undefined,
@@ -27,7 +30,7 @@ type Row = {
   matches: number;
 };
 
-export default async function TeamsPage({
+export default async function Page({
   searchParams,
 }: {
   searchParams: SearchParamsDict;
@@ -42,14 +45,19 @@ export default async function TeamsPage({
   const where: string[] = [];
   const params: any[] = [];
 
+  // фильтр по команде
   if (team) {
     where.push("c.team_name LIKE ?");
     params.push(`%${team}%`);
   }
+
+  // фильтр по турниру
   if (tournament) {
     where.push("t.name LIKE ?");
     params.push(`%${tournament}%`);
   }
+
+  // фильтр по датам
   if (from) {
     where.push("tm.timestamp >= UNIX_TIMESTAMP(?)");
     params.push(`${from} 00:00:00`);
@@ -61,20 +69,35 @@ export default async function TeamsPage({
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  // Агрегация по командам: считаем все матчи, берём последнюю команду
+  // Основная выборка: топ-30 команд по числу матчей
   const rows = await prisma.$queryRawUnsafe<Row[]>(
     `
+      WITH base AS (
+        SELECT
+          ums.team_id,
+          c.team_name,
+          ums.match_id,
+          tm.timestamp
+        FROM tbl_users_match_stats ums
+        JOIN tournament_match tm ON ums.match_id = tm.id
+        JOIN tournament t       ON tm.tournament_id = t.id
+        JOIN teams c            ON ums.team_id = c.id
+        ${whereSql}
+      ),
+      per_team AS (
+        SELECT
+          team_id,
+          MAX(team_name) AS team_name,
+          CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches
+        FROM base
+        GROUP BY team_id
+      )
       SELECT
-        c.id          AS team_id,
-        c.team_name   AS team_name,
-        COUNT(DISTINCT tm.id) AS matches
-      FROM teams c
-      JOIN tbl_users_match_stats ums ON ums.team_id = c.id
-      JOIN tournament_match tm       ON tm.id = ums.match_id
-      JOIN tournament t              ON t.id = tm.tournament_id
-      ${whereSql}
-      GROUP BY c.id, c.team_name
-      ORDER BY matches DESC, c.team_name ASC
+        team_id,
+        team_name,
+        matches
+      FROM per_team
+      ORDER BY matches DESC
       LIMIT 30
     `,
     ...params,
@@ -97,17 +120,23 @@ export default async function TeamsPage({
           <thead>
             <tr className="text-left border-b">
               <th className="py-2 pr-4">Команда</th>
-              <th className="py-2 pr-4">Матчи</th>
+              <th className="py-2 pr-4 text-right">Матчи</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.team_id} className="border-b last:border-b-0">
                 <td className="px-4 py-2">
-                  {/* Профиль команды подключим позже */}
-                  <span>{r.team_name}</span>
+                  <Link
+                    href={`/teams/${r.team_id}${
+                      range ? `?range=${encodeURIComponent(range)}` : ""
+                    }`}
+                    className="hover:underline"
+                  >
+                    {r.team_name}
+                  </Link>
                 </td>
-                <td className="py-2 pr-4">{r.matches}</td>
+                <td className="py-2 pr-4 text-right">{r.matches}</td>
               </tr>
             ))}
             {rows.length === 0 && (
