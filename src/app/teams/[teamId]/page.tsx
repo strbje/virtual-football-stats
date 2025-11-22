@@ -337,7 +337,7 @@ export default async function TeamPage({ params }: { params: Params }) {
 
       {/* Вторая строка: слева распределение по лигам, справа форма + head-to-head */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Распределение по лигам + топ-3 соперника */}
+        {/* Распределение по лигам + топ-3 соперников */}
         <section className="rounded-xl border border-zinc-200 p-4">
           <h3 className="text-sm font-semibold text-zinc-800 mb-3">
             Распределение матчей по лигам
@@ -359,39 +359,51 @@ export default async function TeamPage({ params }: { params: Params }) {
             ))}
           </div>
 
-          {allOpponentsAgg.length > 0 && (
+          {/* Самые удобные / неудобные соперники */}
+          {opponentAgg.length > 0 && (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-    {/* Удобные */}
-    <div>
-      <h4 className="font-semibold mb-1">Самые удобные соперники</h4>
-      <ul className="space-y-1">
-        {bestOpponents.map((o) => (
-          <li key={o.id} className="flex justify-between gap-2">
-            <span className="text-emerald-700">{o.name}</span>
-            <span className="text-emerald-700 font-semibold">
-              {o.wins}-{o.draws}-{o.loses}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
+              {/* Удобные */}
+              <div>
+                <h4 className="font-semibold mb-1">
+                  Самые удобные соперники
+                </h4>
+                <ul className="space-y-1">
+                  {bestOpponents.map((o) => (
+                    <li
+                      key={o.id}
+                      className="flex justify-between gap-2"
+                    >
+                      <span className="text-emerald-700">{o.name}</span>
+                      <span className="text-emerald-700 font-semibold">
+                        {o.wins}-{o.draws}-{o.loses}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
-    {/* Неудобные */}
-    <div>
-      <h4 className="font-semibold mb-1">Самые неудобные соперники</h4>
-      <ul className="space-y-1">
-        {worstOpponents.map((o) => (
-          <li key={o.id} className="flex justify-between gap-2">
-            <span className="text-red-700">{o.name}</span>
-            <span className="text-red-700 font-semibold">
-              {o.wins}-{o.draws}-{o.loses}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  </div>
-)}
+              {/* Неудобные */}
+              <div>
+                <h4 className="font-semibold mb-1">
+                  Самые неудобные соперники
+                </h4>
+                <ul className="space-y-1">
+                  {worstOpponents.map((o) => (
+                    <li
+                      key={o.id}
+                      className="flex justify-between gap-2"
+                    >
+                      <span className="text-red-700">{o.name}</span>
+                      <span className="text-red-700 font-semibold">
+                        {o.wins}-{o.draws}-{o.loses}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </section>
 
         {/* Форма команды + история соперников */}
         <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
@@ -412,11 +424,7 @@ export default async function TeamPage({ params }: { params: Params }) {
                   if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
                   else if (m.res === "L") bg = "bg-red-100 text-red-700";
 
-                  const title = [
-                    m.date || "",
-                    m.opponentName,
-                    m.tournament,
-                  ]
+                  const title = [m.date || "", m.opponentName, m.tournament]
                     .filter(Boolean)
                     .join(" · ");
 
@@ -432,7 +440,7 @@ export default async function TeamPage({ params }: { params: Params }) {
                 })}
               </div>
 
-              {/* Соперник + список очных матчей (клиентский компонент) */}
+              {/* Селектор соперника + список очных матчей */}
               <OpponentsHistoryClient matches={opponentMatches} />
             </div>
           )}
