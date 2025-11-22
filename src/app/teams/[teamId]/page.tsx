@@ -7,17 +7,10 @@ export const dynamic = "force-dynamic";
 
 type Params = { teamId: string };
 
-type LeagueLabel = "ПЛ" | "ФНЛ" | "ПФЛ" | "ЛФЛ" | "Прочие";
-
-function mapTournamentToLeagueLabel(
-  name: string | null | undefined,
-): LeagueLabel {
+function mapTournamentToLeagueLabel(name: string | null | undefined): string {
   const n = (name ?? "").toUpperCase();
 
-  // Премьер-лига
-  if (n.includes("ПРЕМЬЕР")) return "ПЛ";
-
-  // ФНЛ / ПФЛ / ЛФЛ
+  if (n.includes("ПРЕМЬЕР") || n.includes(" ПЛ")) return "ПЛ";
   if (n.includes("ФНЛ")) return "ФНЛ";
   if (n.includes("ПФЛ")) return "ПФЛ";
   if (n.includes("ЛФЛ")) return "ЛФЛ";
@@ -64,7 +57,7 @@ export default async function TeamPage({ params }: { params: Params }) {
     return <div className="p-6">Неверный ID команды.</div>;
   }
 
-  // 1) Основная инфа: название команды, всего матчей, последний турнир
+  // 1) Основная инфа по команде
   const infoRows = await prisma.$queryRawUnsafe<{
     team_id: number;
     team_name: string;
@@ -125,9 +118,8 @@ export default async function TeamPage({ params }: { params: Params }) {
   const currentLeagueShort = mapTournamentToLeagueLabel(info.last_tournament);
 
   // 2) Распределение по лигам
-  // Сначала собираем турниры и матчи по ним
-  const leagueSrcRows = await prisma.$queryRawUnsafe<{
-    tournament_name: string | null;
+  const leagueRows = await prisma.$queryRawUnsafe<{
+    league_label: string;
     cnt: number;
   }[]>(
     `
@@ -141,46 +133,83 @@ export default async function TeamPage({ params }: { params: Params }) {
       WHERE ums.team_id = ?
     )
     SELECT
-      tournament_name,
+      CASE
+        WHEN UPPER(tournament_name) LIKE '%ПРЕМЬЕР%' OR UPPER(tournament_name) LIKE '% ПЛ%' THEN 'ПЛ'
+        WHEN UPPER(tournament_name) LIKE '%ФНЛ%'  THEN 'ФНЛ'
+        WHEN UPPER(tournament_name) LIKE '%ПФЛ%'  THEN 'ПФЛ'
+        WHEN UPPER(tournament_name) LIKE '%ЛФЛ%'  THEN 'ЛФЛ'
+        ELSE 'Прочие'
+      END AS league_label,
       COUNT(*) AS cnt
     FROM team_matches
-    GROUP BY tournament_name
+    GROUP BY league_label
     `,
     teamIdNum,
   );
 
-  // Агрегируем по "коротким" лигам через тот же хелпер
-  const buckets: Record<LeagueLabel, number> = {
-    ПЛ: 0,
-    ФНЛ: 0,
-    ПФЛ: 0,
-    ЛФЛ: 0,
-    Прочие: 0,
-  };
-
-  for (const row of leagueSrcRows) {
-    const label = mapTournamentToLeagueLabel(row.tournament_name);
-    const cnt = Number(row.cnt || 0);
-    buckets[label] += cnt;
-  }
-
-  const totalMatchesFromBuckets = (Object.values(buckets).reduce(
-    (s, v) => s + v,
-    0,
-  ) || 0) as number;
-
   const totalMatches =
-    totalMatchesFromBuckets > 0
-      ? totalMatchesFromBuckets
-      : Number(info.matches || 0);
+    leagueRows.reduce((s, r) => s + Number(r.cnt || 0), 0) ||
+    Number(info.matches || 0);
 
-  const leagueOrder: LeagueLabel[] = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"];
-
-  const leagues = leagueOrder.map((label) => {
-    const cnt = buckets[label] || 0;
-    const pct =
-      totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
+  const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
+    const row = leagueRows.find((r) => r.league_label === label);
+    const cnt = row ? Number(row.cnt) : 0;
+    const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
     return { label, cnt, pct };
+  });
+
+  // 3) Форма команды — последние 10 матчей
+  const formRows = await prisma.$queryRawUnsafe<{
+    scored: number | null;
+    missed: number | null;
+    win: number | null;
+    draw: number | null;
+    lose: number | null;
+    tm: number | null;
+    tournament_name: string | null;
+  }[]>(
+    `
+    SELECT
+      tms.scored,
+      tms.missed,
+      tms.win,
+      tms.draw,
+      tms.lose,
+      tms.tm,
+      tr.name AS tournament_name
+    FROM tbl_teams_match_stats tms
+    JOIN tournament tr       ON tr.id = tms.tournament_id
+    WHERE tms.team_id = ?
+    ORDER BY tms.tm DESC
+    LIMIT 10
+    `,
+    teamIdNum,
+  );
+
+  const form = formRows.map((r) => {
+    const scored = Number(r.scored ?? 0);
+    const missed = Number(r.missed ?? 0);
+    const res =
+      Number(r.win) === 1
+        ? "W"
+        : Number(r.draw) === 1
+        ? "D"
+        : Number(r.lose) === 1
+        ? "L"
+        : "-";
+
+    const date =
+      r.tm && Number.isFinite(r.tm)
+        ? new Date(Number(r.tm) * 1000).toISOString().slice(0, 10)
+        : "";
+
+    return {
+      res,
+      scored,
+      missed,
+      date,
+      tournament: r.tournament_name ?? "",
+    };
   });
 
   return (
@@ -210,30 +239,81 @@ export default async function TeamPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* Распределение по лигам */}
-      <section>
-        <h3 className="text-sm font-semibold text-zinc-800 mb-3">
-          Распределение матчей по лигам
-        </h3>
-        <div className="space-y-2">
-          {leagues.map((l) => (
-            <div key={l.label} className="flex items-center gap-2 text-sm">
-              <div className="w-14">{l.label}</div>
-              <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500"
-                  style={{ width: `${l.pct}%` }}
-                />
+      {/* Вторая строка: слева распределение по лигам, справа форма */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Распределение по лигам */}
+        <section className="rounded-xl border border-zinc-200 p-4">
+          <h3 className="text-sm font-semibold text-zinc-800 mb-3">
+            Распределение матчей по лигам
+          </h3>
+          <div className="space-y-2">
+            {leagues.map((l) => (
+              <div key={l.label} className="flex items-center gap-2 text-sm">
+                <div className="w-14">{l.label}</div>
+                <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500"
+                    style={{ width: `${l.pct}%` }}
+                  />
+                </div>
+                <div className="w-24 text-right text-xs text-zinc-500">
+                  {l.cnt} ({l.pct}%)
+                </div>
               </div>
-              <div className="w-20 text-right text-xs text-zinc-500">
-                {l.cnt} ({l.pct}%)
+            ))}
+          </div>
+        </section>
+
+        {/* Форма команды */}
+        <section className="rounded-xl border border-zinc-200 p-4">
+          <h3 className="text-sm font-semibold text-zinc-800 mb-3">
+            Форма (10 последних матчей)
+          </h3>
+
+          {form.length === 0 ? (
+            <div className="text-xs text-zinc-500">
+              Недостаточно данных по матчам.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Линейка W/D/L */}
+              <div className="flex flex-wrap gap-1">
+                {form.map((m, idx) => {
+                  let bg = "bg-zinc-100 text-zinc-700";
+                  if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
+                  else if (m.res === "D") bg = "bg-zinc-100 text-zinc-700";
+                  else if (m.res === "L") bg = "bg-red-100 text-red-700";
+
+                  return (
+                    <span
+                      key={idx}
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
+                    >
+                      {m.res} {m.scored}:{m.missed}
+                    </span>
+                  );
+                })}
+              </div>
+
+              {/* Мелкий список матчей */}
+              <div className="space-y-1 text-xs text-zinc-500">
+                {form.map((m, idx) => (
+                  <div key={idx} className="flex justify-between gap-2">
+                    <span>
+                      {m.date || "—"} · {m.tournament || "Турнир не указан"}
+                    </span>
+                    <span className="font-medium text-zinc-700">
+                      {m.scored}:{m.missed} ({m.res})
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
-      </section>
+          )}
+        </section>
+      </div>
 
-      {/* дальше добавим форму, радар, ключевых игроков и т.д. */}
+      {/* дальше будем добавлять радар, ключевых игроков и т.п. */}
     </div>
   );
 }
