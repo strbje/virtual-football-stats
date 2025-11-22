@@ -360,7 +360,7 @@ export default async function TeamPage({ params }: { params: Params }) {
           </div>
 
           {/* Самые удобные / неудобные соперники */}
-          {AllopponentAgg.length > 0 && (
+          {allOpponentsAgg.length > 0 && (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               {/* Удобные */}
               <div>
