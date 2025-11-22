@@ -360,49 +360,38 @@ export default async function TeamPage({ params }: { params: Params }) {
           </div>
 
           {allOpponentsAgg.length > 0 && (
-            <div className="mt-4 border-t border-zinc-100 pt-3 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div>
-                <div className="font-semibold text-zinc-800 mb-2">
-                  Самые удобные соперники
-                </div>
-                <ul className="space-y-1">
-                  {bestOpponents.slice(0, 3).map((o) => (
-                    <li
-                      key={o.id}
-                      className="flex justify-between gap-2"
-                    >
-                      <span className="truncate">{o.name}</span>
-                      <span className="text-zinc-500 text-right">
-                        {o.wins}-{o.draws}-{o.loses} · {o.ourPoints} очк. ·{" "}
-                        {o.goalsFor}:{o.goalsAgainst}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+    {/* Удобные */}
+    <div>
+      <h4 className="font-semibold mb-1">Самые удобные соперники</h4>
+      <ul className="space-y-1">
+        {bestOpponents.map((o) => (
+          <li key={o.id} className="flex justify-between gap-2">
+            <span className="text-emerald-700">{o.name}</span>
+            <span className="text-emerald-700 font-semibold">
+              {o.wins}-{o.draws}-{o.loses}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
 
-              <div>
-                <div className="font-semibold text-zinc-800 mb-2">
-                  Самые неудобные соперники
-                </div>
-                <ul className="space-y-1">
-                  {worstOpponents.slice(0, 3).map((o) => (
-                    <li
-                      key={o.id}
-                      className="flex justify-between gap-2"
-                    >
-                      <span className="truncate">{o.name}</span>
-                      <span className="text-zinc-500 text-right">
-                        {o.wins}-{o.draws}-{o.loses} · их {o.oppPoints} очк. ·{" "}
-                        {o.goalsFor}:{o.goalsAgainst}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-        </section>
+    {/* Неудобные */}
+    <div>
+      <h4 className="font-semibold mb-1">Самые неудобные соперники</h4>
+      <ul className="space-y-1">
+        {worstOpponents.map((o) => (
+          <li key={o.id} className="flex justify-between gap-2">
+            <span className="text-red-700">{o.name}</span>
+            <span className="text-red-700 font-semibold">
+              {o.wins}-{o.draws}-{o.loses}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </div>
+)}
 
         {/* Форма команды + история соперников */}
         <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
