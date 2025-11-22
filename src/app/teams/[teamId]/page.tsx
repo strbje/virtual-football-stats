@@ -1,16 +1,34 @@
 // src/app/teams/[teamId]/page.tsx
 
-import Link from "next/link";
+import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 type Params = { teamId: string };
 
-export async function generateMetadata({ params }: { params: Params }) {
-  const id = String(params.teamId);
+function mapTournamentToLeagueLabel(name: string | null | undefined): string {
+  const n = (name ?? "").toUpperCase();
 
-  let title = `Команда #${id} — Virtual Football Stats`;
+  if (n.includes("ПРЕМЬЕР") || n.includes(" ПЛ")) return "ПЛ";
+  if (n.includes("ФНЛ")) return "ФНЛ";
+  if (n.includes("ПФЛ")) return "ПФЛ";
+  if (n.includes("ЛФЛ")) return "ЛФЛ";
+
+  return "Прочие";
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Params;
+}): Promise<Metadata> {
+  const idNum = Number(params.teamId);
+  const fallbackTitle = `Команда #${params.teamId} — Virtual Football Stats`;
+
+  if (!idNum || Number.isNaN(idNum)) {
+    return { title: fallbackTitle };
+  }
 
   try {
     const rows = await prisma.$queryRawUnsafe<{ team_name: string }[]>(
@@ -20,126 +38,192 @@ export async function generateMetadata({ params }: { params: Params }) {
         WHERE id = ?
         LIMIT 1
       `,
-      id,
+      idNum,
     );
 
-    const teamName = rows[0]?.team_name;
-    if (teamName) {
-      title = `${teamName} — Virtual Football Stats`;
-    }
+    const name = rows[0]?.team_name;
+    if (!name) return { title: fallbackTitle };
+
+    return { title: `${name} — Virtual Football Stats` };
   } catch {
-    // если что-то упало — оставляем дефолтный title
+    return { title: fallbackTitle };
   }
-
-  return { title };
-}
-
-
-
-type TournamentRow = {
-  tournament_name: string;
-  matches: number;
-};
-
-async function getTeamData(teamId: string) {
-  const tournaments = await prisma.$queryRawUnsafe<TournamentRow[]>(
-    `
-      SELECT
-        t.name AS tournament_name,
-        COUNT(*) AS matches
-      FROM tournament_match tm
-      JOIN tournament t ON t.id = tm.tournament_id
-      JOIN tbl_users_match_stats ums ON ums.match_id = tm.id
-      WHERE ums.team_id = ?
-      GROUP BY t.id
-      ORDER BY matches DESC
-    `,
-    teamId,
-  );
-
-  const totalMatches = tournaments.reduce(
-    (sum, r) => sum + Number(r.matches ?? 0),
-    0,
-  );
-
-  return { tournaments, totalMatches };
 }
 
 export default async function TeamPage({ params }: { params: Params }) {
-  const teamId = Number(params.teamId) || 0;
-  if (!teamId) {
+  const teamIdNum = Number(params.teamId);
+
+  if (!teamIdNum || Number.isNaN(teamIdNum)) {
     return (
       <div className="p-6">
-        Неверный идентификатор команды.
-        <div className="mt-2">
-          <Link href="/teams" className="text-blue-600">
-            ← Ко всем командам
-          </Link>
-        </div>
+        Неверный ID команды.
       </div>
     );
   }
 
-  const team = await prisma.team.findUnique({
-    where: { id: teamId },
-    select: { team_name: true },
-  });
+  // 1) Основная инфа: название команды, всего матчей, последняя лига
+  const infoRows = await prisma.$queryRawUnsafe<{
+    team_id: number;
+    team_name: string;
+    matches: number;
+    last_tournament: string | null;
+  }[]>(
+    `
+    WITH team_matches AS (
+      SELECT
+        c.id          AS team_id,
+        c.team_name   AS team_name,
+        ums.match_id  AS match_id,
+        tm.timestamp  AS ts,
+        tr.name       AS tournament_name
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON ums.match_id = tm.id
+      JOIN tournament tr       ON tm.tournament_id = tr.id
+      JOIN teams c             ON ums.team_id = c.id
+      WHERE c.id = ?
+    ),
+    agg AS (
+      SELECT
+        team_id,
+        team_name,
+        COUNT(DISTINCT match_id) AS matches,
+        MAX(ts)                  AS last_ts
+      FROM team_matches
+      GROUP BY team_id, team_name
+    ),
+    last_match AS (
+      SELECT
+        tm.team_id,
+        tm.tournament_name
+      FROM team_matches tm
+      JOIN agg a
+        ON a.team_id = tm.team_id
+       AND a.last_ts = tm.ts
+      LIMIT 1
+    )
+    SELECT
+      a.team_id,
+      a.team_name,
+      a.matches,
+      lm.tournament_name AS last_tournament
+    FROM agg a
+    LEFT JOIN last_match lm ON lm.team_id = a.team_id
+    LIMIT 1
+    `,
+    teamIdNum,
+  );
 
-  const name = team?.team_name ?? `Команда #${teamId}`;
-  const { tournaments, totalMatches } = await getTeamData(id);
+  const info = infoRows[0];
+
+  if (!info) {
+    return (
+      <div className="p-6">
+        Команда не найдена.
+      </div>
+    );
+  }
+
+  const currentLeagueShort = mapTournamentToLeagueLabel(info.last_tournament);
+
+  // 2) Распределение по лигам
+  const leagueRows = await prisma.$queryRawUnsafe<{
+    league_label: string;
+    cnt: number;
+  }[]>(
+    `
+    WITH team_matches AS (
+      SELECT DISTINCT
+        ums.match_id  AS match_id,
+        tr.name       AS tournament_name
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON ums.match_id = tm.id
+      JOIN tournament tr       ON tm.tournament_id = tr.id
+      WHERE ums.team_id = ?
+    )
+    SELECT
+      CASE
+        WHEN UPPER(tournament_name) LIKE '%ПЛ%'  THEN 'ПЛ'
+        WHEN UPPER(tournament_name) LIKE '%ФНЛ%' THEN 'ФНЛ'
+        WHEN UPPER(tournament_name) LIKE '%ПФЛ%' THEN 'ПФЛ'
+        WHEN UPPER(tournament_name) LIKE '%ЛФЛ%' THEN 'ЛФЛ'
+        ELSE 'Прочие'
+      END AS league_label,
+      COUNT(*) AS cnt
+    FROM team_matches
+    GROUP BY league_label
+    `,
+    teamIdNum,
+  );
+
+  const totalMatches =
+    leagueRows.reduce((s, r) => s + Number(r.cnt || 0), 0) ||
+    Number(info.matches || 0);
+
+  const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
+    const row = leagueRows.find((r) => r.league_label === label);
+    const cnt = row ? Number(row.cnt) : 0;
+    const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
+    return { label, cnt, pct };
+  });
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
       {/* Заголовок */}
       <div>
-        <h1 className="text-2xl font-semibold">{name}</h1>
-        <div className="text-sm text-zinc-500 mt-1">
-          Матчи: {totalMatches} (все доступные)
-        </div>
-        <Link href="/teams" className="text-blue-600 mt-3 inline-block">
-          ← Ко всем командам
-        </Link>
+        <h1 className="text-2xl font-semibold">{info.team_name}</h1>
       </div>
 
-      {/* Таблица турниров */}
-      <section className="rounded-xl border border-zinc-200 overflow-hidden">
-        <div className="border-b border-zinc-200 px-4 py-3 text-sm font-semibold">
-          Турниры
-        </div>
-        <div className="text-sm divide-y divide-zinc-100">
-          <div className="flex px-4 py-2 font-medium text-zinc-500">
-            <div className="flex-1">Турнир</div>
-            <div className="w-24 text-right">Матчи</div>
+      {/* Верхние плитки */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
+          <div className="text-sm text-zinc-500 mb-1">Матчи</div>
+          <div className="text-2xl font-semibold">{info.matches}</div>
+          <div className="text-[11px] text-zinc-400 mt-2">
+            *учтены только матчи с записью статистики
           </div>
-          {tournaments.map((t, idx) => (
-            <div key={idx} className="flex px-4 py-2">
-              <div className="flex-1">{t.tournament_name}</div>
-              <div className="w-24 text-right">{t.matches}</div>
-            </div>
-          ))}
-          {tournaments.length === 0 && (
-            <div className="px-4 py-3 text-zinc-500">
-              Нет данных по матчам этой команды.
+        </div>
+        <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
+          <div className="text-sm text-zinc-500 mb-1">Актуальная лига</div>
+          <div className="text-2xl font-semibold">
+            {currentLeagueShort}
+          </div>
+          {info.last_tournament && (
+            <div className="text-[11px] text-zinc-400 mt-2">
+              по последнему матчу: {info.last_tournament}
             </div>
           )}
         </div>
+      </div>
+
+      {/* Распределение по лигам */}
+      <section>
+        <h3 className="text-sm font-semibold text-zinc-800 mb-3">
+          Распределение матчей по лигам
+        </h3>
+        <div className="space-y-2">
+          {leagues.map((l) => (
+            <div key={l.label} className="flex items-center gap-2 text-sm">
+              <div className="w-14">{l.label}</div>
+              <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500"
+                  style={{ width: `${l.pct}%` }}
+                />
+              </div>
+              <div className="w-20 text-right text-xs text-zinc-500">
+                {l.cnt} ({l.pct}%)
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
-      {/* Заглушка под будущие блоки */}
-      <section className="rounded-xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
-        <p className="mb-2">Здесь позже появятся:</p>
-        <ul className="list-disc pl-5 space-y-1">
-          <li>Форма команды по последним 10 матчам (W/L/D…)</li>
-          <li>
-            Радар стиля игры (голы, удары, пасов на удар, навесы, защитные
-            действия, % воздуха и т.д.).
-          </li>
-          <li>
-            Ключевые игроки (по доле пасов, xG+голы, защитным действиям).
-          </li>
-          <li>Полная командная статистика с разбивкой по сезонам и лигам.</li>
-        </ul>
-      </section>
+      {/* Тут дальше будем добавлять:
+          - форму по 10 матчам
+          - радар команды
+          - ключевых игроков
+          - матчи и т.д.
+       */}
     </div>
   );
 }
