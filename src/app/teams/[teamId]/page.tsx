@@ -368,19 +368,15 @@ export default async function TeamPage({ params }: { params: Params }) {
                   Самые удобные соперники
                 </h4>
                 <ul className="space-y-1">
-                  {bestOpponents.map((o) => (
-                    <li
-                      key={o.id}
-                      className="flex justify-between gap-2"
-                    >
-                      <span className="text-emerald-700">{o.name}</span>
-                      <span className="text-emerald-700 font-semibold">
-                        {o.wins}-{o.draws}-{o.loses}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+  {bestOpponents.slice(0, 3).map((o) => (
+    <li key={o.id} className="flex justify-between gap-2">
+      <span className="text-emerald-700">{o.name}</span>
+      <span className="text-emerald-700 font-semibold">
+        {o.wins}-{o.draws}-{o.loses}
+      </span>
+    </li>
+  ))}
+</ul>
 
               {/* Неудобные */}
               <div>
@@ -388,18 +384,15 @@ export default async function TeamPage({ params }: { params: Params }) {
                   Самые неудобные соперники
                 </h4>
                 <ul className="space-y-1">
-                  {worstOpponents.map((o) => (
-                    <li
-                      key={o.id}
-                      className="flex justify-between gap-2"
-                    >
-                      <span className="text-red-700">{o.name}</span>
-                      <span className="text-red-700 font-semibold">
-                        {o.wins}-{o.draws}-{o.loses}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+  {worstOpponents.slice(0, 3).map((o) => (
+    <li key={o.id} className="flex justify-between gap-2">
+      <span className="text-red-700">{o.name}</span>
+      <span className="text-red-700 font-semibold">
+        {o.wins}-{o.draws}-{o.loses}
+      </span>
+    </li>
+  ))}
+</ul>
               </div>
             </div>
           )}
