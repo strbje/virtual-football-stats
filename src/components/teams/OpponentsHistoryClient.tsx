@@ -1,14 +1,13 @@
+// src/components/teams/OpponentsHistoryClient.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
 
-type Result = "W" | "D" | "L" | "-";
-
-// та же структура, что ты пробрасываешь из page.tsx
-type OpponentMatchClient = {
+type Match = {
   opponentId: number;
   opponentName: string;
-  res: Result;
+  res: "W" | "D" | "L" | "-";
   scored: number;
   missed: number;
   date: string;
@@ -16,172 +15,187 @@ type OpponentMatchClient = {
 };
 
 type Props = {
-  matches: OpponentMatchClient[];
+  matches: Match[];
+};
+
+type OpponentAgg = {
+  id: number;
+  name: string;
+  wins: number;
+  draws: number;
+  loses: number;
+  matches: number;
+  goalsFor: number;
+  goalsAgainst: number;
 };
 
 export default function OpponentsHistoryClient({ matches }: Props) {
-  // все соперники с агрегированными W/D/L и голами
-  const opponents = useMemo(() => {
-    const map = new Map<
-      number,
-      {
-        opponentId: number;
-        opponentName: string;
-        wins: number;
-        draws: number;
-        losses: number;
-        gf: number;
-        ga: number;
-        games: OpponentMatchClient[];
-      }
-    >();
+  // агрегируем соперников
+  const opponents: OpponentAgg[] = useMemo(() => {
+    const map = new Map<number, OpponentAgg>();
 
     for (const m of matches) {
       const key = m.opponentId;
       if (!map.has(key)) {
         map.set(key, {
-          opponentId: m.opponentId,
-          opponentName: m.opponentName,
+          id: key,
+          name: m.opponentName,
           wins: 0,
           draws: 0,
-          losses: 0,
-          gf: 0,
-          ga: 0,
-          games: [],
+          loses: 0,
+          matches: 0,
+          goalsFor: 0,
+          goalsAgainst: 0,
         });
       }
       const agg = map.get(key)!;
+      agg.matches += 1;
+      agg.goalsFor += m.scored;
+      agg.goalsAgainst += m.missed;
 
       if (m.res === "W") agg.wins += 1;
       else if (m.res === "D") agg.draws += 1;
-      else if (m.res === "L") agg.losses += 1;
-
-      agg.gf += m.scored;
-      agg.ga += m.missed;
-      agg.games.push(m);
+      else if (m.res === "L") agg.loses += 1;
     }
 
-    // отсортируем по количеству матчей (сначала самые частые соперники)
     return Array.from(map.values()).sort(
-      (a, b) => b.games.length - a.games.length,
+      (a, b) => b.matches - a.matches || a.name.localeCompare(b.name),
     );
   }, [matches]);
 
-  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // дебаунс ввода (300 мс)
+  useEffect(() => {
+    const h = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(h);
+  }, [search]);
+
+  // фильтр соперников по debouncedSearch
+  const filteredOpponents = useMemo(() => {
+    if (!debouncedSearch.trim()) return opponents;
+    const q = debouncedSearch.trim().toLowerCase();
+    return opponents.filter((o) => o.name.toLowerCase().includes(q));
+  }, [opponents, debouncedSearch]);
+
   const [selectedId, setSelectedId] = useState<number | null>(
-    opponents[0]?.opponentId ?? null,
+    opponents.length > 0 ? opponents[0].id : null,
   );
 
-  // фильтр по поиску
-  const filteredOpponents = useMemo(() => {
-    if (!query.trim()) return opponents;
-    const q = query.toLowerCase();
-    return opponents.filter((o) =>
-      o.opponentName.toLowerCase().includes(q),
-    );
-  }, [opponents, query]);
-
-  const selected =
-    opponents.find((o) => o.opponentId === selectedId) ??
-    filteredOpponents[0] ??
-    null;
-
-  const inputValue = query || (selected ? selected.opponentName : "");
-
-  const summary = useMemo(() => {
-    if (!selected) {
-      return { wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, diff: 0 };
+  // автоселект: всегда держим выбранным соперника из текущего списка
+  useEffect(() => {
+    if (filteredOpponents.length === 0) {
+      setSelectedId(null);
+      return;
     }
-    const { wins, draws, losses, gf, ga } = selected;
-    return { wins, draws, losses, gf, ga, diff: gf - ga };
-  }, [selected]);
+    if (
+      selectedId == null ||
+      !filteredOpponents.some((o) => o.id === selectedId)
+    ) {
+      setSelectedId(filteredOpponents[0].id);
+    }
+  }, [filteredOpponents, selectedId]);
+
+  const currentMatches = useMemo(
+    () =>
+      selectedId == null
+        ? []
+        : matches.filter((m) => m.opponentId === selectedId),
+    [matches, selectedId],
+  );
+
+  // сводка W-D-L и мячи для выбранного соперника
+  const summary = useMemo(() => {
+    if (selectedId == null) return null;
+    const agg =
+      filteredOpponents.find((o) => o.id === selectedId) ??
+      opponents.find((o) => o.id === selectedId);
+    if (!agg) return null;
+
+    const diff = agg.goalsFor - agg.goalsAgainst;
+    const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+
+    return {
+      name: agg.name,
+      wins: agg.wins,
+      draws: agg.draws,
+      loses: agg.loses,
+      matches: agg.matches,
+      gf: agg.goalsFor,
+      ga: agg.goalsAgainst,
+      diffStr,
+    };
+  }, [selectedId, filteredOpponents, opponents]);
+
+  if (opponents.length === 0) {
+    return (
+      <div className="text-xs text-zinc-500">
+        Нет официальных матчей против других команд.
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-3">
-      {/* селектор соперника + сводка W/D/L */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500">Соперник:</span>
-          <div className="relative">
-            <input
-              className="border border-zinc-300 rounded-md px-2 py-1 text-xs min-w-[220px] outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Начните вводить команду"
-              list="team-opponents-list"
-              value={inputValue}
-              onChange={(e) => {
-                const v = e.target.value;
-                setQuery(v);
+    <div className="space-y-2">
+      {/* строка поиска + селектор + сводка */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-zinc-500">Соперник:</span>
 
-                const exact = opponents.find(
-                  (o) => o.opponentName.toLowerCase() === v.toLowerCase(),
-                );
-                if (exact) {
-                  setSelectedId(exact.opponentId);
-                }
-              }}
-            />
-            <datalist id="team-opponents-list">
-              {filteredOpponents.map((o) => (
-                <option key={o.opponentId} value={o.opponentName} />
-              ))}
-            </datalist>
-          </div>
-        </div>
+        <input
+          type="text"
+          className="border border-zinc-200 rounded-md px-2 py-1 text-xs min-w-[160px]"
+          placeholder="Введите название команды"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
 
-        {selected && (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-              W {summary.wins}
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
-              D {summary.draws}
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700">
-              L {summary.losses}
-            </span>
-            <span className="ml-2 text-zinc-600">
-              Голы: {summary.gf}:{summary.ga}{" "}
-              <span className="font-semibold">
-                ({summary.diff >= 0 ? "+" : ""}
-                {summary.diff})
-              </span>
-            </span>
+        <select
+          className="border border-zinc-200 rounded-md px-2 py-1 text-xs min-w-[220px]"
+          value={selectedId ?? undefined}
+          onChange={(e) => setSelectedId(Number(e.target.value))}
+        >
+          {filteredOpponents.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name} · {o.wins}-{o.draws}-{o.loses} ({o.matches})
+            </option>
+          ))}
+        </select>
+
+        {summary && (
+          <div className="text-[11px] text-zinc-600">
+            {summary.wins}-{summary.draws}-{summary.loses} · мячи{" "}
+            {summary.gf}:{summary.ga} ({summary.diffStr})
           </div>
         )}
       </div>
 
-      {/* список матчей против выбранного соперника с прокруткой */}
-      <div className="max-h-44 overflow-y-auto border-t border-zinc-100 pt-2 text-xs text-zinc-600">
-        {selected?.games.map((m, idx) => {
-          let color = "text-zinc-700";
-          if (m.res === "W") color = "text-emerald-700";
-          else if (m.res === "L") color = "text-red-700";
-
-          return (
-            <div
-              key={idx}
-              className="flex justify-between gap-3 py-0.5"
-            >
-              <span className="text-zinc-500">{m.date || "—"}</span>
-              <span className="flex-1 truncate text-right">
-                <span className={color}>
+      {/* список матчей с выбранным соперником */}
+      <div className="border-t border-zinc-100 pt-2 max-h-52 overflow-y-auto text-xs">
+        {currentMatches.length === 0 ? (
+          <div className="text-zinc-500">Нет матчей с выбранным соперником.</div>
+        ) : (
+          <ul className="space-y-1">
+            {currentMatches.map((m, idx) => (
+              <li
+                key={`${m.opponentId}-${idx}`}
+                className="flex justify-between gap-2"
+              >
+                <span className="text-zinc-500">
+                  {m.date || "—"} · {m.tournament || "Турнир не указан"}
+                </span>
+                <span
+                  className={clsx("font-medium", {
+                    "text-emerald-700": m.res === "W",
+                    "text-zinc-700": m.res === "D",
+                    "text-red-700": m.res === "L",
+                  })}
+                >
                   {m.scored}:{m.missed} ({m.res})
                 </span>
-              </span>
-            </div>
-          );
-        })}
-
-        {selected && selected.games.length === 0 && (
-          <div className="text-zinc-400 py-1">
-            Матчей против этого соперника пока нет.
-          </div>
-        )}
-
-        {!selected && opponents.length === 0 && (
-          <div className="text-zinc-400 py-1">
-            Нет данных по соперникам.
-          </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>
