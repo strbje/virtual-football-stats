@@ -153,34 +153,49 @@ export default async function TeamPage({ params }: { params: Params }) {
 
   const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
     const row = leagueRows.find((r) => r.league_label === label);
-    const cnt = row ? Number(row.cnt) : 0;
+    const cnt = row ? Number(r.cnt) : 0;
     const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
     return { label, cnt, pct };
   });
 
-  // 3) Форма команды — последние 10 матчей
-  const formRows = await prisma.$queryRawUnsafe<{
+  // 3) Форма команды — последние 10 официальных матчей (только турниры с "сезон")
+  type FormRow = {
+    match_id: number;
     scored: number | null;
     missed: number | null;
     win: number | null;
     draw: number | null;
     lose: number | null;
     tm: number | null;
-    tournament_name: string | null;
-  }[]>(
+    opponent_name: string | null;
+  };
+
+  const formRows = await prisma.$queryRawUnsafe<FormRow[]>(
     `
-    SELECT
-      tms.scored,
-      tms.missed,
-      tms.win,
-      tms.draw,
-      tms.lose,
-      tms.tm,
-      tr.name AS tournament_name
-    FROM tbl_teams_match_stats tms
-    JOIN tournament tr       ON tr.id = tms.tournament_id
-    WHERE tms.team_id = ?
-    ORDER BY tms.tm DESC
+    WITH base AS (
+      SELECT
+        tms.match_id,
+        tms.scored,
+        tms.missed,
+        tms.win,
+        tms.draw,
+        tms.lose,
+        tms.tm,
+        opp.team_name AS opponent_name
+      FROM tbl_teams_match_stats tms
+      JOIN tournament tr
+        ON tr.id = tms.tournament_id
+      JOIN tbl_teams_match_stats tms_opp
+        ON tms_opp.match_id = tms.match_id
+       AND tms_opp.team_id <> tms.team_id
+      JOIN teams opp
+        ON opp.id = tms_opp.team_id
+      WHERE tms.team_id = ?
+        AND tr.name LIKE '%сезон%'
+    )
+    SELECT *
+    FROM base
+    ORDER BY tm DESC
     LIMIT 10
     `,
     teamIdNum,
@@ -189,14 +204,11 @@ export default async function TeamPage({ params }: { params: Params }) {
   const form = formRows.map((r) => {
     const scored = Number(r.scored ?? 0);
     const missed = Number(r.missed ?? 0);
-    const res =
-      Number(r.win) === 1
-        ? "W"
-        : Number(r.draw) === 1
-        ? "D"
-        : Number(r.lose) === 1
-        ? "L"
-        : "-";
+
+    let res: "W" | "D" | "L" | "-" = "-";
+    if (Number(r.win) === 1) res = "W";
+    else if (Number(r.draw) === 1) res = "D";
+    else if (Number(r.lose) === 1) res = "L";
 
     const date =
       r.tm && Number.isFinite(r.tm)
@@ -208,7 +220,7 @@ export default async function TeamPage({ params }: { params: Params }) {
       scored,
       missed,
       date,
-      tournament: r.tournament_name ?? "",
+      opponent: r.opponent_name ?? "Неизвестный соперник",
     };
   });
 
@@ -272,7 +284,7 @@ export default async function TeamPage({ params }: { params: Params }) {
 
           {form.length === 0 ? (
             <div className="text-xs text-zinc-500">
-              Недостаточно данных по матчам.
+              Недостаточно данных по официальным матчам.
             </div>
           ) : (
             <div className="space-y-3">
@@ -281,13 +293,13 @@ export default async function TeamPage({ params }: { params: Params }) {
                 {form.map((m, idx) => {
                   let bg = "bg-zinc-100 text-zinc-700";
                   if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
-                  else if (m.res === "D") bg = "bg-zinc-100 text-zinc-700";
                   else if (m.res === "L") bg = "bg-red-100 text-red-700";
 
                   return (
                     <span
                       key={idx}
                       className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
+                      title={`Соперник: ${m.opponent}`}
                     >
                       {m.res} {m.scored}:{m.missed}
                     </span>
@@ -295,14 +307,15 @@ export default async function TeamPage({ params }: { params: Params }) {
                 })}
               </div>
 
-              {/* Мелкий список матчей */}
+              {/* Список матчей (без турниров) */}
               <div className="space-y-1 text-xs text-zinc-500">
                 {form.map((m, idx) => (
                   <div key={idx} className="flex justify-between gap-2">
-                    <span>
-                      {m.date || "—"} · {m.tournament || "Турнир не указан"}
-                    </span>
-                    <span className="font-medium text-zinc-700">
+                    <span>{m.date || "—"}</span>
+                    <span
+                      className="font-medium text-zinc-700"
+                      title={`Соперник: ${m.opponent}`}
+                    >
                       {m.scored}:{m.missed} ({m.res})
                     </span>
                   </div>
