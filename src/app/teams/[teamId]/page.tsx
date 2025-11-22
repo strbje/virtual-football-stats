@@ -7,10 +7,17 @@ export const dynamic = "force-dynamic";
 
 type Params = { teamId: string };
 
-function mapTournamentToLeagueLabel(name: string | null | undefined): string {
+type LeagueLabel = "ПЛ" | "ФНЛ" | "ПФЛ" | "ЛФЛ" | "Прочие";
+
+function mapTournamentToLeagueLabel(
+  name: string | null | undefined,
+): LeagueLabel {
   const n = (name ?? "").toUpperCase();
 
-  if (n.includes("ПРЕМЬЕР") || n.includes(" ПЛ")) return "ПЛ";
+  // Премьер-лига
+  if (n.includes("ПРЕМЬЕР")) return "ПЛ";
+
+  // ФНЛ / ПФЛ / ЛФЛ
   if (n.includes("ФНЛ")) return "ФНЛ";
   if (n.includes("ПФЛ")) return "ПФЛ";
   if (n.includes("ЛФЛ")) return "ЛФЛ";
@@ -54,14 +61,10 @@ export default async function TeamPage({ params }: { params: Params }) {
   const teamIdNum = Number(params.teamId);
 
   if (!teamIdNum || Number.isNaN(teamIdNum)) {
-    return (
-      <div className="p-6">
-        Неверный ID команды.
-      </div>
-    );
+    return <div className="p-6">Неверный ID команды.</div>;
   }
 
-  // 1) Основная инфа: название команды, всего матчей, последняя лига
+  // 1) Основная инфа: название команды, всего матчей, последний турнир
   const infoRows = await prisma.$queryRawUnsafe<{
     team_id: number;
     team_name: string;
@@ -116,18 +119,15 @@ export default async function TeamPage({ params }: { params: Params }) {
   const info = infoRows[0];
 
   if (!info) {
-    return (
-      <div className="p-6">
-        Команда не найдена.
-      </div>
-    );
+    return <div className="p-6">Команда не найдена.</div>;
   }
 
   const currentLeagueShort = mapTournamentToLeagueLabel(info.last_tournament);
 
   // 2) Распределение по лигам
-  const leagueRows = await prisma.$queryRawUnsafe<{
-    league_label: string;
+  // Сначала собираем турниры и матчи по ним
+  const leagueSrcRows = await prisma.$queryRawUnsafe<{
+    tournament_name: string | null;
     cnt: number;
   }[]>(
     `
@@ -141,28 +141,45 @@ export default async function TeamPage({ params }: { params: Params }) {
       WHERE ums.team_id = ?
     )
     SELECT
-      CASE
-        WHEN UPPER(tournament_name) LIKE '%ПЛ%'  THEN 'ПЛ'
-        WHEN UPPER(tournament_name) LIKE '%ФНЛ%' THEN 'ФНЛ'
-        WHEN UPPER(tournament_name) LIKE '%ПФЛ%' THEN 'ПФЛ'
-        WHEN UPPER(tournament_name) LIKE '%ЛФЛ%' THEN 'ЛФЛ'
-        ELSE 'Прочие'
-      END AS league_label,
+      tournament_name,
       COUNT(*) AS cnt
     FROM team_matches
-    GROUP BY league_label
+    GROUP BY tournament_name
     `,
     teamIdNum,
   );
 
-  const totalMatches =
-    leagueRows.reduce((s, r) => s + Number(r.cnt || 0), 0) ||
-    Number(info.matches || 0);
+  // Агрегируем по "коротким" лигам через тот же хелпер
+  const buckets: Record<LeagueLabel, number> = {
+    ПЛ: 0,
+    ФНЛ: 0,
+    ПФЛ: 0,
+    ЛФЛ: 0,
+    Прочие: 0,
+  };
 
-  const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
-    const row = leagueRows.find((r) => r.league_label === label);
-    const cnt = row ? Number(row.cnt) : 0;
-    const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
+  for (const row of leagueSrcRows) {
+    const label = mapTournamentToLeagueLabel(row.tournament_name);
+    const cnt = Number(row.cnt || 0);
+    buckets[label] += cnt;
+  }
+
+  const totalMatchesFromBuckets = (Object.values(buckets).reduce(
+    (s, v) => s + v,
+    0,
+  ) || 0) as number;
+
+  const totalMatches =
+    totalMatchesFromBuckets > 0
+      ? totalMatchesFromBuckets
+      : Number(info.matches || 0);
+
+  const leagueOrder: LeagueLabel[] = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"];
+
+  const leagues = leagueOrder.map((label) => {
+    const cnt = buckets[label] || 0;
+    const pct =
+      totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
     return { label, cnt, pct };
   });
 
@@ -184,9 +201,7 @@ export default async function TeamPage({ params }: { params: Params }) {
         </div>
         <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
           <div className="text-sm text-zinc-500 mb-1">Актуальная лига</div>
-          <div className="text-2xl font-semibold">
-            {currentLeagueShort}
-          </div>
+          <div className="text-2xl font-semibold">{currentLeagueShort}</div>
           {info.last_tournament && (
             <div className="text-[11px] text-zinc-400 mt-2">
               по последнему матчу: {info.last_tournament}
@@ -218,12 +233,7 @@ export default async function TeamPage({ params }: { params: Params }) {
         </div>
       </section>
 
-      {/* Тут дальше будем добавлять:
-          - форму по 10 матчам
-          - радар команды
-          - ключевых игроков
-          - матчи и т.д.
-       */}
+      {/* дальше добавим форму, радар, ключевых игроков и т.д. */}
     </div>
   );
 }
