@@ -152,11 +152,11 @@ export default async function TeamPage({ params }: { params: Params }) {
     Number(info.matches || 0);
 
   const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
-    const row = leagueRows.find((r) => r.league_label === label);
-    const cnt = row ? Number(r.cnt) : 0;
-    const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
-    return { label, cnt, pct };
-  });
+  const row = leagueRows.find((r) => r.league_label === label);
+  const cnt = row ? Number(row.cnt) : 0;     // ← здесь была ошибка
+  const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
+  return { label, cnt, pct };
+});
 
   // 3) Форма команды — последние 10 официальных матчей (только турниры с "сезон")
   type FormRow = {
