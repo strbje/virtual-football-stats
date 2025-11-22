@@ -164,7 +164,7 @@ export default async function TeamPage({ params }: { params: Params }) {
 
   const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
     const row = leagueRows.find((r) => r.league_label === label);
-    const cnt = row ? Number(r.cnt) : 0;
+    const cnt = row ? Number(row.cnt) : 0;
     const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
     return { label, cnt, pct };
   });
