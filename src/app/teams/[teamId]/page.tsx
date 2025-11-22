@@ -2,6 +2,7 @@
 
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
+import OpponentsHistoryClient from "@/components/teams/OpponentsHistoryClient";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,16 @@ export async function generateMetadata({
     return { title: fallbackTitle };
   }
 }
+
+type OpponentMatchClient = {
+  opponentId: number;
+  opponentName: string;
+  res: "W" | "D" | "L" | "-";
+  scored: number;
+  missed: number;
+  date: string;
+  tournament: string;
+};
 
 export default async function TeamPage({ params }: { params: Params }) {
   const teamIdNum = Number(params.teamId);
@@ -152,63 +163,60 @@ export default async function TeamPage({ params }: { params: Params }) {
     Number(info.matches || 0);
 
   const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
-  const row = leagueRows.find((r) => r.league_label === label);
-  const cnt = row ? Number(row.cnt) : 0;     // ← здесь была ошибка
-  const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
-  return { label, cnt, pct };
-});
+    const row = leagueRows.find((r) => r.league_label === label);
+    const cnt = row ? Number(row.cnt) : 0;
+    const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
+    return { label, cnt, pct };
+  });
 
-  // 3) Форма команды — последние 10 официальных матчей (только турниры с "сезон")
-  type FormRow = {
-    match_id: number;
+  // 3) Все официальные матчи против соперников (для формы и head-to-head)
+  const headToHeadRaw = await prisma.$queryRawUnsafe<{
+    opponent_id: number;
+    opponent_name: string | null;
     scored: number | null;
     missed: number | null;
     win: number | null;
     draw: number | null;
     lose: number | null;
     tm: number | null;
-    opponent_name: string | null;
-  };
-
-  const formRows = await prisma.$queryRawUnsafe<FormRow[]>(
+    tournament_name: string | null;
+  }[]>(
     `
-    WITH base AS (
-      SELECT
-        tms.match_id,
-        tms.scored,
-        tms.missed,
-        tms.win,
-        tms.draw,
-        tms.lose,
-        tms.tm,
-        opp.team_name AS opponent_name
-      FROM tbl_teams_match_stats tms
-      JOIN tournament tr
-        ON tr.id = tms.tournament_id
-      JOIN tbl_teams_match_stats tms_opp
-        ON tms_opp.match_id = tms.match_id
-       AND tms_opp.team_id <> tms.team_id
-      JOIN teams opp
-        ON opp.id = tms_opp.team_id
-      WHERE tms.team_id = ?
-        AND tr.name LIKE '%сезон%'
-    )
-    SELECT *
-    FROM base
-    ORDER BY tm DESC
-    LIMIT 10
+    SELECT
+      opp.team_id       AS opponent_id,
+      oppTeam.team_name AS opponent_name,
+      main.scored,
+      main.missed,
+      main.win,
+      main.draw,
+      main.lose,
+      main.tm,
+      tr.name           AS tournament_name
+    FROM tbl_teams_match_stats main
+    JOIN tbl_teams_match_stats opp
+      ON opp.match_id = main.match_id
+     AND opp.team_id <> main.team_id
+    JOIN tournament tr       ON tr.id = main.tournament_id
+    JOIN teams     oppTeam   ON oppTeam.id = opp.team_id
+    WHERE main.team_id = ?
+      AND tr.name LIKE '%сезон%'
+    ORDER BY main.tm DESC
     `,
     teamIdNum,
   );
 
-  const form = formRows.map((r) => {
+  const opponentMatches: OpponentMatchClient[] = headToHeadRaw.map((r) => {
     const scored = Number(r.scored ?? 0);
     const missed = Number(r.missed ?? 0);
 
-    let res: "W" | "D" | "L" | "-" = "-";
-    if (Number(r.win) === 1) res = "W";
-    else if (Number(r.draw) === 1) res = "D";
-    else if (Number(r.lose) === 1) res = "L";
+    const res: "W" | "D" | "L" | "-" =
+      Number(r.win) === 1
+        ? "W"
+        : Number(r.draw) === 1
+        ? "D"
+        : Number(r.lose) === 1
+        ? "L"
+        : "-";
 
     const date =
       r.tm && Number.isFinite(r.tm)
@@ -216,13 +224,18 @@ export default async function TeamPage({ params }: { params: Params }) {
         : "";
 
     return {
+      opponentId: Number(r.opponent_id),
+      opponentName: r.opponent_name ?? "Без названия",
       res,
       scored,
       missed,
       date,
-      opponent: r.opponent_name ?? "Неизвестный соперник",
+      tournament: r.tournament_name ?? "",
     };
   });
+
+  // 4) Форма = 10 последних официальных матчей
+  const form = opponentMatches.slice(0, 10);
 
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
@@ -251,7 +264,7 @@ export default async function TeamPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* Вторая строка: слева распределение по лигам, справа форма */}
+      {/* Вторая строка: слева распределение по лигам, справа форма + head-to-head */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Распределение по лигам */}
         <section className="rounded-xl border border-zinc-200 p-4">
@@ -276,10 +289,10 @@ export default async function TeamPage({ params }: { params: Params }) {
           </div>
         </section>
 
-        {/* Форма команды */}
-        <section className="rounded-xl border border-zinc-200 p-4">
-          <h3 className="text-sm font-semibold text-zinc-800 mb-3">
-            Форма (10 последних матчей)
+        {/* Форма команды + история соперников */}
+        <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
+          <h3 className="text-sm font-semibold text-zinc-800">
+            Форма (10 последних официальных матчей)
           </h3>
 
           {form.length === 0 ? (
@@ -288,18 +301,26 @@ export default async function TeamPage({ params }: { params: Params }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Линейка W/D/L */}
+              {/* Линейка W/D/L с подсказками */}
               <div className="flex flex-wrap gap-1">
                 {form.map((m, idx) => {
                   let bg = "bg-zinc-100 text-zinc-700";
                   if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
                   else if (m.res === "L") bg = "bg-red-100 text-red-700";
 
+                  const title = [
+                    m.date || "",
+                    m.opponentName,
+                    m.tournament,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+
                   return (
                     <span
                       key={idx}
+                      title={title}
                       className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
-                      title={`Соперник: ${m.opponent}`}
                     >
                       {m.res} {m.scored}:{m.missed}
                     </span>
@@ -307,20 +328,8 @@ export default async function TeamPage({ params }: { params: Params }) {
                 })}
               </div>
 
-              {/* Список матчей (без турниров) */}
-              <div className="space-y-1 text-xs text-zinc-500">
-                {form.map((m, idx) => (
-                  <div key={idx} className="flex justify-between gap-2">
-                    <span>{m.date || "—"}</span>
-                    <span
-                      className="font-medium text-zinc-700"
-                      title={`Соперник: ${m.opponent}`}
-                    >
-                      {m.scored}:{m.missed} ({m.res})
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {/* Селектор соперника + список очных матчей */}
+              <OpponentsHistoryClient matches={opponentMatches} />
             </div>
           )}
         </section>
