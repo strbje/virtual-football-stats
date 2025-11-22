@@ -37,7 +37,7 @@ export async function generateMetadata({
 
   if (teamId > 0) {
     try {
-+     const team = await prisma.team.findUnique({
+      const team = await prisma.team.findUnique({
         where: { id: teamId },
         select: { team_name: true },
       });
