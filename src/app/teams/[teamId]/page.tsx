@@ -27,7 +27,7 @@ function leagueFromTournamentName(name: string | null): string {
   return "Прочие";
 }
 
-export async function generateMetadata({
+xport async function generateMetadata({
   params,
 }: {
   params: Params;
@@ -37,7 +37,7 @@ export async function generateMetadata({
 
   if (teamId > 0) {
     try {
-      const team = await prisma.teams.findUnique({
++     const team = await prisma.team.findUnique({
         where: { id: teamId },
         select: { team_name: true },
       });
@@ -45,7 +45,7 @@ export async function generateMetadata({
         title = `${team.team_name} — Virtual Football Stats`;
       }
     } catch {
-      // игнорируем, оставляем дефолтный title
+      // ignore
     }
   }
 
@@ -67,7 +67,7 @@ export default async function TeamPage({ params }: { params: Params }) {
   }
 
   // 1) базовая информация о команде
-  const team = await prisma.teams.findUnique({
+  const team = await prisma.team.findUnique({
     where: { id: teamId },
     select: { team_name: true },
   });
