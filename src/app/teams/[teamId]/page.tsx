@@ -27,7 +27,7 @@ function leagueFromTournamentName(name: string | null): string {
   return "Прочие";
 }
 
-xport async function generateMetadata({
+export async function generateMetadata({
   params,
 }: {
   params: Params;
