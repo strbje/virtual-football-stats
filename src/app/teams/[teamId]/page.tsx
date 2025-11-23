@@ -4,7 +4,6 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import OpponentsHistoryClient from "@/components/teams/OpponentsHistoryClient";
 import TeamRadarClient from "@/components/teams/TeamRadarClient";
-import TeamSeasonStyle from "@/components/teams/TeamSeasonStyle";
 
 export const dynamic = "force-dynamic";
 
@@ -61,48 +60,6 @@ type OpponentMatchClient = {
   missed: number;
   date: string;
   tournament: string;
-};
-
-// хелпер для безопасного приведения number | bigint | null к number
-function toNum(v: number | bigint | null | undefined): number {
-  if (v === null || v === undefined) return 0;
-  return typeof v === "bigint" ? Number(v) : v;
-}
-
-// профиль стиля сезона (для TeamSeasonStyle)
-type SeasonProfile = {
-  matches: number;
-
-  // атака
-  goalsTotal: number;
-  goalsPerMatch: number;
-  xgTotal: number;
-  xgPerMatch: number;
-  shotsPerMatch: number;
-  shotsOnTargetPerMatch: number;
-  shotsAccuracyPct: number | null;
-  passesPerShot: number | null;
-  dangerCoeff: number | null;
-
-  // созидание
-  passAttemptsPerMatch: number;
-  passAccuracyPct: number | null;
-  xaTotal: number;
-  xaPerMatch: number;
-  pxa: number | null;
-
-  // фланги
-  crossesPerMatch: number;
-  crossesSuccessPerMatch: number;
-  crossesAccuracyPct: number | null;
-
-  // оборона / воздух
-  interceptsPerMatch: number;
-  tacklesAttemptsPerMatch: number;
-  tacklesWonPerMatch: number;
-  defActionsPerMatch: number;
-  aerialDuelsPerMatch: number;
-  aerialWinPct: number | null;
 };
 
 export default async function TeamPage({ params }: { params: Params }) {
@@ -213,174 +170,7 @@ export default async function TeamPage({ params }: { params: Params }) {
     return { label, cnt, pct };
   });
 
-  // 3) Профиль стиля игры в последнем официальном сезоне (без Кубка России)
-  const seasonStyleRows = await prisma.$queryRawUnsafe<{
-    matches: number | bigint | null;
-    goals: number | bigint | null;
-    xg: number | null;
-    kickedin: number | bigint | null;
-    kickedout: number | bigint | null;
-    pass_attempts: number | bigint | null;
-    completed_passes: number | bigint | null;
-    xa: number | null;
-    crosses_total: number | bigint | null;
-    crosses_success: number | bigint | null;
-    intercepts: number | bigint | null;
-    selection: number | bigint | null;
-    completedtackles: number | bigint | null;
-    blocks: number | bigint | null;
-    allselection: number | bigint | null;
-    duels_air: number | bigint | null;
-    duels_air_win: number | bigint | null;
-  }[]>(
-    `
-    WITH base AS (
-      SELECT
-        ums.team_id,
-        ums.match_id,
-        ums.goals,
-        ums.goals_expected                          AS xg,
-        ums.kickedin,
-        ums.kickedout,
-        ums.allpasses                               AS pass_attempts,
-        ums.completedpasses                         AS completed_passes,
-        ums.passes                                  AS xa,
-        ums.allcrosses                              AS crosses_total,
-        ums.crosses                                 AS crosses_success,
-        ums.intercepts,
-        ums.selection,
-        ums.completedtackles,
-        ums.blocks,
-        ums.allselection,
-        ums.duels_air,
-        ums.duels_air_win,
-        CAST(REGEXP_SUBSTR(tr.name, '[0-9]+') AS UNSIGNED) AS season_num
-      FROM tbl_users_match_stats ums
-      JOIN tournament_match tm ON tm.id = ums.match_id
-      JOIN tournament tr       ON tm.tournament_id = tr.id
-      WHERE ums.team_id = ?
-        AND tr.name REGEXP '\\\\([0-9]+ сезон\\\\)'
-        AND tr.name NOT LIKE '%Кубок России%'
-    ),
-    last_season AS (
-      SELECT MAX(season_num) AS season_num FROM base
-    ),
-    filtered AS (
-      SELECT b.*
-      FROM base b
-      JOIN last_season ls ON b.season_num = ls.season_num
-    )
-    SELECT
-      COUNT(DISTINCT match_id)        AS matches,
-      SUM(goals)                      AS goals,
-      SUM(xg)                         AS xg,
-      SUM(kickedin)                   AS kickedin,
-      SUM(kickedout)                  AS kickedout,
-      SUM(pass_attempts)              AS pass_attempts,
-      SUM(completed_passes)           AS completed_passes,
-      SUM(xa)                         AS xa,
-      SUM(crosses_total)              AS crosses_total,
-      SUM(crosses_success)            AS crosses_success,
-      SUM(intercepts)                 AS intercepts,
-      SUM(selection)                  AS selection,
-      SUM(completedtackles)           AS completedtackles,
-      SUM(blocks)                     AS blocks,
-      SUM(allselection)               AS allselection,
-      SUM(duels_air)                  AS duels_air,
-      SUM(duels_air_win)              AS duels_air_win
-    FROM filtered
-    `,
-    teamIdNum,
-  );
-
-  let seasonProfile: SeasonProfile | null = null;
-
-  if (seasonStyleRows.length > 0) {
-    const r = seasonStyleRows[0];
-    const matchesSeason = toNum(r.matches);
-
-    if (matchesSeason > 0) {
-      const goals = toNum(r.goals);
-      const xg = r.xg ?? 0;
-
-      const kickedIn = toNum(r.kickedin);
-      const kickedOut = toNum(r.kickedout);
-      const shotsTotal = kickedIn + kickedOut;
-
-      const passAttempts = toNum(r.pass_attempts);
-      const completedPasses = toNum(r.completed_passes);
-
-      const xaTotal = r.xa ?? 0;
-
-      const crossesTotal = toNum(r.crosses_total);
-      const crossesSuccess = toNum(r.crosses_success);
-
-      const intercepts = toNum(r.intercepts);
-      const selection = toNum(r.selection);
-      const completedTackles = toNum(r.completedtackles);
-      const blocks = toNum(r.blocks);
-      const allSelection = toNum(r.allselection);
-
-      const duelsAir = toNum(r.duels_air);
-      const duelsAirWin = toNum(r.duels_air_win);
-
-      const defActionsTotal =
-        intercepts + selection + completedTackles + blocks;
-
-      // pXA: сколько пасов нужно на 0.5 xA
-      const pxa =
-        xaTotal > 0 && passAttempts > 0
-          ? (0.5 * passAttempts) / xaTotal
-          : null;
-
-      // кэф опасности удара: xG / удары
-      const dangerCoeff = shotsTotal > 0 ? xg / shotsTotal : null;
-
-      seasonProfile = {
-        matches: matchesSeason,
-
-        goalsTotal: goals,
-        goalsPerMatch: goals / matchesSeason,
-        xgTotal: xg,
-        xgPerMatch: xg / matchesSeason,
-        shotsPerMatch: shotsTotal / matchesSeason,
-        shotsOnTargetPerMatch: kickedIn / matchesSeason,
-        shotsAccuracyPct:
-          shotsTotal > 0 ? (kickedIn / shotsTotal) * 100 : null,
-        passesPerShot:
-          shotsTotal > 0 && passAttempts > 0
-            ? passAttempts / shotsTotal
-            : null,
-        dangerCoeff,
-
-        passAttemptsPerMatch: passAttempts / matchesSeason,
-        passAccuracyPct:
-          passAttempts > 0
-            ? (completedPasses / passAttempts) * 100
-            : null,
-        xaTotal,
-        xaPerMatch: xaTotal / matchesSeason,
-        pxa,
-
-        crossesPerMatch: crossesTotal / matchesSeason,
-        crossesSuccessPerMatch: crossesSuccess / matchesSeason,
-        crossesAccuracyPct:
-          crossesTotal > 0
-            ? (crossesSuccess / crossesTotal) * 100
-            : null,
-
-        interceptsPerMatch: intercepts / matchesSeason,
-        tacklesAttemptsPerMatch: allSelection / matchesSeason,
-        tacklesWonPerMatch: completedTackles / matchesSeason,
-        defActionsPerMatch: defActionsTotal / matchesSeason,
-        aerialDuelsPerMatch: duelsAir / matchesSeason,
-        aerialWinPct:
-          duelsAir > 0 ? (duelsAirWin / duelsAir) * 100 : null,
-      };
-    }
-  }
-
-  // 4) Все официальные матчи против соперников
+  // 3) Все официальные матчи против соперников
   const headToHeadRaw = await prisma.$queryRawUnsafe<{
     opponent_id: number;
     opponent_name: string | null;
@@ -499,24 +289,21 @@ export default async function TeamPage({ params }: { params: Params }) {
   }
 
   const allOpponentsAgg = Array.from(aggMap.values());
-
-  // фильтр по минимальному количеству матчей
   const eligibleOpponents = allOpponentsAgg.filter((o) => o.matches >= 5);
 
-  // сортировка по win-rate
   const sortedByWinRate = [...eligibleOpponents].sort((a, b) => {
     const aw = a.matches > 0 ? a.wins / a.matches : 0;
     const bw = b.matches > 0 ? b.wins / b.matches : 0;
 
-    if (bw !== aw) return bw - aw; // выше % побед
-    if (b.matches !== a.matches) return b.matches - a.matches; // больше матчей
-    return a.name.localeCompare(b.name); // стабильный порядок
+    if (bw !== aw) return bw - aw;
+    if (b.matches !== a.matches) return b.matches - a.matches;
+    return a.name.localeCompare(b.name);
   });
 
   const bestOpponents = sortedByWinRate.slice(0, 3);
   const worstOpponents = [...sortedByWinRate].reverse().slice(0, 3);
 
-  // 5) Форма = 10 последних официальных матчей
+  // 4) Форма = 10 последних официальных матчей
   const form = opponentMatches.slice(0, 10);
 
   return (
@@ -546,75 +333,69 @@ export default async function TeamPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* Вторая строка: слева распределение + стиль, справа форма + радар */}
+      {/* Вторая строка: слева распределение по лигам, справа форма + радар */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Левая колонка */}
-        <div className="flex flex-col gap-4">
-          {/* Распределение по лигам + топ-3 соперников */}
-          <section className="rounded-xl border border-zinc-200 p-4">
-            <h3 className="text-sm font-semibold text-zinc-800 mb-3">
-              Распределение матчей по лигам
-            </h3>
-            <div className="space-y-2">
-              {leagues.map((l) => (
-                <div key={l.label} className="flex items-center gap-2 text-sm">
-                  <div className="w-14">{l.label}</div>
-                  <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500"
-                      style={{ width: `${l.pct}%` }}
-                    />
-                  </div>
-                  <div className="w-24 text-right text-xs text-zinc-500">
-                    {l.cnt} ({l.pct}%)
-                  </div>
+        {/* Распределение по лигам + топ-3 соперников */}
+        <section className="rounded-xl border border-zinc-200 p-4">
+          <h3 className="text-sm font-semibold text-zinc-800 mb-3">
+            Распределение матчей по лигам
+          </h3>
+          <div className="space-y-2">
+            {leagues.map((l) => (
+              <div key={l.label} className="flex items-center gap-2 text-sm">
+                <div className="w-14">{l.label}</div>
+                <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500"
+                    style={{ width: `${l.pct}%` }}
+                  />
                 </div>
-              ))}
-            </div>
-
-            {/* Самые удобные / неудобные соперники */}
-            {eligibleOpponents.length > 0 && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                {/* Удобные */}
-                <div>
-                  <h4 className="font-semibold mb-1">Самые удобные соперники</h4>
-                  <ul className="space-y-1">
-                    {bestOpponents.map((o) => (
-                      <li key={o.id} className="flex justify-between gap-2">
-                        <span className="text-emerald-700">{o.name}</span>
-                        <span className="text-emerald-700 font-semibold">
-                          {o.wins}-{o.draws}-{o.loses}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Неудобные */}
-                <div>
-                  <h4 className="font-semibold mb-1">
-                    Самые неудобные соперники
-                  </h4>
-                  <ul className="space-y-1">
-                    {worstOpponents.map((o) => (
-                      <li key={o.id} className="flex justify-between gap-2">
-                        <span className="text-red-700">{o.name}</span>
-                        <span className="text-red-700 font-semibold">
-                          {o.wins}-{o.draws}-{o.loses}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                <div className="w-24 text-right text-xs text-zinc-500">
+                  {l.cnt} ({l.pct}%)
                 </div>
               </div>
-            )}
-          </section>
+            ))}
+          </div>
 
-          {/* Стиль игры в текущем сезоне (без Кубка) */}
-          {seasonProfile && <TeamSeasonStyle profile={seasonProfile} />}
-        </div>
+          {/* Самые удобные / неудобные соперники */}
+          {eligibleOpponents.length > 0 && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div>
+                <h4 className="font-semibold mb-1">
+                  Самые удобные соперники
+                </h4>
+                <ul className="space-y-1">
+                  {bestOpponents.map((o) => (
+                    <li key={o.id} className="flex justify-between gap-2">
+                      <span className="text-emerald-700">{o.name}</span>
+                      <span className="text-emerald-700 font-semibold">
+                        {o.wins}-{o.draws}-{o.loses}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
-        {/* Правая колонка: форма + радар */}
+              <div>
+                <h4 className="font-semibold mb-1">
+                  Самые неудобные соперники
+                </h4>
+                <ul className="space-y-1">
+                  {worstOpponents.map((o) => (
+                    <li key={o.id} className="flex justify-between gap-2">
+                      <span className="text-red-700">{o.name}</span>
+                      <span className="text-red-700 font-semibold">
+                        {o.wins}-{o.draws}-{o.loses}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Форма команды + радар в одном правом столбце */}
         <div className="flex flex-col gap-4">
           {/* Форма команды + история соперников */}
           <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
@@ -651,7 +432,7 @@ export default async function TeamPage({ params }: { params: Params }) {
                   })}
                 </div>
 
-                {/* Селектор соперника + список очных матчей, фиксированная высота */}
+                {/* Селектор соперника + список очных матчей в фиксированной области */}
                 <div className="mt-1 max-h-[260px] min-h-[260px] overflow-y-auto pr-1">
                   <OpponentsHistoryClient matches={opponentMatches} />
                 </div>
@@ -659,7 +440,7 @@ export default async function TeamPage({ params }: { params: Params }) {
             )}
           </section>
 
-          {/* Радар строго под формой, в той же ширине */}
+          {/* Радар команды под формой */}
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
             <TeamRadarClient teamId={teamIdNum} />
           </section>
