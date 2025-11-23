@@ -134,11 +134,11 @@ function wrapLabel(label: string, maxLen = 10): string[] {
 }
 
 function TeamRadarSvg({ data }: RadarProps) {
-  const SIZE = 280;
+  const SIZE = 240;
   const PADDING = 48;
   const GRID_STEPS = 5;
-  const LABEL_OFFSET = 30;
-  const BADGE_OFFSET = 10;
+  const LABEL_OFFSET = 44;
+  const BADGE_OFFSET = 12;
 
   const GRID_COLOR = "#e5e7eb";
   const AXIS_COLOR = "#111827";
@@ -217,7 +217,7 @@ function TeamRadarSvg({ data }: RadarProps) {
       key={`label-${i}`}
       x={outer.x}
       y={outer.y}
-      fontSize={10}
+      fontSize={9}
       fill={AXIS_COLOR}
       textAnchor="middle"
       dominantBaseline="middle"
@@ -376,9 +376,9 @@ export default function TeamRadarClient({ teamId, scope = "recent" }: Props) {
         Диапазон: официальные матчи (с 18 сезона), всего {matches || 0} матчей.
       </div>
 
-      <div className="flex items-center justify-center">
-        <TeamRadarSvg data={radarData} />
-      </div>
+      <div className="flex items-center justify-center max-w-md mx-auto">
+  <TeamRadarSvg data={radarData} />
+</div>
 
       <div className="text-[11px] text-zinc-500 mt-1">
         Радар показывает перцентили по командам лиги (0–100%, где 100% — топ
