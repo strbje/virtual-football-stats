@@ -138,7 +138,7 @@ function TeamRadarSvg({ data }: RadarProps) {
   const PADDING = 50;
   const GRID_STEPS = 5;
   const LABEL_OFFSET = 46;
-  const BADGE_OFFSET = 12;
+  const BADGE_INNER = 12;
 
   const GRID_COLOR = "#e5e7eb";
   const AXIS_COLOR = "#111827";
@@ -205,12 +205,15 @@ function TeamRadarSvg({ data }: RadarProps) {
       {/* Подписи осей (с переносом) */}
       // Подписи осей — всегда по центру точки, чтобы не обрезались
 {data.map((d, i) => {
-  const outer = polarPoint(
-    center,
-    center,
-    radius + LABEL_OFFSET,
-    angles[i],
-  );
+        const outer = polarPoint(
+          center,
+          center,
+          radius + LABEL_OFFSET,
+          angles[i],
+        );
+        const alignCos = Math.cos(toRadians(angles[i] - 90));
+        const align =
+          alignCos > 0.25 ? "start" : alignCos < -0.25 ? "end" : "middle";
 
   return (
     <text
@@ -219,9 +222,9 @@ function TeamRadarSvg({ data }: RadarProps) {
       y={outer.y}
       fontSize={9}
       fill={AXIS_COLOR}
-      textAnchor="middle"
-      dominantBaseline="middle"
-    >
+     textAnchor={align as any}
+            dominantBaseline="middle"
+          >
       {d.label}
     </text>
   );
@@ -231,8 +234,8 @@ function TeamRadarSvg({ data }: RadarProps) {
       {/* Полигон команды */}
       <polygon points={polyAttr} fill={POLY_FILL} stroke={POLY_STROKE} strokeWidth={2} />
 
-      {/* Точки + бейджи процентов */}
-        {data.map((d, i) => {
+      {/* Точки + бейджи процентов (уводим БЕЙДЖ ВНУТРЬ полигона) */}
+      {data.map((d, i) => {
         const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
         const dot = polarPoint(center, center, r, angles[i]);
         const badgeR = Math.max(0, r - BADGE_INNER); // было r + offset → теперь внутрь
