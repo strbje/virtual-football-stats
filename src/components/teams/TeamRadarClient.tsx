@@ -2,6 +2,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PlayerRadar, {
+  type RadarDatum,
+} from "@/components/players/PlayerRadar";
 
 type TeamStatsPerMatch = {
   goals?: number | null;
@@ -28,9 +31,9 @@ type Props = {
 
 // описание осей радара
 const METRIC_CONFIG = [
-  { key: "goals" as const, label: "Голы за матч", invert: false },
-  { key: "shots" as const, label: "Удары за матч", invert: false },
-  { key: "passes" as const, label: "Пасы за матч", invert: false },
+  { key: "goals" as const, label: "Голы", invert: false },
+  { key: "shots" as const, label: "Удары", invert: false },
+  { key: "passes" as const, label: "Пасы", invert: false },
   {
     key: "passesPerShot" as const,
     label: "Пасов на удар",
@@ -43,17 +46,17 @@ const METRIC_CONFIG = [
   },
   {
     key: "passAccPct" as const,
-    label: "Точность паса, %",
+    label: "Точность паса %",
     invert: false,
   },
   {
     key: "crosses" as const,
-    label: "Навесы за матч",
+    label: "Навесы",
     invert: false,
   },
   {
     key: "aerialPct" as const,
-    label: "Побед в воздухе, %",
+    label: "Победы в воздухе %",
     invert: false,
   },
 ];
@@ -87,7 +90,7 @@ function normalize(
   const clamped = clamp(value, min, max);
   const range = max - min || 1;
 
-  const norm = (clamped - min) / range;
+  const norm = (clamped - min) / range; // 0..1
   return invert ? 1 - norm : norm;
 }
 
@@ -165,174 +168,20 @@ export default function TeamRadarClient({ teamId, scope = "recent" }: Props) {
     aerialPct,
   };
 
-  const fmt = (v: number | null | undefined, digits = 2) =>
-    v == null ? "—" : v.toFixed(digits);
-
-  // --- геометрия радара ---
-  const size = 260;
-  const cx = size / 2;
-  const cy = size / 2;
-  const radius = 100;
-  const count = METRIC_CONFIG.length;
-  const layers = [0.33, 0.66, 1];
-
-  const points = METRIC_CONFIG.map((cfg, idx) => {
-    const norm = normalize(cfg.key, metricValues[cfg.key], cfg.invert);
-    const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
-    const r = radius * norm;
-    const x = cx + r * Math.cos(angle);
-    const y = cy + r * Math.sin(angle);
-    return { x, y };
+  // данные для радара 0–100
+  const radarData: RadarDatum[] = METRIC_CONFIG.map((cfg) => {
+    const norm = normalize(cfg.key, metricValues[cfg.key], cfg.invert); // 0..1
+    return {
+      label: cfg.label,
+      pct: Math.round(norm * 100),
+    };
   });
 
-  const polygonPoints = points.map((p) => `${p.x},${p.y}`).join(" ");
-
   return (
-    <div className="space-y-3 text-xs text-zinc-700">
-      <div className="text-[11px] text-zinc-500">
-        Диапазон: официальные матчи (с 18 сезона), всего {matches || 0} матчей.
-      </div>
-
-      <div className="flex flex-col md:flex-row gap-6 items-stretch">
-        {/* Радар (SVG) */}
-        <div className="flex-1 flex items-center justify-center">
-          <svg
-            width={size}
-            height={size}
-            viewBox={`0 0 ${size} ${size}`}
-            className="max-w-full"
-          >
-            {/* сетка */}
-            {layers.map((k, layerIdx) => {
-              const r = radius * k;
-              const layerPoints = METRIC_CONFIG.map((_, idx) => {
-                const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
-                const x = cx + r * Math.cos(angle);
-                const y = cy + r * Math.sin(angle);
-                return `${x},${y}`;
-              }).join(" ");
-              return (
-                <polygon
-                  key={layerIdx}
-                  points={layerPoints}
-                  fill="none"
-                  stroke="#e4e4e7"
-                  strokeWidth={0.5}
-                />
-              );
-            })}
-
-            {/* лучи */}
-            {METRIC_CONFIG.map((_, idx) => {
-              const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
-              const x = cx + radius * Math.cos(angle);
-              const y = cy + radius * Math.sin(angle);
-              return (
-                <line
-                  key={idx}
-                  x1={cx}
-                  y1={cy}
-                  x2={x}
-                  y2={y}
-                  stroke="#e4e4e7"
-                  strokeWidth={0.5}
-                />
-              );
-            })}
-
-            {/* полигон команды */}
-            <polygon
-              points={polygonPoints}
-              fill="rgba(37, 99, 235, 0.25)"
-              stroke="#2563eb"
-              strokeWidth={2}
-            />
-
-            {/* точки */}
-            {points.map((p, idx) => (
-              <circle key={idx} cx={p.x} cy={p.y} r={3} fill="#2563eb" />
-            ))}
-
-            {/* подписи осей */}
-            {METRIC_CONFIG.map((cfg, idx) => {
-              const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
-              const labelRadius = radius + 18;
-              const x = cx + labelRadius * Math.cos(angle);
-              const y = cy + labelRadius * Math.sin(angle);
-
-              const textAnchor =
-                Math.abs(Math.cos(angle)) < 0.1
-                  ? "middle"
-                  : Math.cos(angle) > 0
-                  ? "start"
-                  : "end";
-
-              return (
-                <text
-                  key={cfg.key}
-                  x={x}
-                  y={y}
-                  textAnchor={textAnchor}
-                  dominantBaseline="middle"
-                  className="fill-zinc-600 text-[10px]"
-                >
-                  {cfg.label}
-                </text>
-              );
-            })}
-          </svg>
-        </div>
-
-        {/* легенда с числами */}
-        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-          <div className="flex justify-between">
-            <span>Голы за матч</span>
-            <span className="font-semibold">{fmt(m.goals)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Удары за матч</span>
-            <span className="font-semibold">{fmt(m.shots)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Пасы за матч</span>
-            <span className="font-semibold">{fmt(m.allpasses)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Пасов на удар</span>
-            <span className="font-semibold">
-              {fmt(passesPerShot)}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Защитные действия за матч</span>
-            <span className="font-semibold">
-              {fmt(m.def_actions)}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Точность паса, %</span>
-            <span className="font-semibold">
-              {fmt(passAccPct, 1)}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Навесов за матч</span>
-            <span className="font-semibold">{fmt(m.crosses)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Побед в воздухе, %</span>
-            <span className="font-semibold">
-              {fmt(aerialPct, 1)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="text-[11px] text-zinc-500 mt-1">
-        Эти 8 метрик — оси командного радара. Масштаб сейчас задан
-        фиксированными диапазонами; позже можно заменить их на перцентили
-        по всем командам лиги.
-      </div>
-    </div>
+    <PlayerRadar
+      title="Профиль команды"
+      data={radarData}
+      footnote={`*официальные матчи с 18 сезона, всего ${matches || 0} матчей`}
+    />
   );
 }
