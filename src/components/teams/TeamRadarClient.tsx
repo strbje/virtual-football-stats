@@ -203,37 +203,30 @@ function TeamRadarSvg({ data }: RadarProps) {
       })}
 
       {/* Подписи осей (с переносом) */}
-      {data.map((d, i) => {
-        const outer = polarPoint(
-          center,
-          center,
-          radius + LABEL_OFFSET,
-          angles[i],
-        );
-        const alignCos = Math.cos(toRadians(angles[i] - 90));
-        const align =
-          alignCos > 0.25 ? "start" : alignCos < -0.25 ? "end" : "middle";
+      // Подписи осей — всегда по центру точки, чтобы не обрезались
+{data.map((d, i) => {
+  const outer = polarPoint(
+    center,
+    center,
+    radius + LABEL_OFFSET,
+    angles[i],
+  );
 
-        const lines = wrapLabel(d.label, 11);
+  return (
+    <text
+      key={`label-${i}`}
+      x={outer.x}
+      y={outer.y}
+      fontSize={10}
+      fill={AXIS_COLOR}
+      textAnchor="middle"
+      dominantBaseline="middle"
+    >
+      {d.label}
+    </text>
+  );
+})}
 
-        return (
-          <text
-            key={`label-${i}`}
-            x={outer.x}
-            y={outer.y}
-            fontSize={9}
-            fill={AXIS_COLOR}
-            textAnchor={align as any}
-            dominantBaseline="middle"
-          >
-            {lines.map((ln, j) => (
-              <tspan key={j} x={outer.x} dy={j === 0 ? 0 : 11}>
-                {ln}
-              </tspan>
-            ))}
-          </text>
-        );
-      })}
 
       {/* Полигон команды */}
       <polygon points={polyAttr} fill={POLY_FILL} stroke={POLY_STROKE} strokeWidth={2} />
