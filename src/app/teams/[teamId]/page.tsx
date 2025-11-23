@@ -433,9 +433,10 @@ export default async function TeamPage({ params }: { params: Params }) {
                   })}
                 </div>
 
-                {/* Селектор соперника + список очных матчей */}
-                <OpponentsHistoryClient matches={opponentMatches} />
-              </div>
+                {/* Селектор соперника + список очных матчей (фиксированная область под 10 матчей) */}
+        <div className="mt-1 max-h-[260px] min-h-[260px] overflow-y-auto pr-1">
+          <OpponentsHistoryClient matches={opponentMatches} />
+        </div>
             )}
           </section>
 
