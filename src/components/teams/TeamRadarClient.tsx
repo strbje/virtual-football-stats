@@ -134,11 +134,11 @@ function wrapLabel(label: string, maxLen = 10): string[] {
 }
 
 function TeamRadarSvg({ data }: RadarProps) {
-  const SIZE = 220;
-  const PADDING = 50;
+  const SIZE = 240;      // общий размер SVG 
+  const PADDING = 60;    // было 50 — больше отступ, радар чуть меньше → больше места под подписи
   const GRID_STEPS = 5;
-  const LABEL_OFFSET = 46;
-  const BADGE_INNER = 12;
+  const LABEL_OFFSET = 30; // было 46 — подписи ближе к кругу, меньше вылетают наружу
+  const BADGE_INNER = 16;  // бейджи процентов чуть глубже внутрь, меньше пересечений с текстом
 
   const GRID_COLOR = "#e5e7eb";
   const AXIS_COLOR = "#111827";
