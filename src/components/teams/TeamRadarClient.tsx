@@ -113,11 +113,33 @@ function polarPoint(cx: number, cy: number, r: number, angleDeg: number) {
   };
 }
 
+// аккуратный перенос строки по пробелам, максимум 2 строки
+function wrapLabel(label: string, maxLen = 10): string[] {
+  if (label.length <= maxLen) return [label];
+
+  const words = label.split(" ");
+  const lines: string[] = [];
+  let current = "";
+
+  for (const w of words) {
+    const next = (current + " " + w).trim();
+    if (next.length > maxLen) {
+      if (current) lines.push(current.trim());
+      current = w;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current.trim());
+
+  return lines.slice(0, 2);
+}
+
 function TeamRadarSvg({ data }: RadarProps) {
   const SIZE = 260;
   const PADDING = 40;
   const GRID_STEPS = 5;
-  const LABEL_OFFSET = 26;
+  const LABEL_OFFSET = 34; // чуть дальше от круга
   const BADGE_OFFSET = 10;
 
   const GRID_COLOR = "#e5e7eb";
@@ -182,7 +204,7 @@ function TeamRadarSvg({ data }: RadarProps) {
         );
       })}
 
-      {/* Подписи осей */}
+      {/* Подписи осей с переносом */}
       {data.map((d, i) => {
         const outer = polarPoint(
           center,
@@ -191,20 +213,30 @@ function TeamRadarSvg({ data }: RadarProps) {
           angles[i],
         );
         const alignCos = Math.cos(toRadians(angles[i] - 90));
-        const align =
+        const textAnchor =
           alignCos > 0.25 ? "start" : alignCos < -0.25 ? "end" : "middle";
+
+        const lines = wrapLabel(d.label, 10);
 
         return (
           <text
             key={`label-${i}`}
             x={outer.x}
             y={outer.y}
-            fontSize={10}
+            fontSize={9}
             fill={AXIS_COLOR}
-            textAnchor={align as any}
+            textAnchor={textAnchor as any}
             dominantBaseline="middle"
           >
-            {d.label}
+            {lines.map((ln, idx) => (
+              <tspan
+                key={idx}
+                x={outer.x}
+                dy={idx === 0 ? 0 : 12}
+              >
+                {ln}
+              </tspan>
+            ))}
           </text>
         );
       })}
@@ -340,7 +372,6 @@ export default function TeamRadarClient({ teamId, scope = "recent" }: Props) {
       if (v != null) {
         pct = Number(v);
       } else {
-        // если по конкретной метрике перцентиль не пришёл — фолбечимся на диапазон
         const raw = fallbackValues[cfg.key];
         pct = Math.round(normalizeRange(cfg.key, raw, cfg.invert) * 100);
       }
