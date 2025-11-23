@@ -449,13 +449,7 @@ export default async function TeamPage({ params }: { params: Params }) {
        </div>
 
       {/* Профиль команды (метрики для радара) */}
-      <section className="rounded-xl border border-zinc-200 p-4">
-        <h3 className="text-sm font-semibold text-zinc-800 mb-3">
-          Профиль команды (метрики для радара)
-        </h3>
         <TeamRadarClient teamId={teamIdNum} />
-      </section>
-
       {/* дальше будем добавлять ключевых игроков и т.п. */}
     </div>
   );
