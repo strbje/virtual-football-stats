@@ -140,7 +140,9 @@ type LeagueRow = {
   def_actions_per_match: number | null;
   pass_acc: number | null;
   aerial_pct: number | null;
+  passes_per_shot: number | null;
 };
+
 
 // утилита для перцентилей по массиву значений
 function computePercentile(
@@ -568,12 +570,14 @@ export async function GET(
 
       if (leagueRows.length > 0) {
         // добавляем passes_per_shot уже в TS
-        const enriched = leagueRows.map((r) => {
-          const shots = r.shots_per_match ?? null;
-          const passes = r.passes_per_match ?? null;
-          const passes_per_shot =
-            shots && shots > 0 && passes != null ? passes / shots : null;
-          return { ...r, passes_per_shot };
+        const enriched: LeagueRow[] = leagueRows.map((r) => {
+  const shots = r.shots_per_match ?? null;
+  const passes = r.passes_per_match ?? null;
+  const passes_per_shot =
+    shots && shots > 0 && passes != null ? passes / shots : null;
+
+  return { ...r, passes_per_shot };
+});
         }) as (LeagueRow & { passes_per_shot: number | null })[];
 
         // перцентили для нужной команды
