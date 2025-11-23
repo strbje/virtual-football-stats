@@ -406,51 +406,54 @@ export default async function TeamPage({ params }: { params: Params }) {
           )}
         </section>
 
-        {/* Форма команды + история соперников */}
-        <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
-          <h3 className="text-sm font-semibold text-zinc-800">
-            Форма (10 последних официальных матчей)
-          </h3>
+        {/* Форма команды + радар в одном правом столбце */}
+<div className="flex flex-col gap-4">
 
-          {form.length === 0 ? (
-            <div className="text-xs text-zinc-500">
-              Недостаточно данных по официальным матчам.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {/* Линейка W/D/L с подсказками */}
-              <div className="flex flex-wrap gap-1">
-                {form.map((m, idx) => {
-                  let bg = "bg-zinc-100 text-zinc-700";
-                  if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
-                  else if (m.res === "L") bg = "bg-red-100 text-red-700";
+  {/* Форма команды + история соперников */}
+  <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
+    <h3 className="text-sm font-semibold text-zinc-800">
+      Форма (10 последних официальных матчей)
+    </h3>
 
-                  const title = [m.date || "", m.opponentName, m.tournament]
-                    .filter(Boolean)
-                    .join(" · ");
+    {form.length === 0 ? (
+      <div className="text-xs text-zinc-500">
+        Недостаточно данных по официальным матчам.
+      </div>
+    ) : (
+      <div className="space-y-3">
+        {/* Линейка W/D/L */}
+        <div className="flex flex-wrap gap-1">
+          {form.map((m, idx) => {
+            let bg = "bg-zinc-100 text-zinc-700";
+            if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
+            else if (m.res === "L") bg = "bg-red-100 text-red-700";
 
-                  return (
-                    <span
-                      key={idx}
-                      title={title}
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
-                    >
-                      {m.res} {m.scored}:{m.missed}
-                    </span>
-                  );
-                })}
-              </div>
+            const title = [m.date || "", m.opponentName, m.tournament]
+              .filter(Boolean)
+              .join(" · ");
 
-              {/* Селектор соперника + список очных матчей */}
-              <OpponentsHistoryClient matches={opponentMatches} />
-            </div>
-          )}
-        </section>
-       </div>
+            return (
+              <span
+                key={idx}
+                title={title}
+                className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
+              >
+                {m.res} {m.scored}:{m.missed}
+              </span>
+            );
+          })}
+        </div>
 
-      {/* Профиль команды (метрики для радара) */}
-        <TeamRadarClient teamId={teamIdNum} />
-      {/* дальше будем добавлять ключевых игроков и т.п. */}
-    </div>
-  );
-}
+        {/* Селектор соперника + список очных матчей */}
+        <OpponentsHistoryClient matches={opponentMatches} />
+      </div>
+    )}
+  </section>
+
+  {/* Радар строго под формой, в той же ширине */}
+  <section className="rounded-xl border border-zinc-200 bg-white p-4">
+    <TeamRadarClient teamId={teamIdNum} />
+  </section>
+
+</div>
+
