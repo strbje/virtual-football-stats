@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react";
 
+/** ---------- Типы данных от API ---------- */
+
 type TeamStatsPerMatch = {
   goals?: number | null;
   shots?: number | null;
@@ -17,11 +19,11 @@ type RadarPercentiles = {
   goals: number | null;
   shots: number | null;
   passes: number | null;
+  passesPerShot: number | null;
+  defActions: number | null;
+  passAccPct: number | null;
   crosses: number | null;
-  def_actions: number | null;
-  pass_acc: number | null;
-  aerial_pct: number | null;
-  passes_per_shot: number | null;
+  aerialPct: number | null;
 };
 
 type TeamStatsResponse = {
@@ -30,7 +32,11 @@ type TeamStatsResponse = {
   matches: number;
   scope: "recent" | "all";
   perMatch?: TeamStatsPerMatch;
-  radarPercentiles?: RadarPercentiles | null;
+  radarPercentiles?: RadarPercentiles;
+  debug?: {
+    leagueLabel: string;
+    teamsInLeague: number;
+  };
 };
 
 type Props = {
@@ -38,19 +44,214 @@ type Props = {
   scope?: "recent" | "all";
 };
 
-// конфиг осей радара — ключи строго совпадают с radarPercentiles
+/** ---------- Конфиг осей радара ---------- */
+
 const METRIC_CONFIG = [
-  { key: "goals" as const, label: "Голы" },
-  { key: "shots" as const, label: "Удары" },
-  { key: "passes" as const, label: "Пасы" },
-  { key: "passes_per_shot" as const, label: "Пасов на удар" },
-  { key: "def_actions" as const, label: "Защитные действия" },
-  { key: "pass_acc" as const, label: "Точность паса, %" },
-  { key: "crosses" as const, label: "Навесы" },
-  { key: "aerial_pct" as const, label: "Победы в воздухе, %" },
+  { key: "goals" as const, label: "Голы", invert: false },
+  { key: "shots" as const, label: "Удары", invert: false },
+  { key: "passes" as const, label: "Пасы", invert: false },
+  {
+    key: "passesPerShot" as const,
+    label: "Пасов на удар",
+    invert: true, // меньше — лучше
+  },
+  { key: "defActions" as const, label: "Защитные действия", invert: false },
+  { key: "passAccPct" as const, label: "Точность паса %", invert: false },
+  { key: "crosses" as const, label: "Навесы", invert: false },
+  { key: "aerialPct" as const, label: "Победы в воздухе %", invert: false },
 ];
 
 type MetricKey = (typeof METRIC_CONFIG)[number]["key"];
+
+// Диапазоны для fallback-нормализации (когда нет перцентилей)
+const RADAR_LIMITS: Record<MetricKey, { min: number; max: number }> = {
+  goals: { min: 0, max: 4 },
+  shots: { min: 0, max: 15 },
+  passes: { min: 0, max: 400 },
+  passesPerShot: { min: 5, max: 60 }, // инвертируем
+  defActions: { min: 0, max: 40 },
+  passAccPct: { min: 60, max: 95 },
+  crosses: { min: 0, max: 20 },
+  aerialPct: { min: 30, max: 80 },
+};
+
+function clamp(v: number, min: number, max: number) {
+  if (Number.isNaN(v)) return min;
+  return Math.max(min, Math.min(max, v));
+}
+
+function normalizeRange(
+  key: MetricKey,
+  raw: number | null | undefined,
+  invert: boolean,
+) {
+  const value = raw ?? 0;
+  const { min, max } = RADAR_LIMITS[key];
+  const clamped = clamp(value, min, max);
+  const range = max - min || 1;
+  const norm = (clamped - min) / range; // 0..1
+  return invert ? 1 - norm : norm;
+}
+
+/** ---------- Внутренний компонент радара (как у игроков) ---------- */
+
+type RadarDatum = { label: string; pct: number };
+
+type RadarProps = {
+  data: RadarDatum[];
+};
+
+function toRadians(deg: number) {
+  return (deg * Math.PI) / 180;
+}
+
+function polarPoint(cx: number, cy: number, r: number, angleDeg: number) {
+  const a = toRadians(angleDeg - 90); // 0° вверх
+  return {
+    x: cx + r * Math.cos(a),
+    y: cy + r * Math.sin(a),
+  };
+}
+
+function TeamRadarSvg({ data }: RadarProps) {
+  const SIZE = 260;
+  const PADDING = 40;
+  const GRID_STEPS = 5;
+  const LABEL_OFFSET = 26;
+  const BADGE_OFFSET = 10;
+
+  const GRID_COLOR = "#e5e7eb";
+  const AXIS_COLOR = "#111827";
+  const POLY_STROKE = "#ef4444";
+  const POLY_FILL = "rgba(239,68,68,0.12)";
+  const BADGE_BG = "#ef4444";
+  const BADGE_TEXT = "#ffffff";
+
+  const N = data.length || 1;
+  const center = SIZE / 2;
+  const radius = center - PADDING;
+
+  const stepDeg = 360 / N;
+  const angles = [...Array(N)].map((_, i) => i * stepDeg);
+  const gridRadii = [...Array(GRID_STEPS)].map(
+    (_, i) => radius * ((i + 1) / GRID_STEPS),
+  );
+
+  const polyPoints = data.map((d, i) => {
+    const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
+    return polarPoint(center, center, r, angles[i]);
+  });
+  const polyAttr = polyPoints.map((p) => `${p.x},${p.y}`).join(" ");
+
+  return (
+    <svg
+      width={SIZE}
+      height={SIZE}
+      viewBox={`0 0 ${SIZE} ${SIZE}`}
+      aria-label="team-radar-chart"
+      className="max-w-full"
+    >
+      {/* Сетка: кольца */}
+      {gridRadii.map((r, idx) => (
+        <circle
+          key={r}
+          cx={center}
+          cy={center}
+          r={r}
+          fill="none"
+          stroke={GRID_COLOR}
+          strokeWidth={1}
+          opacity={idx === gridRadii.length - 1 ? 1 : 0.8}
+        />
+      ))}
+
+      {/* Сетка: оси */}
+      {angles.map((a, i) => {
+        const p = polarPoint(center, center, radius, a);
+        return (
+          <line
+            key={`axis-${i}`}
+            x1={center}
+            y1={center}
+            x2={p.x}
+            y2={p.y}
+            stroke={GRID_COLOR}
+            strokeWidth={1}
+            opacity={0.9}
+          />
+        );
+      })}
+
+      {/* Подписи осей */}
+      {data.map((d, i) => {
+        const outer = polarPoint(
+          center,
+          center,
+          radius + LABEL_OFFSET,
+          angles[i],
+        );
+        const alignCos = Math.cos(toRadians(angles[i] - 90));
+        const align =
+          alignCos > 0.25 ? "start" : alignCos < -0.25 ? "end" : "middle";
+
+        return (
+          <text
+            key={`label-${i}`}
+            x={outer.x}
+            y={outer.y}
+            fontSize={10}
+            fill={AXIS_COLOR}
+            textAnchor={align as any}
+            dominantBaseline="middle"
+          >
+            {d.label}
+          </text>
+        );
+      })}
+
+      {/* Полигон команды */}
+      <polygon points={polyAttr} fill={POLY_FILL} stroke={POLY_STROKE} strokeWidth={2} />
+
+      {/* Точки + бейджи процентов */}
+      {data.map((d, i) => {
+        const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
+        const dot = polarPoint(center, center, r, angles[i]);
+        const badge = polarPoint(center, center, r + BADGE_OFFSET, angles[i]);
+        const pct = Math.round(d.pct ?? 0);
+
+        return (
+          <g key={`pt-${i}`}>
+            <circle cx={dot.x} cy={dot.y} r={3} fill={POLY_STROKE} />
+            <g transform={`translate(${badge.x}, ${badge.y})`}>
+              <rect
+                x={-18}
+                y={-10}
+                width={36}
+                height={14}
+                rx={6}
+                ry={6}
+                fill={BADGE_BG}
+              />
+              <text
+                x={0}
+                y={-10 + 7}
+                textAnchor="middle"
+                fontSize={10}
+                fontWeight={700}
+                fill={BADGE_TEXT}
+                dominantBaseline="middle"
+              >
+                {pct}%
+              </text>
+            </g>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** ---------- Основной клиентский компонент ---------- */
 
 export default function TeamRadarClient({ teamId, scope = "recent" }: Props) {
   const [data, setData] = useState<TeamStatsResponse | null>(null);
@@ -106,44 +307,50 @@ export default function TeamRadarClient({ teamId, scope = "recent" }: Props) {
   const matches = data.matches ?? 0;
   const radar = data.radarPercentiles;
 
-  if (!radar) {
-    // защита от случая, если API ещё не отдаёт radarPercentiles
-    return (
-      <div className="text-xs text-zinc-500">
-        Перцентили по команде пока не доступны (radarPercentiles отсутствует в ответе API).
-      </div>
-    );
-  }
-
-  const passAccPct = m.pass_acc != null ? (m.pass_acc as number) * 100 : null;
-  const aerialPct = m.aerial_pct != null ? (m.aerial_pct as number) * 100 : null;
+  const passAccPct = m.pass_acc != null ? Number(m.pass_acc) * 100 : null;
+  const aerialPct = m.aerial_pct != null ? Number(m.aerial_pct) * 100 : null;
   const passesPerShot =
     m.shots && m.shots > 0 && m.allpasses != null
       ? m.allpasses / m.shots
       : null;
 
-  const fmt = (v: number | null | undefined, digits = 2) =>
-    v == null ? "—" : v.toFixed(digits);
+  // сырые значения для fallback-нормализации
+  const fallbackValues: Record<MetricKey, number | null> = {
+    goals: m.goals ?? null,
+    shots: m.shots ?? null,
+    passes: m.allpasses ?? null,
+    passesPerShot,
+    defActions: m.def_actions ?? null,
+    passAccPct,
+    crosses: m.crosses ?? null,
+    aerialPct,
+  };
 
-  // --- геометрия радара по перцентилям (0–100) ---
-  const size = 260;
-  const cx = size / 2;
-  const cy = size / 2;
-  const radius = 100;
-  const count = METRIC_CONFIG.length;
-  const layers = [0.25, 0.5, 0.75, 1];
+  const hasServerRadar =
+    radar &&
+    Object.values(radar).some(
+      (v) => v !== null && v !== undefined && !Number.isNaN(Number(v)),
+    );
 
-  const points = METRIC_CONFIG.map((cfg, idx) => {
-    const pct = radar[cfg.key as MetricKey] ?? 0; // 0–100
-    const norm = Math.max(0, Math.min(1, pct / 100));
-    const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
-    const r = radius * norm;
-    const x = cx + r * Math.cos(angle);
-    const y = cy + r * Math.sin(angle);
-    return { x, y };
+  const radarData: RadarDatum[] = METRIC_CONFIG.map((cfg) => {
+    let pct: number;
+
+    if (hasServerRadar && radar) {
+      const v = radar[cfg.key];
+      if (v != null) {
+        pct = Number(v);
+      } else {
+        // если по конкретной метрике перцентиль не пришёл — фолбечимся на диапазон
+        const raw = fallbackValues[cfg.key];
+        pct = Math.round(normalizeRange(cfg.key, raw, cfg.invert) * 100);
+      }
+    } else {
+      const raw = fallbackValues[cfg.key];
+      pct = Math.round(normalizeRange(cfg.key, raw, cfg.invert) * 100);
+    }
+
+    return { label: cfg.label, pct };
   });
-
-  const polygonPoints = points.map((p) => `${p.x},${p.y}`).join(" ");
 
   return (
     <div className="space-y-3 text-xs text-zinc-700">
@@ -151,135 +358,14 @@ export default function TeamRadarClient({ teamId, scope = "recent" }: Props) {
         Диапазон: официальные матчи (с 18 сезона), всего {matches || 0} матчей.
       </div>
 
-      <div className="flex flex-col md:flex-row gap-6 items-stretch">
-        {/* Радар (SVG) — стиль как у игрока, только одна рамка вокруг секции снаружи */}
-        <div className="flex-1 flex items-center justify-center">
-          <svg
-            width={size}
-            height={size}
-            viewBox={`0 0 ${size} ${size}`}
-            className="max-w-full"
-          >
-            {/* сетка */}
-            {layers.map((k, layerIdx) => {
-              const r = radius * k;
-              const layerPoints = METRIC_CONFIG.map((_, idx) => {
-                const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
-                const x = cx + r * Math.cos(angle);
-                const y = cy + r * Math.sin(angle);
-                return `${x},${y}`;
-              }).join(" ");
-              return (
-                <polygon
-                  key={layerIdx}
-                  points={layerPoints}
-                  fill="none"
-                  stroke="#27272a"
-                  strokeWidth={0.5}
-                />
-              );
-            })}
-
-            {/* лучи */}
-            {METRIC_CONFIG.map((_, idx) => {
-              const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
-              const x = cx + radius * Math.cos(angle);
-              const y = cy + radius * Math.sin(angle);
-              return (
-                <line
-                  key={idx}
-                  x1={cx}
-                  y1={cy}
-                  x2={x}
-                  y2={y}
-                  stroke="#27272a"
-                  strokeWidth={0.5}
-                />
-              );
-            })}
-
-            {/* полигон команды — стиль под твой скрин (красный) */}
-            <polygon
-              points={polygonPoints}
-              fill="rgba(239,68,68,0.18)"
-              stroke="#ef4444"
-              strokeWidth={2}
-            />
-
-            {/* точки */}
-            {points.map((p, idx) => (
-              <circle key={idx} cx={p.x} cy={p.y} r={3} fill="#ef4444" />
-            ))}
-
-            {/* подписи осей */}
-            {METRIC_CONFIG.map((cfg, idx) => {
-              const angle = (2 * Math.PI * idx) / count - Math.PI / 2;
-              const labelRadius = radius + 18;
-              const x = cx + labelRadius * Math.cos(angle);
-              const y = cy + labelRadius * Math.sin(angle);
-
-              const textAnchor =
-                Math.abs(Math.cos(angle)) < 0.1
-                  ? "middle"
-                  : Math.cos(angle) > 0
-                  ? "start"
-                  : "end";
-
-              return (
-                <text
-                  key={cfg.key}
-                  x={x}
-                  y={y}
-                  textAnchor={textAnchor}
-                  dominantBaseline="middle"
-                  className="fill-zinc-100 text-[10px]"
-                >
-                  {cfg.label}
-                </text>
-              );
-            })}
-          </svg>
-        </div>
-
-        {/* легенда с реальными числами за матч */}
-        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-          <div className="flex justify-between">
-            <span>Голы за матч</span>
-            <span className="font-semibold">{fmt(m.goals)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Удары за матч</span>
-            <span className="font-semibold">{fmt(m.shots)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Пасы за матч</span>
-            <span className="font-semibold">{fmt(m.allpasses)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Пасов на удар</span>
-            <span className="font-semibold">{fmt(passesPerShot)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Защитные действия за матч</span>
-            <span className="font-semibold">{fmt(m.def_actions)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Точность паса, %</span>
-            <span className="font-semibold">{fmt(passAccPct, 1)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Навесов за матч</span>
-            <span className="font-semibold">{fmt(m.crosses)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Побед в воздухе, %</span>
-            <span className="font-semibold">{fmt(aerialPct, 1)}</span>
-          </div>
-        </div>
+      <div className="flex items-center justify-center">
+        <TeamRadarSvg data={radarData} />
       </div>
 
       <div className="text-[11px] text-zinc-500 mt-1">
-        Радар показывает перцентили по командам лиги (0–100%, где 100% — топ команды по метрике).
+        Радар показывает перцентили по командам лиги (0–100%, где 100% — топ
+        команды по метрике). При отсутствии перцентилей используется
+        нормализация по фиксированным диапазонам.
       </div>
     </div>
   );
