@@ -336,7 +336,7 @@ export default async function TeamPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* Вторая строка: слева распределение по лигам, справа форма + head-to-head */}
+      {/* Вторая строка: слева распределение по лигам, справа форма + радар */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Распределение по лигам + топ-3 соперников */}
         <section className="rounded-xl border border-zinc-200 p-4">
@@ -365,15 +365,10 @@ export default async function TeamPage({ params }: { params: Params }) {
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               {/* Удобные */}
               <div>
-                <h4 className="font-semibold mb-1">
-                  Самые удобные соперники
-                </h4>
+                <h4 className="font-semibold mb-1">Самые удобные соперники</h4>
                 <ul className="space-y-1">
                   {bestOpponents.map((o) => (
-                    <li
-                      key={o.id}
-                      className="flex justify-between gap-2"
-                    >
+                    <li key={o.id} className="flex justify-between gap-2">
                       <span className="text-emerald-700">{o.name}</span>
                       <span className="text-emerald-700 font-semibold">
                         {o.wins}-{o.draws}-{o.loses}
@@ -385,15 +380,10 @@ export default async function TeamPage({ params }: { params: Params }) {
 
               {/* Неудобные */}
               <div>
-                <h4 className="font-semibold mb-1">
-                  Самые неудобные соперники
-                </h4>
+                <h4 className="font-semibold mb-1">Самые неудобные соперники</h4>
                 <ul className="space-y-1">
                   {worstOpponents.map((o) => (
-                    <li
-                      key={o.id}
-                      className="flex justify-between gap-2"
-                    >
+                    <li key={o.id} className="flex justify-between gap-2">
                       <span className="text-red-700">{o.name}</span>
                       <span className="text-red-700 font-semibold">
                         {o.wins}-{o.draws}-{o.loses}
@@ -407,53 +397,54 @@ export default async function TeamPage({ params }: { params: Params }) {
         </section>
 
         {/* Форма команды + радар в одном правом столбце */}
-<div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
+          {/* Форма команды + история соперников */}
+          <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-zinc-800">
+              Форма (10 последних официальных матчей)
+            </h3>
 
-  {/* Форма команды + история соперников */}
-  <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
-    <h3 className="text-sm font-semibold text-zinc-800">
-      Форма (10 последних официальных матчей)
-    </h3>
+            {form.length === 0 ? (
+              <div className="text-xs text-zinc-500">
+                Недостаточно данных по официальным матчам.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Линейка W/D/L */}
+                <div className="flex flex-wrap gap-1">
+                  {form.map((m, idx) => {
+                    let bg = "bg-zinc-100 text-zinc-700";
+                    if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
+                    else if (m.res === "L") bg = "bg-red-100 text-red-700";
 
-    {form.length === 0 ? (
-      <div className="text-xs text-zinc-500">
-        Недостаточно данных по официальным матчам.
-      </div>
-    ) : (
-      <div className="space-y-3">
-        {/* Линейка W/D/L */}
-        <div className="flex flex-wrap gap-1">
-          {form.map((m, idx) => {
-            let bg = "bg-zinc-100 text-zinc-700";
-            if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
-            else if (m.res === "L") bg = "bg-red-100 text-red-700";
+                    const title = [m.date || "", m.opponentName, m.tournament]
+                      .filter(Boolean)
+                      .join(" · ");
 
-            const title = [m.date || "", m.opponentName, m.tournament]
-              .filter(Boolean)
-              .join(" · ");
+                    return (
+                      <span
+                        key={idx}
+                        title={title}
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
+                      >
+                        {m.res} {m.scored}:{m.missed}
+                      </span>
+                    );
+                  })}
+                </div>
 
-            return (
-              <span
-                key={idx}
-                title={title}
-                className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
-              >
-                {m.res} {m.scored}:{m.missed}
-              </span>
-            );
-          })}
+                {/* Селектор соперника + список очных матчей */}
+                <OpponentsHistoryClient matches={opponentMatches} />
+              </div>
+            )}
+          </section>
+
+          {/* Радар строго под формой, в той же ширине */}
+          <section className="rounded-xl border border-zinc-200 bg-white p-4">
+            <TeamRadarClient teamId={teamIdNum} />
+          </section>
         </div>
-
-        {/* Селектор соперника + список очных матчей */}
-        <OpponentsHistoryClient matches={opponentMatches} />
       </div>
-    )}
-  </section>
-
-  {/* Радар строго под формой, в той же ширине */}
-  <section className="rounded-xl border border-zinc-200 bg-white p-4">
-    <TeamRadarClient teamId={teamIdNum} />
-  </section>
-
-</div>
-
+    </div>
+  );
+}
