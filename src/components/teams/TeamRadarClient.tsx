@@ -232,10 +232,11 @@ function TeamRadarSvg({ data }: RadarProps) {
       <polygon points={polyAttr} fill={POLY_FILL} stroke={POLY_STROKE} strokeWidth={2} />
 
       {/* Точки + бейджи процентов */}
-      {data.map((d, i) => {
+        {data.map((d, i) => {
         const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
         const dot = polarPoint(center, center, r, angles[i]);
-        const badge = polarPoint(center, center, r + BADGE_OFFSET, angles[i]);
+        const badgeR = Math.max(0, r - BADGE_INNER); // было r + offset → теперь внутрь
+        const badge = polarPoint(center, center, badgeR, angles[i]);
         const pct = Math.round(d.pct ?? 0);
 
         return (
