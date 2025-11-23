@@ -113,33 +113,31 @@ function polarPoint(cx: number, cy: number, r: number, angleDeg: number) {
   };
 }
 
-// аккуратный перенос строки по пробелам, максимум 2 строки
+// переносим подписи в 1–2 строки, чтобы влезали вокруг радара
 function wrapLabel(label: string, maxLen = 10): string[] {
-  if (label.length <= maxLen) return [label];
-
   const words = label.split(" ");
   const lines: string[] = [];
   let current = "";
 
   for (const w of words) {
-    const next = (current + " " + w).trim();
-    if (next.length > maxLen) {
-      if (current) lines.push(current.trim());
+    const next = current ? `${current} ${w}` : w;
+    if (next.length > maxLen && current) {
+      lines.push(current);
       current = w;
     } else {
       current = next;
     }
   }
-  if (current) lines.push(current.trim());
+  if (current) lines.push(current);
 
-  return lines.slice(0, 2);
+  return lines.slice(0, 2); // максимум 2 строки
 }
 
 function TeamRadarSvg({ data }: RadarProps) {
-  const SIZE = 260;
-  const PADDING = 40;
+  const SIZE = 280;
+  const PADDING = 48;
   const GRID_STEPS = 5;
-  const LABEL_OFFSET = 34; // чуть дальше от круга
+  const LABEL_OFFSET = 30;
   const BADGE_OFFSET = 10;
 
   const GRID_COLOR = "#e5e7eb";
@@ -204,7 +202,7 @@ function TeamRadarSvg({ data }: RadarProps) {
         );
       })}
 
-      {/* Подписи осей с переносом */}
+      {/* Подписи осей (с переносом) */}
       {data.map((d, i) => {
         const outer = polarPoint(
           center,
@@ -213,10 +211,10 @@ function TeamRadarSvg({ data }: RadarProps) {
           angles[i],
         );
         const alignCos = Math.cos(toRadians(angles[i] - 90));
-        const textAnchor =
+        const align =
           alignCos > 0.25 ? "start" : alignCos < -0.25 ? "end" : "middle";
 
-        const lines = wrapLabel(d.label, 10);
+        const lines = wrapLabel(d.label, 11);
 
         return (
           <text
@@ -225,15 +223,11 @@ function TeamRadarSvg({ data }: RadarProps) {
             y={outer.y}
             fontSize={9}
             fill={AXIS_COLOR}
-            textAnchor={textAnchor as any}
+            textAnchor={align as any}
             dominantBaseline="middle"
           >
-            {lines.map((ln, idx) => (
-              <tspan
-                key={idx}
-                x={outer.x}
-                dy={idx === 0 ? 0 : 12}
-              >
+            {lines.map((ln, j) => (
+              <tspan key={j} x={outer.x} dy={j === 0 ? 0 : 11}>
                 {ln}
               </tspan>
             ))}
