@@ -3,6 +3,7 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import OpponentsHistoryClient from "@/components/teams/OpponentsHistoryClient";
+import TeamRadarClient from "@/components/teams/TeamRadarClient";
 
 export const dynamic = "force-dynamic";
 
@@ -445,9 +446,17 @@ export default async function TeamPage({ params }: { params: Params }) {
             </div>
           )}
         </section>
-      </div>
+       </div>
 
-      {/* дальше будем добавлять радар, ключевых игроков и т.п. */}
+      {/* Профиль команды (метрики для радара) */}
+      <section className="rounded-xl border border-zinc-200 p-4">
+        <h3 className="text-sm font-semibold text-zinc-800 mb-3">
+          Профиль команды (метрики для радара)
+        </h3>
+        <TeamRadarClient teamId={teamIdNum} />
+      </section>
+
+      {/* дальше будем добавлять ключевых игроков и т.п. */}
     </div>
   );
 }
