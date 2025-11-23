@@ -1,13 +1,13 @@
 // src/app/api/team-stats/[teamId]/route.ts
-// Полная статистика команды по официальным турнирам (с 18 сезона),
-// агрегирована из tbl_users_match_stats по team_id
+// Полная статистика команды по официальным турнирам (с 18 сезона)
+// + перцентили по лиге для командного радара
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 const SEASON_MIN = 18;
 
-// тот же OFFICIAL_FILTER, что и в радаре / player-stats
+// тот же OFFICIAL_FILTER, что и в радаре
 const OFFICIAL_FILTER = `
   t.name REGEXP '\\\\([0-9]+ сезон\\\\)'
   AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}
@@ -118,6 +118,66 @@ const EMPTY_TOTALS: Totals = {
   cross_acc: null,
 };
 
+// оси радара
+type RadarPercentiles = {
+  goals: number | null;          // голы за матч
+  shots: number | null;          // удары за матч
+  passes: number | null;         // пасы за матч
+  passesPerShot: number | null;  // пасов на удар (инвертируем)
+  defActions: number | null;     // защитные действия за матч
+  passAccPct: number | null;     // точность паса, %
+  crosses: number | null;        // навесы за матч
+  aerialPct: number | null;      // победы в воздухе, %
+};
+
+type LeagueRow = {
+  team_id: number;
+  matches: number;
+  goals_per_match: number | null;
+  shots_per_match: number | null;
+  passes_per_match: number | null;
+  crosses_per_match: number | null;
+  def_actions_per_match: number | null;
+  pass_acc: number | null;
+  aerial_pct: number | null;
+};
+
+// утилита для перцентилей по массиву значений
+function computePercentile(
+  rows: LeagueRow[],
+  key: keyof LeagueRow,
+  teamId: number,
+  invert: boolean,
+): number | null {
+  const vals: number[] = [];
+  for (const r of rows) {
+    const v = r[key];
+    if (v != null && Number.isFinite(v as number)) {
+      vals.push(v as number);
+    }
+  }
+  if (vals.length === 0) return null;
+  if (vals.length === 1) return 50; // единственная команда в пуле
+
+  const sorted = [...vals].sort((a, b) => a - b);
+
+  const row = rows.find((r) => r.team_id === teamId);
+  if (!row) return null;
+
+  const raw = row[key];
+  if (raw == null || !Number.isFinite(raw as number)) return null;
+
+  const v = raw as number;
+
+  let idx = sorted.findIndex((x) => v <= x);
+  if (idx === -1) idx = sorted.length - 1;
+
+  const basePct = (idx / (sorted.length - 1)) * 100;
+  const pct = invert ? 100 - basePct : basePct;
+
+  return Math.max(0, Math.min(100, pct));
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: { teamId: string } },
@@ -136,15 +196,24 @@ export async function GET(
 
   const seasonFilter =
     scope === "all"
-      ? `t.name REGEXP '\\\\([0-9]+ сезон\\\\)'` // любой сезон
-      : OFFICIAL_FILTER; // только с SEASON_MIN и выше
+      ? `t.name REGEXP '\\\\([0-9]+ сезон\\\\)'`
+      : OFFICIAL_FILTER;
 
   try {
+    // ---- 1) Профиль команды (totals + perMatch + текущая лига) ----
     const sql = `
       WITH base AS (
         SELECT
           ums.team_id,
           ums.match_id,
+          tm.timestamp AS ts,
+          CASE
+            WHEN UPPER(t.name) LIKE '%ПРЕМЬЕР%' OR UPPER(t.name) LIKE '% ПЛ%' THEN 'ПЛ'
+            WHEN UPPER(t.name) LIKE '%ФНЛ%'  THEN 'ФНЛ'
+            WHEN UPPER(t.name) LIKE '%ПФЛ%'  THEN 'ПФЛ'
+            WHEN UPPER(t.name) LIKE '%ЛФЛ%'  THEN 'ЛФЛ'
+            ELSE 'Прочие'
+          END AS league_label,
 
           ums.goals,
           ums.assists,
@@ -179,7 +248,6 @@ export async function GET(
 
           ums.crosses,
           ums.allcrosses
-
         FROM tbl_users_match_stats ums
         JOIN tournament_match tm ON tm.id = ums.match_id
         JOIN tournament t        ON t.id  = tm.tournament_id
@@ -226,99 +294,107 @@ export async function GET(
           SUM(allcrosses)     AS allcrosses
         FROM base
         GROUP BY team_id
+      ),
+      last_league AS (
+        SELECT league_label
+        FROM base
+        WHERE ts = (SELECT MAX(ts) FROM base)
+        LIMIT 1
       )
       SELECT
-        team_id,
-        matches,
+        pt.team_id,
+        pt.matches,
 
-        goals,
-        assists,
-        (goals + assists) AS goal_contrib,
-        xg,
-        (goals - xg)      AS xg_delta,
+        pt.goals,
+        pt.assists,
+        (pt.goals + pt.assists) AS goal_contrib,
+        pt.xg,
+        (pt.goals - pt.xg)      AS xg_delta,
 
-        (kickedin + kickedout) AS shots,
+        (pt.kickedin + pt.kickedout) AS shots,
         CASE
-          WHEN (kickedin + kickedout) > 0
-            THEN kickedin * 1.0 / (kickedin + kickedout)
+          WHEN (pt.kickedin + pt.kickedout) > 0
+            THEN pt.kickedin * 1.0 / (pt.kickedin + pt.kickedout)
           ELSE NULL
         END AS shots_on_target_pct,
         CASE
-          WHEN goals > 0
-            THEN (kickedin + kickedout) * 1.0 / goals
+          WHEN pt.goals > 0
+            THEN (pt.kickedin + pt.kickedout) * 1.0 / pt.goals
           ELSE NULL
         END AS shots_per_goal,
 
-        passes_xa,
-        ipasses        AS key_passes,
-        pregoal_passes AS pre_assists,
-        allpasses,
-        completedpasses,
+        pt.passes_xa,
+        pt.ipasses        AS key_passes,
+        pt.pregoal_passes AS pre_assists,
+        pt.allpasses,
+        pt.completedpasses,
         CASE
-          WHEN allpasses > 0
-            THEN completedpasses * 1.0 / allpasses
+          WHEN pt.allpasses > 0
+            THEN pt.completedpasses * 1.0 / pt.allpasses
           ELSE NULL
         END AS pass_acc,
         CASE
-          WHEN passes_xa > 0
-            THEN 0.5 * allpasses * 1.0 / passes_xa
+          WHEN pt.passes_xa > 0
+            THEN 0.5 * pt.allpasses * 1.0 / pt.passes_xa
           ELSE NULL
         END AS pxa,
 
-        allstockes,
-        completedstockes,
+        pt.allstockes,
+        pt.completedstockes,
         CASE
-          WHEN allstockes > 0
-            THEN completedstockes * 1.0 / allstockes
+          WHEN pt.allstockes > 0
+            THEN pt.completedstockes * 1.0 / pt.allstockes
           ELSE NULL
         END AS dribble_pct,
 
-        intercepts,
-        selection,
-        completedtackles,
-        blocks,
-        allselection,
-        (intercepts + selection + completedtackles + blocks) AS def_actions,
+        pt.intercepts,
+        pt.selection,
+        pt.completedtackles,
+        pt.blocks,
+        pt.allselection,
+        (pt.intercepts + pt.selection + pt.completedtackles + pt.blocks) AS def_actions,
         CASE
-          WHEN (intercepts + selection + completedtackles + blocks) > 0
-            THEN (outplayed + penalised_fails) * 1.0 /
-                 (intercepts + selection + completedtackles + blocks)
+          WHEN (pt.intercepts + pt.selection + pt.completedtackles + pt.blocks) > 0
+            THEN (pt.outplayed + pt.penalised_fails) * 1.0 /
+                 (pt.intercepts + pt.selection + pt.completedtackles + pt.blocks)
           ELSE NULL
         END AS beaten_rate,
 
-        outs,
-        duels_air,
-        duels_air_win,
+        pt.outs,
+        pt.duels_air,
+        pt.duels_air_win,
         CASE
-          WHEN duels_air > 0
-            THEN duels_air_win * 1.0 / duels_air
+          WHEN pt.duels_air > 0
+            THEN pt.duels_air_win * 1.0 / pt.duels_air
           ELSE NULL
         END AS aerial_pct,
 
-        duels_off_win,
-        duels_off_lose,
-        (duels_off_win + duels_off_lose) AS off_duels_total,
+        pt.duels_off_win,
+        pt.duels_off_lose,
+        (pt.duels_off_win + pt.duels_off_lose) AS off_duels_total,
         CASE
-          WHEN (duels_off_win + duels_off_lose) > 0
-            THEN duels_off_win * 1.0 / (duels_off_win + duels_off_lose)
+          WHEN (pt.duels_off_win + pt.duels_off_lose) > 0
+            THEN pt.duels_off_win * 1.0 / (pt.duels_off_win + pt.duels_off_lose)
           ELSE NULL
         END AS off_duels_win_pct,
 
-        crosses,
-        allcrosses,
+        pt.crosses,
+        pt.allcrosses,
         CASE
-          WHEN allcrosses > 0
-            THEN crosses * 1.0 / allcrosses
+          WHEN pt.allcrosses > 0
+            THEN pt.crosses * 1.0 / pt.allcrosses
           ELSE NULL
-        END AS cross_acc
-      FROM per_team
+        END AS cross_acc,
+
+        (SELECT league_label FROM last_league) AS current_league_label
+      FROM per_team pt
       LIMIT 1
     `;
 
     const rowsRaw = await prisma.$queryRawUnsafe<any[]>(sql);
-    const [row] = toJSON<any[]>(rowsRaw);
+    const [rowRaw] = toJSON<any[]>(rowsRaw);
 
-    if (!row) {
+    if (!rowRaw) {
       return NextResponse.json({
         ok: true,
         teamId,
@@ -326,54 +402,58 @@ export async function GET(
         totals: EMPTY_TOTALS,
         perMatch: EMPTY_TOTALS,
         scope,
+        radarPercentiles: null,
+        leagueLabel: null,
       });
     }
 
+    const leagueLabel: string | null = rowRaw.current_league_label ?? null;
+
     const totals: Totals = {
-      matches: row.matches ?? 0,
+      matches: rowRaw.matches ?? 0,
 
-      goals: row.goals ?? 0,
-      assists: row.assists ?? 0,
-      goal_contrib: row.goal_contrib ?? 0,
-      xg: row.xg ?? 0,
-      xg_delta: row.xg_delta ?? 0,
-      shots: row.shots ?? 0,
-      shots_on_target_pct: row.shots_on_target_pct,
-      shots_per_goal: row.shots_per_goal,
+      goals: rowRaw.goals ?? 0,
+      assists: rowRaw.assists ?? 0,
+      goal_contrib: rowRaw.goal_contrib ?? 0,
+      xg: rowRaw.xg ?? 0,
+      xg_delta: rowRaw.xg_delta ?? 0,
+      shots: rowRaw.shots ?? 0,
+      shots_on_target_pct: rowRaw.shots_on_target_pct,
+      shots_per_goal: rowRaw.shots_per_goal,
 
-      passes_xa: row.passes_xa ?? 0,
-      key_passes: row.key_passes ?? 0,
-      pre_assists: row.pre_assists ?? 0,
-      allpasses: row.allpasses ?? 0,
-      completedpasses: row.completedpasses ?? 0,
-      pass_acc: row.pass_acc,
-      pxa: row.pxa,
+      passes_xa: rowRaw.passes_xa ?? 0,
+      key_passes: rowRaw.key_passes ?? 0,
+      pre_assists: rowRaw.pre_assists ?? 0,
+      allpasses: rowRaw.allpasses ?? 0,
+      completedpasses: rowRaw.completedpasses ?? 0,
+      pass_acc: rowRaw.pass_acc,
+      pxa: rowRaw.pxa,
 
-      allstockes: row.allstockes ?? 0,
-      completedstockes: row.completedstockes ?? 0,
-      dribble_pct: row.dribble_pct,
+      allstockes: rowRaw.allstockes ?? 0,
+      completedstockes: rowRaw.completedstockes ?? 0,
+      dribble_pct: rowRaw.dribble_pct,
 
-      intercepts: row.intercepts ?? 0,
-      selection: row.selection ?? 0,
-      completedtackles: row.completedtackles ?? 0,
-      blocks: row.blocks ?? 0,
-      allselection: row.allselection ?? 0,
-      def_actions: row.def_actions ?? 0,
-      beaten_rate: row.beaten_rate,
+      intercepts: rowRaw.intercepts ?? 0,
+      selection: rowRaw.selection ?? 0,
+      completedtackles: rowRaw.completedtackles ?? 0,
+      blocks: rowRaw.blocks ?? 0,
+      allselection: rowRaw.allselection ?? 0,
+      def_actions: rowRaw.def_actions ?? 0,
+      beaten_rate: rowRaw.beaten_rate,
 
-      outs: row.outs ?? 0,
-      duels_air: row.duels_air ?? 0,
-      duels_air_win: row.duels_air_win ?? 0,
-      aerial_pct: row.aerial_pct,
+      outs: rowRaw.outs ?? 0,
+      duels_air: rowRaw.duels_air ?? 0,
+      duels_air_win: rowRaw.duels_air_win ?? 0,
+      aerial_pct: rowRaw.aerial_pct,
 
-      duels_off_win: row.duels_off_win ?? 0,
-      duels_off_lose: row.duels_off_lose ?? 0,
-      off_duels_total: row.off_duels_total ?? 0,
-      off_duels_win_pct: row.off_duels_win_pct,
+      duels_off_win: rowRaw.duels_off_win ?? 0,
+      duels_off_lose: rowRaw.duels_off_lose ?? 0,
+      off_duels_total: rowRaw.off_duels_total ?? 0,
+      off_duels_win_pct: rowRaw.off_duels_win_pct,
 
-      crosses: row.crosses ?? 0,
-      allcrosses: row.allcrosses ?? 0,
-      cross_acc: row.cross_acc,
+      crosses: rowRaw.crosses ?? 0,
+      allcrosses: rowRaw.allcrosses ?? 0,
+      cross_acc: rowRaw.cross_acc,
     };
 
     const matches = totals.matches || 0;
@@ -410,7 +490,135 @@ export async function GET(
     perMatch.crosses = div(totals.crosses);
     perMatch.allcrosses = div(totals.allcrosses);
 
-    // проценты / коэффициенты (shots_on_target_pct, pass_acc, beaten_rate, aerial_pct, pxa и т.п.) не трогаем
+    // ---- 2) Перцентили по лиге для радара ----
+
+    let radarPercentiles: RadarPercentiles | null = null;
+    let leagueDebug: any = null;
+
+    if (leagueLabel) {
+      const leagueSql = `
+        WITH base AS (
+          SELECT
+            ums.team_id,
+            ums.match_id,
+            CASE
+              WHEN UPPER(t.name) LIKE '%ПРЕМЬЕР%' OR UPPER(t.name) LIKE '% ПЛ%' THEN 'ПЛ'
+              WHEN UPPER(t.name) LIKE '%ФНЛ%'  THEN 'ФНЛ'
+              WHEN UPPER(t.name) LIKE '%ПФЛ%'  THEN 'ПФЛ'
+              WHEN UPPER(t.name) LIKE '%ЛФЛ%'  THEN 'ЛФЛ'
+              ELSE 'Прочие'
+            END AS league_label,
+
+            ums.goals,
+            ums.goals_expected        AS xg,
+            ums.kickedin,
+            ums.kickedout,
+            ums.allpasses,
+            ums.completedpasses,
+            ums.crosses,
+            (ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS def_actions,
+            ums.duels_air,
+            ums.duels_air_win
+          FROM tbl_users_match_stats ums
+          JOIN tournament_match tm ON tm.id = ums.match_id
+          JOIN tournament t        ON t.id  = tm.tournament_id
+          WHERE (${seasonFilter})
+        )
+        SELECT
+          team_id,
+          COUNT(DISTINCT match_id) AS matches,
+          CASE WHEN COUNT(DISTINCT match_id) > 0
+            THEN SUM(goals) * 1.0 / COUNT(DISTINCT match_id)
+            ELSE NULL
+          END AS goals_per_match,
+          CASE WHEN COUNT(DISTINCT match_id) > 0
+            THEN SUM(kickedin + kickedout) * 1.0 / COUNT(DISTINCT match_id)
+            ELSE NULL
+          END AS shots_per_match,
+          CASE WHEN COUNT(DISTINCT match_id) > 0
+            THEN SUM(allpasses) * 1.0 / COUNT(DISTINCT match_id)
+            ELSE NULL
+          END AS passes_per_match,
+          CASE WHEN COUNT(DISTINCT match_id) > 0
+            THEN SUM(crosses) * 1.0 / COUNT(DISTINCT match_id)
+            ELSE NULL
+          END AS crosses_per_match,
+          CASE WHEN COUNT(DISTINCT match_id) > 0
+            THEN SUM(def_actions) * 1.0 / COUNT(DISTINCT match_id)
+            ELSE NULL
+          END AS def_actions_per_match,
+          CASE WHEN SUM(allpasses) > 0
+            THEN SUM(completedpasses) * 1.0 / SUM(allpasses)
+            ELSE NULL
+          END AS pass_acc,
+          CASE WHEN SUM(duels_air) > 0
+            THEN SUM(duels_air_win) * 1.0 / SUM(duels_air)
+            ELSE NULL
+          END AS aerial_pct
+        FROM base
+        WHERE league_label = ?
+        GROUP BY team_id
+      `;
+
+      const leagueRowsRaw = await prisma.$queryRawUnsafe<any[]>(
+        leagueSql,
+        leagueLabel,
+      );
+      const leagueRows = toJSON<LeagueRow[]>(leagueRowsRaw);
+
+      if (leagueRows.length > 0) {
+        // добавляем passes_per_shot уже в TS
+        const enriched = leagueRows.map((r) => {
+          const shots = r.shots_per_match ?? null;
+          const passes = r.passes_per_match ?? null;
+          const passes_per_shot =
+            shots && shots > 0 && passes != null ? passes / shots : null;
+          return { ...r, passes_per_shot };
+        }) as (LeagueRow & { passes_per_shot: number | null })[];
+
+        // перцентили для нужной команды
+        const goalsPct = computePercentile(enriched, "goals_per_match", teamId, false);
+        const shotsPct = computePercentile(enriched, "shots_per_match", teamId, false);
+        const passesPct = computePercentile(enriched, "passes_per_match", teamId, false);
+        const crossesPct = computePercentile(
+          enriched,
+          "crosses_per_match",
+          teamId,
+          false,
+        );
+        const defActionsPct = computePercentile(
+          enriched,
+          "def_actions_per_match",
+          teamId,
+          false,
+        );
+        const passAccPct = computePercentile(enriched, "pass_acc", teamId, false);
+        // пасов на удар — меньше лучше → invert = true
+        const passesPerShotPct = computePercentile(
+          enriched,
+          "passes_per_shot",
+          teamId,
+          true,
+        );
+        const aerialPct = computePercentile(enriched, "aerial_pct", teamId, false);
+
+        radarPercentiles = {
+          goals: goalsPct,
+          shots: shotsPct,
+          passes: passesPct,
+          passesPerShot: passesPerShotPct,
+          defActions: defActionsPct,
+          passAccPct,
+          crosses: crossesPct,
+          aerialPct,
+        };
+
+        leagueDebug = {
+          leagueLabel,
+          teamsInLeague: enriched.length,
+        };
+      }
+    }
 
     return NextResponse.json({
       ok: true,
@@ -419,6 +627,9 @@ export async function GET(
       totals,
       perMatch,
       scope,
+      leagueLabel,
+      radarPercentiles,
+      debug: leagueDebug,
     });
   } catch (e: any) {
     return NextResponse.json(
