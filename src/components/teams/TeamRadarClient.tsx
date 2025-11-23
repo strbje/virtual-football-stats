@@ -134,10 +134,10 @@ function wrapLabel(label: string, maxLen = 10): string[] {
 }
 
 function TeamRadarSvg({ data }: RadarProps) {
-  const SIZE = 240;
-  const PADDING = 48;
+  const SIZE = 220;
+  const PADDING = 50;
   const GRID_STEPS = 5;
-  const LABEL_OFFSET = 44;
+  const LABEL_OFFSET = 46;
   const BADGE_OFFSET = 12;
 
   const GRID_COLOR = "#e5e7eb";
