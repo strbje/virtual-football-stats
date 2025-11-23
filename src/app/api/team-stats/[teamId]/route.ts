@@ -120,29 +120,30 @@ const EMPTY_TOTALS: Totals = {
 
 // оси радара
 type RadarPercentiles = {
-  goals: number | null;          // голы за матч
-  shots: number | null;          // удары за матч
-  passes: number | null;         // пасы за матч
-  passesPerShot: number | null;  // пасов на удар (инвертируем)
-  defActions: number | null;     // защитные действия за матч
-  passAccPct: number | null;     // точность паса, %
-  crosses: number | null;        // навесы за матч
-  aerialPct: number | null;      // победы в воздухе, %
+  goals: number | null;         // голы за матч
+  shots: number | null;         // удары за матч
+  passes: number | null;        // пасы за матч
+  passesPerShot: number | null; // пасов на удар (инвертируем)
+  defActions: number | null;    // защитные действия за матч
+  passAccPct: number | null;    // точность паса, %
+  crosses: number | null;       // навесы за матч
+  aerialPct: number | null;     // победы в воздухе, %
 };
 
+// строки для пула лиги
 type LeagueRow = {
-  team_id: number;
+  team_id: number | string;
   matches: number;
-  goals_per_match: number | null;
-  shots_per_match: number | null;
-  passes_per_match: number | null;
-  crosses_per_match: number | null;
-  def_actions_per_match: number | null;
-  pass_acc: number | null;
-  aerial_pct: number | null;
-  passes_per_shot: number | null;
+  goals_per_match: number | string | null;
+  shots_per_match: number | string | null;
+  passes_per_match: number | string | null;
+  crosses_per_match: number | string | null;
+  def_actions_per_match: number | string | null;
+  pass_acc: number | string | null;
+  aerial_pct: number | string | null;
+  passes_per_shot: number | string | null;
+  [key: string]: any;
 };
-
 
 // утилита для перцентилей по массиву значений
 function computePercentile(
@@ -151,33 +152,38 @@ function computePercentile(
   teamId: number,
   invert: boolean,
 ): number | null {
-  const vals: number[] = [];
-  for (const r of rows) {
-    const v = r[key];
-    if (v != null && Number.isFinite(v as number)) {
-      vals.push(v as number);
-    }
+  // приводим team_id и значение метрики к числу
+  const normalized = rows
+    .map((r) => {
+      const raw = r[key];
+      const value =
+        raw === null || raw === undefined ? null : Number(raw as any);
+      return {
+        teamId: Number(r.team_id),
+        value,
+      };
+    })
+    .filter((x) => x.value !== null && Number.isFinite(x.value as number));
+
+  if (!normalized.length) return null;
+
+  // сортируем по значению
+  const sorted = [...normalized].sort(
+    (a, b) => (a.value as number) - (b.value as number),
+  );
+
+  // индекс нужной команды
+  const idx = sorted.findIndex((x) => x.teamId === teamId);
+  if (idx === -1) return null;
+
+  if (sorted.length === 1) {
+    return 100; // единственная команда — 100%
   }
-  if (vals.length === 0) return null;
-  if (vals.length === 1) return 50; // единственная команда в пуле
 
-  const sorted = [...vals].sort((a, b) => a - b);
+  const frac = idx / (sorted.length - 1); // 0 = минимум, 1 = максимум
+  const pct = invert ? 1 - frac : frac;
 
-  const row = rows.find((r) => r.team_id === teamId);
-  if (!row) return null;
-
-  const raw = row[key];
-  if (raw == null || !Number.isFinite(raw as number)) return null;
-
-  const v = raw as number;
-
-  let idx = sorted.findIndex((x) => v <= x);
-  if (idx === -1) idx = sorted.length - 1;
-
-  const basePct = (idx / (sorted.length - 1)) * 100;
-  const pct = invert ? 100 - basePct : basePct;
-
-  return Math.max(0, Math.min(100, pct));
+  return Math.round(pct * 100);
 }
 
 export async function GET(
@@ -569,57 +575,72 @@ export async function GET(
       const leagueRows = toJSON<LeagueRow[]>(leagueRowsRaw);
 
       if (leagueRows.length > 0) {
-       // считаем passes_per_shot и кладём в каждую строку
-const enriched: LeagueRow[] = leagueRows.map((r) => {
-  const shots = r.shots_per_match ?? null;
-  const passes = r.passes_per_match ?? null;
+        // считаем passes_per_shot и кладём в каждую строку
+        const enriched: LeagueRow[] = leagueRows.map((r) => {
+          const shots =
+            r.shots_per_match === null || r.shots_per_match === undefined
+              ? null
+              : Number(r.shots_per_match as any);
+          const passes =
+            r.passes_per_match === null || r.passes_per_match === undefined
+              ? null
+              : Number(r.passes_per_match as any);
 
-  const passes_per_shot =
-    shots && shots > 0 && passes != null ? passes / shots : null;
+          const passes_per_shot =
+            shots && shots > 0 && passes != null ? passes / shots : null;
 
-  return { ...r, passes_per_shot };
-});
+          return { ...r, passes_per_shot };
+        });
 
-// перцентили для нужной команды
-const goalsPct = computePercentile(
-  enriched,
-  "goals_per_match",
-  teamId,
-  false,
-);
-const shotsPct = computePercentile(
-  enriched,
-  "shots_per_match",
-  teamId,
-  false,
-);
-const passesPct = computePercentile(
-  enriched,
-  "passes_per_match",
-  teamId,
-  false,
-);
-const crossesPct = computePercentile(
-  enriched,
-  "crosses_per_match",
-  teamId,
-  false,
-);
-const defActionsPct = computePercentile(
-  enriched,
-  "def_actions_per_match",
-  teamId,
-  false,
-);
-const passAccPct = computePercentile(enriched, "pass_acc", teamId, false);
-const aerialPct = computePercentile(enriched, "aerial_pct", teamId, false);
-const passesPerShotPct = computePercentile(
-  enriched,
-  "passes_per_shot",
-  teamId,
-  true,
-);
-
+        // перцентили для нужной команды
+        const goalsPct = computePercentile(
+          enriched,
+          "goals_per_match",
+          teamId,
+          false,
+        );
+        const shotsPct = computePercentile(
+          enriched,
+          "shots_per_match",
+          teamId,
+          false,
+        );
+        const passesPct = computePercentile(
+          enriched,
+          "passes_per_match",
+          teamId,
+          false,
+        );
+        const crossesPct = computePercentile(
+          enriched,
+          "crosses_per_match",
+          teamId,
+          false,
+        );
+        const defActionsPct = computePercentile(
+          enriched,
+          "def_actions_per_match",
+          teamId,
+          false,
+        );
+        const passAccPct = computePercentile(
+          enriched,
+          "pass_acc",
+          teamId,
+          false,
+        );
+        const aerialPct = computePercentile(
+          enriched,
+          "aerial_pct",
+          teamId,
+          false,
+        );
+        const passesPerShotPct = computePercentile(
+          enriched,
+          "passes_per_shot",
+          teamId,
+          true,
+        );
 
         radarPercentiles = {
           goals: goalsPct,
