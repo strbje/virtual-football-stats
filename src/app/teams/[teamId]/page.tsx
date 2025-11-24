@@ -20,6 +20,12 @@ function mapTournamentToLeagueLabel(name: string | null | undefined): string {
   return "Прочие";
 }
 
+// аккуратный формат чисел
+function fmt(v: number | null | undefined, digits = 2): string {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  return Number(v).toFixed(digits).replace(/\.?0+$/, "");
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -170,6 +176,210 @@ export default async function TeamPage({ params }: { params: Params }) {
     return { label, cnt, pct };
   });
 
+  // 2.5) Статистика текущего официального сезона (без кубков)
+  type SeasonStatsRow = {
+    tournament_name: string | null;
+    matches: number | null;
+    goals: number | null;
+    xg: number | null;
+    shots: number | null;
+    shots_on_target: number | null;
+    allpasses: number | null;
+    completedpasses: number | null;
+    passes_xa: number | null;
+    crosses: number | null;
+    allcrosses: number | null;
+    intercepts: number | null;
+    selection: number | null;
+    completedtackles: number | null;
+    blocks: number | null;
+    def_actions: number | null;
+    duels_air: number | null;
+    duels_air_win: number | null;
+  };
+
+  const seasonStatsRows = await prisma.$queryRawUnsafe<SeasonStatsRow[]>(
+    `
+    WITH season_base AS (
+      SELECT
+        ums.team_id,
+        tm.tournament_id,
+        tr.name AS tournament_name,
+        tm.timestamp AS ts
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      JOIN tournament tr       ON tm.tournament_id = tr.id
+      WHERE ums.team_id = ?
+        AND tr.name LIKE '%сезон%'
+        AND UPPER(tr.name) NOT LIKE '%КУБОК%'
+    ),
+    last_season AS (
+      SELECT
+        tournament_id,
+        tournament_name
+      FROM season_base
+      ORDER BY ts DESC
+      LIMIT 1
+    ),
+    agg AS (
+      SELECT
+        ums.team_id,
+        tm.tournament_id,
+        COUNT(DISTINCT ums.match_id)                AS matches,
+        SUM(ums.goals)                              AS goals,
+        SUM(ums.goals_expected)                     AS xg,
+        SUM(ums.kickedin + ums.kickedout)          AS shots,
+        SUM(ums.kickedin)                           AS shots_on_target,
+        SUM(ums.allpasses)                          AS allpasses,
+        SUM(ums.completedpasses)                    AS completedpasses,
+        SUM(ums.passes)                             AS passes_xa,
+        SUM(ums.crosses)                            AS crosses,
+        SUM(ums.allcrosses)                         AS allcrosses,
+        SUM(ums.intercepts)                         AS intercepts,
+        SUM(ums.selection)                          AS selection,
+        SUM(ums.completedtackles)                   AS completedtackles,
+        SUM(ums.blocks)                             AS blocks,
+        SUM(ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS def_actions,
+        SUM(ums.duels_air)                          AS duels_air,
+        SUM(ums.duels_air_win)                      AS duels_air_win
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      WHERE ums.team_id = ?
+      GROUP BY ums.team_id, tm.tournament_id
+    )
+    SELECT
+      ls.tournament_name,
+      a.matches,
+      a.goals,
+      a.xg,
+      a.shots,
+      a.shots_on_target,
+      a.allpasses,
+      a.completedpasses,
+      a.passes_xa,
+      a.crosses,
+      a.allcrosses,
+      a.intercepts,
+      a.selection,
+      a.completedtackles,
+      a.blocks,
+      a.def_actions,
+      a.duels_air,
+      a.duels_air_win
+    FROM last_season ls
+    JOIN agg a
+      ON a.tournament_id = ls.tournament_id
+    LIMIT 1
+    `,
+    teamIdNum,
+    teamIdNum,
+  );
+
+  const season = seasonStatsRows[0] ?? null;
+
+  // приведём к удобному виду
+  let seasonStyle:
+    | null
+    | {
+        tournamentName: string;
+        matches: number;
+        // атака
+        goalsTotal: number;
+        goalsPerMatch: number | null;
+        xgTotal: number;
+        xgPerMatch: number | null;
+        shotsTotal: number;
+        shotsPerMatch: number | null;
+        shotsOnTargetTotal: number;
+        shotsOnTargetPerMatch: number | null;
+        shotsAccPct: number | null;
+        passesPerShot: number | null;
+        shotDanger: number | null;
+        // созидание
+        passesTotal: number;
+        passesPerMatch: number | null;
+        passAccPct: number | null;
+        xATotal: number;
+        xAPerMatch: number | null;
+        pXA: number | null;
+        // фланги
+        crossesTotal: number;
+        crossesPerMatch: number | null;
+        crossAccPct: number | null;
+        // оборона
+        interceptsPerMatch: number | null;
+        selectionPerMatch: number | null;
+        completedTacklesPerMatch: number | null;
+        defActionsPerMatch: number | null;
+        duelsAirPerMatch: number | null;
+        aerialPct: number | null;
+      } = null;
+
+  if (season && season.matches && Number(season.matches) > 0) {
+    const matchesSeason = Number(season.matches);
+    const num = (x: number | null) => Number(x ?? 0);
+    const divPerMatch = (x: number | null) =>
+      matchesSeason > 0 ? num(x) / matchesSeason : null;
+
+    const goalsTotal = num(season.goals);
+    const xgTotal = num(season.xg);
+    const shotsTotal = num(season.shots);
+    const shotsOnTargetTotal = num(season.shots_on_target);
+    const passesTotal = num(season.allpasses);
+    const completedPasses = num(season.completedpasses);
+    const xATotal = num(season.passes_xa);
+    const crossesTotal = num(season.crosses);
+    const crossesAll = num(season.allcrosses);
+    const duelsAirTotal = num(season.duels_air);
+    const duelsAirWin = num(season.duels_air_win);
+    const defActionsTotal = num(season.def_actions);
+
+    seasonStyle = {
+      tournamentName: season.tournament_name ?? "",
+      matches: matchesSeason,
+
+      // атака
+      goalsTotal,
+      goalsPerMatch: divPerMatch(season.goals),
+      xgTotal,
+      xgPerMatch: divPerMatch(season.xg),
+      shotsTotal,
+      shotsPerMatch: divPerMatch(season.shots),
+      shotsOnTargetTotal,
+      shotsOnTargetPerMatch: divPerMatch(season.shots_on_target),
+      shotsAccPct:
+        shotsTotal > 0 ? (shotsOnTargetTotal * 100) / shotsTotal : null,
+      passesPerShot:
+        shotsTotal > 0 && passesTotal > 0 ? passesTotal / shotsTotal : null,
+      shotDanger: shotsTotal > 0 ? xgTotal / shotsTotal : null,
+
+      // созидание
+      passesTotal,
+      passesPerMatch: divPerMatch(season.allpasses),
+      passAccPct:
+        passesTotal > 0 ? (completedPasses * 100) / passesTotal : null,
+      xATotal,
+      xAPerMatch: divPerMatch(season.passes_xa),
+      pXA:
+        xATotal > 0 && passesTotal > 0 ? (0.5 * passesTotal) / xATotal : null,
+
+      // фланги
+      crossesTotal,
+      crossesPerMatch: divPerMatch(season.crosses),
+      crossAccPct:
+        crossesAll > 0 ? (crossesTotal * 100) / crossesAll : null,
+
+      // оборона
+      interceptsPerMatch: divPerMatch(season.intercepts),
+      selectionPerMatch: divPerMatch(season.selection),
+      completedTacklesPerMatch: divPerMatch(season.completedtackles),
+      defActionsPerMatch: divPerMatch(season.def_actions),
+      duelsAirPerMatch: divPerMatch(season.duels_air),
+      aerialPct:
+        duelsAirTotal > 0 ? (duelsAirWin * 100) / duelsAirTotal : null,
+    };
+  }
+
   // 3) Все официальные матчи против соперников
   const headToHeadRaw = await prisma.$queryRawUnsafe<{
     opponent_id: number;
@@ -289,15 +499,18 @@ export default async function TeamPage({ params }: { params: Params }) {
   }
 
   const allOpponentsAgg = Array.from(aggMap.values());
+
+  // фильтр по минимальному количеству матчей
   const eligibleOpponents = allOpponentsAgg.filter((o) => o.matches >= 5);
 
+  // сортировка по win-rate
   const sortedByWinRate = [...eligibleOpponents].sort((a, b) => {
     const aw = a.matches > 0 ? a.wins / a.matches : 0;
     const bw = b.matches > 0 ? b.wins / b.matches : 0;
 
-    if (bw !== aw) return bw - aw;
-    if (b.matches !== a.matches) return b.matches - a.matches;
-    return a.name.localeCompare(b.name);
+    if (bw !== aw) return bw - aw; // выше % побед
+    if (b.matches !== a.matches) return b.matches - a.matches; // больше матчей
+    return a.name.localeCompare(b.name); // стабильный порядок
   });
 
   const bestOpponents = sortedByWinRate.slice(0, 3);
@@ -333,9 +546,9 @@ export default async function TeamPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      {/* Вторая строка: слева распределение по лигам, справа форма + радар */}
+      {/* Вторая строка: слева распределение по лигам (+ стиль), справа форма + радар */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Распределение по лигам + топ-3 соперников */}
+        {/* Распределение по лигам + топ-3 соперников + стиль сезона */}
         <section className="rounded-xl border border-zinc-200 p-4">
           <h3 className="text-sm font-semibold text-zinc-800 mb-3">
             Распределение матчей по лигам
@@ -360,10 +573,9 @@ export default async function TeamPage({ params }: { params: Params }) {
           {/* Самые удобные / неудобные соперники */}
           {eligibleOpponents.length > 0 && (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              {/* Удобные */}
               <div>
-                <h4 className="font-semibold mb-1">
-                  Самые удобные соперники
-                </h4>
+                <h4 className="font-semibold mb-1">Самые удобные соперники</h4>
                 <ul className="space-y-1">
                   {bestOpponents.map((o) => (
                     <li key={o.id} className="flex justify-between gap-2">
@@ -376,10 +588,9 @@ export default async function TeamPage({ params }: { params: Params }) {
                 </ul>
               </div>
 
+              {/* Неудобные */}
               <div>
-                <h4 className="font-semibold mb-1">
-                  Самые неудобные соперники
-                </h4>
+                <h4 className="font-semibold mb-1">Самые неудобные соперники</h4>
                 <ul className="space-y-1">
                   {worstOpponents.map((o) => (
                     <li key={o.id} className="flex justify-between gap-2">
@@ -390,6 +601,101 @@ export default async function TeamPage({ params }: { params: Params }) {
                     </li>
                   ))}
                 </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Стиль игры в текущем сезоне */}
+          {seasonStyle && (
+            <div className="mt-6 border-t border-zinc-200 pt-4 text-xs space-y-3">
+              <div className="text-[11px] uppercase text-zinc-500">
+                ⚙️ Стиль игры — {seasonStyle.tournamentName}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Атака + Созидание */}
+                <div className="space-y-2">
+                  <div className="font-semibold">🎯 Атака</div>
+                  <div>
+                    Голы — {fmt(seasonStyle.goalsPerMatch)} за матч (
+                    {seasonStyle.goalsTotal} / {seasonStyle.matches})
+                  </div>
+                  <div>
+                    xG — {fmt(seasonStyle.xgPerMatch)} за матч (
+                    {fmt(seasonStyle.xgTotal)} / {seasonStyle.matches})
+                  </div>
+                  <div>
+                    Удары — {fmt(seasonStyle.shotsPerMatch)} за матч (
+                    {seasonStyle.shotsTotal} / {seasonStyle.matches})
+                  </div>
+                  <div>
+                    Удары в створ —{" "}
+                    {fmt(seasonStyle.shotsOnTargetPerMatch)} за матч (
+                    {seasonStyle.shotsOnTargetTotal} / {seasonStyle.matches})
+                  </div>
+                  <div>
+                    Точность ударов — {fmt(seasonStyle.shotsAccPct)}%
+                  </div>
+                  <div>Пасов на удар — {fmt(seasonStyle.passesPerShot)}</div>
+                  <div>
+                    Кэф опасности удара — {fmt(seasonStyle.shotDanger)}
+                  </div>
+
+                  <div className="mt-3 font-semibold">
+                    ⚡ Созидание и владение
+                  </div>
+                  <div>
+                    Попыток паса — {fmt(seasonStyle.passesPerMatch)} за матч (
+                    {seasonStyle.passesTotal} / {seasonStyle.matches})
+                  </div>
+                  <div>
+                    Точность паса — {fmt(seasonStyle.passAccPct)}%
+                  </div>
+                  <div>
+                    xA — {fmt(seasonStyle.xAPerMatch)} за матч (
+                    {fmt(seasonStyle.xATotal)} / {seasonStyle.matches})
+                  </div>
+                  <div>
+                    pXA — {fmt(seasonStyle.pXA)} паса на 0.5 xA
+                  </div>
+                </div>
+
+                {/* Фланги + Оборона */}
+                <div className="space-y-2">
+                  <div className="font-semibold">🌪 Фланги и навесы</div>
+                  <div>
+                    Навесы — {fmt(seasonStyle.crossesPerMatch)} за матч (
+                    {seasonStyle.crossesTotal} / {seasonStyle.matches})
+                  </div>
+                  <div>
+                    Точность навесов — {fmt(seasonStyle.crossAccPct)}%
+                  </div>
+
+                  <div className="mt-3 font-semibold">
+                    🛡 Оборона и воздух
+                  </div>
+                  <div>
+                    Перехваты — {fmt(seasonStyle.interceptsPerMatch)} за матч
+                  </div>
+                  <div>
+                    Попытки отбора — {fmt(seasonStyle.selectionPerMatch)} за
+                    матч
+                  </div>
+                  <div>
+                    Удачные отборы —{" "}
+                    {fmt(seasonStyle.completedTacklesPerMatch)} за матч
+                  </div>
+                  <div>
+                    Всего защитных действий —{" "}
+                    {fmt(seasonStyle.defActionsPerMatch)} за матч
+                  </div>
+                  <div>
+                    Воздушные дуэли — {fmt(seasonStyle.duelsAirPerMatch)} за
+                    матч
+                  </div>
+                  <div>
+                    Победы в воздухе — {fmt(seasonStyle.aerialPct)}%
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -432,7 +738,7 @@ export default async function TeamPage({ params }: { params: Params }) {
                   })}
                 </div>
 
-                {/* Селектор соперника + список очных матчей в фиксированной области */}
+                {/* Селектор соперника + список очных матчей (фиксированная область под 10 матчей) */}
                 <div className="mt-1 max-h-[260px] min-h-[260px] overflow-y-auto pr-1">
                   <OpponentsHistoryClient matches={opponentMatches} />
                 </div>
@@ -440,7 +746,7 @@ export default async function TeamPage({ params }: { params: Params }) {
             )}
           </section>
 
-          {/* Радар команды под формой */}
+          {/* Радар строго под формой, в той же ширине */}
           <section className="rounded-xl border border-zinc-200 bg-white p-4">
             <TeamRadarClient teamId={teamIdNum} />
           </section>
