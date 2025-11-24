@@ -428,9 +428,21 @@ export default async function TeamPage({ params }: { params: Params }) {
         goalsPerMatch?: { rank: number; total: number } | null;
         xgPerMatch?: { rank: number; total: number } | null;
         shotsPerMatch?: { rank: number; total: number } | null;
+        shotsOnTargetPerMatch?: { rank: number; total: number } | null;
+        shotsAccPct?: { rank: number; total: number } | null;
+        passesPerShot?: { rank: number; total: number } | null;
+        shotDanger?: { rank: number; total: number } | null;
         passesPerMatch?: { rank: number; total: number } | null;
+        passAccPct?: { rank: number; total: number } | null;
+        xAPerMatch?: { rank: number; total: number } | null;
         pXA?: { rank: number; total: number } | null;
+        crossesPerMatch?: { rank: number; total: number } | null;
         crossAccPct?: { rank: number; total: number } | null;
+        interceptsPerMatch?: { rank: number; total: number } | null;
+        selectionPerMatch?: { rank: number; total: number } | null;
+        completedTacklesPerMatch?: { rank: number; total: number } | null;
+        defActionsPerMatch?: { rank: number; total: number } | null;
+        duelsAirPerMatch?: { rank: number; total: number } | null;
         aerialPct?: { rank: number; total: number } | null;
       } = null;
 
@@ -470,6 +482,7 @@ export default async function TeamPage({ params }: { params: Params }) {
         m > 0 ? Number(x ?? 0) / m : null;
 
       const shotsTotal = Number(t.shots || 0);
+      const shotsOnTargetTotal = Number(t.shots_on_target || 0);
       const passesTotal = Number(t.allpasses || 0);
       const xATotal = Number(t.passes_xa || 0);
       const crossesAttempts = Number(t.allcrosses || 0);
@@ -484,9 +497,7 @@ export default async function TeamPage({ params }: { params: Params }) {
         shotsPerMatch: div(t.shots),
         shotsOnTargetPerMatch: div(t.shots_on_target),
         shotsAccPct:
-          shotsTotal > 0
-            ? (Number(t.shots_on_target || 0) * 100) / shotsTotal
-            : null,
+          shotsTotal > 0 ? (shotsOnTargetTotal * 100) / shotsTotal : null,
         passesPerShot:
           shotsTotal > 0 && passesTotal > 0
             ? passesTotal / shotsTotal
@@ -522,17 +533,69 @@ export default async function TeamPage({ params }: { params: Params }) {
       goalsPerMatch: getRank(leagueTeams, teamIdNum, "goalsPerMatch", true),
       xgPerMatch: getRank(leagueTeams, teamIdNum, "xgPerMatch", true),
       shotsPerMatch: getRank(leagueTeams, teamIdNum, "shotsPerMatch", true),
+      shotsOnTargetPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "shotsOnTargetPerMatch",
+        true,
+      ),
+      shotsAccPct: getRank(leagueTeams, teamIdNum, "shotsAccPct", true),
+      passesPerShot: getRank(
+        leagueTeams,
+        teamIdNum,
+        "passesPerShot",
+        false,
+      ),
+      shotDanger: getRank(leagueTeams, teamIdNum, "shotDanger", true),
       passesPerMatch: getRank(
         leagueTeams,
         teamIdNum,
         "passesPerMatch",
         true,
       ),
+      passAccPct: getRank(leagueTeams, teamIdNum, "passAccPct", true),
+      xAPerMatch: getRank(leagueTeams, teamIdNum, "xAPerMatch", true),
       pXA: getRank(leagueTeams, teamIdNum, "pXA", false),
+      crossesPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "crossesPerMatch",
+        true,
+      ),
       crossAccPct: getRank(
         leagueTeams,
         teamIdNum,
         "crossAccPct",
+        true,
+      ),
+      interceptsPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "interceptsPerMatch",
+        true,
+      ),
+      selectionPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "selectionPerMatch",
+        true,
+      ),
+      completedTacklesPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "completedTacklesPerMatch",
+        true,
+      ),
+      defActionsPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "defActionsPerMatch",
+        true,
+      ),
+      duelsAirPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "duelsAirPerMatch",
         true,
       ),
       aerialPct: getRank(leagueTeams, teamIdNum, "aerialPct", true),
@@ -836,16 +899,81 @@ export default async function TeamPage({ params }: { params: Params }) {
                     </span>
                   </div>
 
-                  <div>
-                    Удары в створ — {seasonStyle.shotsOnTargetTotal} /{" "}
-                    {fmt(seasonStyle.shotsOnTargetPerMatch)} за матч
+                  <div className="flex items-center gap-2">
+                    {ranks?.shotsOnTargetPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.shotsOnTargetPerMatch.rank,
+                            ranks.shotsOnTargetPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.shotsOnTargetPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      Удары в створ — {seasonStyle.shotsOnTargetTotal} /{" "}
+                      {fmt(seasonStyle.shotsOnTargetPerMatch)} за матч
+                    </span>
                   </div>
-                  <div>
-                    Точность ударов — {fmt(seasonStyle.shotsAccPct)}%
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.shotsAccPct && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.shotsAccPct.rank,
+                            ranks.shotsAccPct.total,
+                          )
+                        }
+                      >
+                        {ranks.shotsAccPct.rank}
+                      </span>
+                    )}
+                    <span>
+                      Точность ударов — {fmt(seasonStyle.shotsAccPct)}%
+                    </span>
                   </div>
-                  <div>Пасов на удар — {fmt(seasonStyle.passesPerShot)}</div>
-                  <div>
-                    Кэф опасности удара — {fmt(seasonStyle.shotDanger)}
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.passesPerShot && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.passesPerShot.rank,
+                            ranks.passesPerShot.total,
+                          )
+                        }
+                      >
+                        {ranks.passesPerShot.rank}
+                      </span>
+                    )}
+                    <span>
+                      Пасов на удар — {fmt(seasonStyle.passesPerShot)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.shotDanger && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.shotDanger.rank,
+                            ranks.shotDanger.total,
+                          )
+                        }
+                      >
+                        {ranks.shotDanger.rank}
+                      </span>
+                    )}
+                    <span>
+                      Кэф опасности удара — {fmt(seasonStyle.shotDanger, 2)}
+                    </span>
                   </div>
 
                   <div className="mt-3 font-semibold">
@@ -872,13 +1000,43 @@ export default async function TeamPage({ params }: { params: Params }) {
                     </span>
                   </div>
 
-                  <div>
-                    Точность паса — {fmt(seasonStyle.passAccPct)}%
+                  <div className="flex items-center gap-2">
+                    {ranks?.passAccPct && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.passAccPct.rank,
+                            ranks.passAccPct.total,
+                          )
+                        }
+                      >
+                        {ranks.passAccPct.rank}
+                      </span>
+                    )}
+                    <span>
+                      Точность паса — {fmt(seasonStyle.passAccPct)}%
+                    </span>
                   </div>
 
-                  <div>
-                    xA — {fmt(seasonStyle.xATotal)} /{" "}
-                    {fmt(seasonStyle.xAPerMatch)} за матч
+                  <div className="flex items-center gap-2">
+                    {ranks?.xAPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.xAPerMatch.rank,
+                            ranks.xAPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.xAPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      xA — {fmt(seasonStyle.xATotal)} /{" "}
+                      {fmt(seasonStyle.xAPerMatch)} за матч
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -900,9 +1058,24 @@ export default async function TeamPage({ params }: { params: Params }) {
                 <div className="space-y-2">
                   <div className="font-semibold">🌪 Фланги и навесы</div>
 
-                  <div>
-                    Навесы — {seasonStyle.crossesTotal} /{" "}
-                    {fmt(seasonStyle.crossesPerMatch)} за матч
+                  <div className="flex items-center gap-2">
+                    {ranks?.crossesPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.crossesPerMatch.rank,
+                            ranks.crossesPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.crossesPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      Навесы — {seasonStyle.crossesTotal} /{" "}
+                      {fmt(seasonStyle.crossesPerMatch)} за матч
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -927,25 +1100,104 @@ export default async function TeamPage({ params }: { params: Params }) {
                   <div className="mt-3 font-semibold">
                     🛡 Оборона и воздух
                   </div>
-                  <div>
-                    Перехваты —{" "}
-                    {fmt(seasonStyle.interceptsPerMatch)} за матч
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.interceptsPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.interceptsPerMatch.rank,
+                            ranks.interceptsPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.interceptsPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      Перехваты — {fmt(seasonStyle.interceptsPerMatch)} за матч
+                    </span>
                   </div>
-                  <div>
-                    Попытки отбора —{" "}
-                    {fmt(seasonStyle.selectionPerMatch)} за матч
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.selectionPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.selectionPerMatch.rank,
+                            ranks.selectionPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.selectionPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      Попытки отбора —{" "}
+                      {fmt(seasonStyle.selectionPerMatch)} за матч
+                    </span>
                   </div>
-                  <div>
-                    Удачные отборы —{" "}
-                    {fmt(seasonStyle.completedTacklesPerMatch)} за матч
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.completedTacklesPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.completedTacklesPerMatch.rank,
+                            ranks.completedTacklesPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.completedTacklesPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      Удачные отборы —{" "}
+                      {fmt(seasonStyle.completedTacklesPerMatch)} за матч
+                    </span>
                   </div>
-                  <div>
-                    Всего защитных действий —{" "}
-                    {fmt(seasonStyle.defActionsPerMatch)} за матч
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.defActionsPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.defActionsPerMatch.rank,
+                            ranks.defActionsPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.defActionsPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      Всего защитных действий —{" "}
+                      {fmt(seasonStyle.defActionsPerMatch)} за матч
+                    </span>
                   </div>
-                  <div>
-                    Воздушные дуэли —{" "}
-                    {fmt(seasonStyle.duelsAirPerMatch)} за матч
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.duelsAirPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.duelsAirPerMatch.rank,
+                            ranks.duelsAirPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.duelsAirPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      Воздушные дуэли —{" "}
+                      {fmt(seasonStyle.duelsAirPerMatch)} за матч
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2">
