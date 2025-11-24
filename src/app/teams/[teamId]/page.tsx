@@ -225,8 +225,8 @@ export default async function TeamPage({ params }: { params: Params }) {
     crosses: number | null;
     allcrosses: number | null;
     intercepts: number | null;
+    allselection: number | null;
     selection: number | null;
-    completedtackles: number | null;
     blocks: number | null;
     def_actions: number | null;
     duels_air: number | null;
@@ -271,8 +271,8 @@ export default async function TeamPage({ params }: { params: Params }) {
         SUM(ums.crosses)                            AS crosses,
         SUM(ums.allcrosses)                         AS allcrosses,
         SUM(ums.intercepts)                         AS intercepts,
-        SUM(ums.selection)                          AS selection,
-        SUM(ums.completedtackles)                   AS completedtackles,
+        SUM(ums.allselection)                          AS allselection,
+        SUM(ums.selection)                   AS selection,
         SUM(ums.blocks)                             AS blocks,
         SUM(ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS def_actions,
         SUM(ums.duels_air)                          AS duels_air,
@@ -296,8 +296,8 @@ export default async function TeamPage({ params }: { params: Params }) {
       a.crosses,
       a.allcrosses,
       a.intercepts,
+      a.allselection,
       a.selection,
-      a.completedtackles,
       a.blocks,
       a.def_actions,
       a.duels_air,
@@ -345,8 +345,8 @@ export default async function TeamPage({ params }: { params: Params }) {
         crossAccPct: number | null;
         // оборона
         interceptsPerMatch: number | null;
+        allselectionPerMatch: number | null;
         selectionPerMatch: number | null;
-        completedTacklesPerMatch: number | null;
         defActionsPerMatch: number | null;
         duelsAirPerMatch: number | null;
         aerialPct: number | null;
@@ -412,8 +412,8 @@ export default async function TeamPage({ params }: { params: Params }) {
 
       // оборона
       interceptsPerMatch: divPerMatch(season.intercepts),
+      allselectionPerMatch: divPerMatch(season.allselection),
       selectionPerMatch: divPerMatch(season.selection),
-      completedTacklesPerMatch: divPerMatch(season.completedtackles),
       defActionsPerMatch: divPerMatch(season.def_actions),
       duelsAirPerMatch: divPerMatch(season.duels_air),
       aerialPct:
@@ -439,8 +439,8 @@ export default async function TeamPage({ params }: { params: Params }) {
         crossesPerMatch?: { rank: number; total: number } | null;
         crossAccPct?: { rank: number; total: number } | null;
         interceptsPerMatch?: { rank: number; total: number } | null;
+        allselectionPerMatch?: { rank: number; total: number } | null;
         selectionPerMatch?: { rank: number; total: number } | null;
-        completedTacklesPerMatch?: { rank: number; total: number } | null;
         defActionsPerMatch?: { rank: number; total: number } | null;
         duelsAirPerMatch?: { rank: number; total: number } | null;
         aerialPct?: { rank: number; total: number } | null;
@@ -462,8 +462,8 @@ export default async function TeamPage({ params }: { params: Params }) {
         SUM(ums.crosses) AS crosses,
         SUM(ums.allcrosses) AS allcrosses,
         SUM(ums.intercepts) AS intercepts,
+        SUM(ums.allselection) AS allselection,
         SUM(ums.selection) AS selection,
-        SUM(ums.completedtackles) AS completedtackles,
         SUM(ums.blocks) AS blocks,
         SUM(ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS def_actions,
         SUM(ums.duels_air) AS duels_air,
@@ -520,8 +520,8 @@ export default async function TeamPage({ params }: { params: Params }) {
             ? (crossesSuccess * 100) / crossesAttempts
             : null,
         interceptsPerMatch: div(t.intercepts),
+        allselectionPerMatch: div(t.allselection),
         selectionPerMatch: div(t.selection),
-        completedTacklesPerMatch: div(t.completedtackles),
         defActionsPerMatch: div(t.def_actions),
         duelsAirPerMatch: div(t.duels_air),
         aerialPct:
@@ -574,16 +574,16 @@ export default async function TeamPage({ params }: { params: Params }) {
         "interceptsPerMatch",
         true,
       ),
+      allselectionPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "AllselectionPerMatch",
+        true,
+      ),
       selectionPerMatch: getRank(
         leagueTeams,
         teamIdNum,
         "selectionPerMatch",
-        true,
-      ),
-      completedTacklesPerMatch: getRank(
-        leagueTeams,
-        teamIdNum,
-        "completedTacklesPerMatch",
         true,
       ),
       defActionsPerMatch: getRank(
@@ -1121,6 +1121,26 @@ export default async function TeamPage({ params }: { params: Params }) {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {ranks?.allselectionPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.allselectionPerMatch.rank,
+                            ranks.allselectionPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.allselectionPerMatch.rank}
+                      </span>
+                    )}
+                    <span>
+                      Попытки отбора —{" "}
+                      {fmt(seasonStyle.allselectionPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
                     {ranks?.selectionPerMatch && (
                       <span
                         className={
@@ -1135,28 +1155,8 @@ export default async function TeamPage({ params }: { params: Params }) {
                       </span>
                     )}
                     <span>
-                      Попытки отбора —{" "}
-                      {fmt(seasonStyle.selectionPerMatch)} за матч
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {ranks?.completedTacklesPerMatch && (
-                      <span
-                        className={
-                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                          rankColor(
-                            ranks.completedTacklesPerMatch.rank,
-                            ranks.completedTacklesPerMatch.total,
-                          )
-                        }
-                      >
-                        {ranks.completedTacklesPerMatch.rank}
-                      </span>
-                    )}
-                    <span>
                       Удачные отборы —{" "}
-                      {fmt(seasonStyle.completedTacklesPerMatch)} за матч
+                      {fmt(seasonStyle.selectionPerMatch)} за матч
                     </span>
                   </div>
 
