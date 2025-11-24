@@ -303,14 +303,19 @@ export default async function TeamPage({ params }: { params: Params }) {
         xAPerMatch: number | null;
         pXA: number | null;
         // фланги
-        crossesTotal: number;
-        crossesPerMatch: number | null;
+        crossesAttemptsTotal: number;
+        crossesAttemptsPerMatch: number | null;
         crossAccPct: number | null;
         // оборона
+        interceptsTotal: number;
         interceptsPerMatch: number | null;
+        selectionTotal: number;
         selectionPerMatch: number | null;
+        completedTacklesTotal: number;
         completedTacklesPerMatch: number | null;
+        defActionsTotal: number;
         defActionsPerMatch: number | null;
+        duelsAirTotal: number;
         duelsAirPerMatch: number | null;
         aerialPct: number | null;
       } = null;
@@ -328,8 +333,11 @@ export default async function TeamPage({ params }: { params: Params }) {
     const passesTotal = num(season.allpasses);
     const completedPasses = num(season.completedpasses);
     const xATotal = num(season.passes_xa);
-    const crossesTotal = num(season.crosses);
-    const crossesAll = num(season.allcrosses);
+    const crossesSuccessTotal = num(season.crosses);
+    const crossesAttemptsTotal = num(season.allcrosses);
+    const interceptsTotal = num(season.intercepts);
+    const selectionTotal = num(season.selection);
+    const completedTacklesTotal = num(season.completedtackles);
     const duelsAirTotal = num(season.duels_air);
     const duelsAirWin = num(season.duels_air_win);
     const defActionsTotal = num(season.def_actions);
@@ -363,17 +371,24 @@ export default async function TeamPage({ params }: { params: Params }) {
       pXA:
         xATotal > 0 && passesTotal > 0 ? (0.5 * passesTotal) / xATotal : null,
 
-      // фланги
-      crossesTotal,
-      crossesPerMatch: divPerMatch(season.crosses),
+      // фланги (по попыткам навесов)
+      crossesAttemptsTotal,
+      crossesAttemptsPerMatch: divPerMatch(season.allcrosses),
       crossAccPct:
-        crossesAll > 0 ? (crossesTotal * 100) / crossesAll : null,
+        crossesAttemptsTotal > 0
+          ? (crossesSuccessTotal * 100) / crossesAttemptsTotal
+          : null,
 
       // оборона
+      interceptsTotal,
       interceptsPerMatch: divPerMatch(season.intercepts),
+      selectionTotal,
       selectionPerMatch: divPerMatch(season.selection),
+      completedTacklesTotal,
       completedTacklesPerMatch: divPerMatch(season.completedtackles),
+      defActionsTotal,
       defActionsPerMatch: divPerMatch(season.def_actions),
+      duelsAirTotal,
       duelsAirPerMatch: divPerMatch(season.duels_air),
       aerialPct:
         duelsAirTotal > 0 ? (duelsAirWin * 100) / duelsAirTotal : null,
@@ -508,9 +523,9 @@ export default async function TeamPage({ params }: { params: Params }) {
     const aw = a.matches > 0 ? a.wins / a.matches : 0;
     const bw = b.matches > 0 ? b.wins / b.matches : 0;
 
-    if (bw !== aw) return bw - aw; // выше % побед
-    if (b.matches !== a.matches) return b.matches - a.matches; // больше матчей
-    return a.name.localeCompare(b.name); // стабильный порядок
+    if (bw !== aw) return bw - aw;
+    if (b.matches !== a.matches) return b.matches - a.matches;
+    return a.name.localeCompare(b.name);
   });
 
   const bestOpponents = sortedByWinRate.slice(0, 3);
@@ -609,28 +624,28 @@ export default async function TeamPage({ params }: { params: Params }) {
           {seasonStyle && (
             <div className="mt-6 border-t border-zinc-200 pt-4 text-xs space-y-3">
               <div className="text-[11px] uppercase text-zinc-500">
-                ⚙️ Стиль игры — {seasonStyle.tournamentName}
+                ⚙️ Стиль игры — {seasonStyle.tournamentName},{" "}
+                {seasonStyle.matches} матчей
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Атака + Созидание */}
                 <div className="space-y-2">
                   <div className="font-semibold">🎯 Атака</div>
                   <div>
-                    Голы — {fmt(seasonStyle.goalsPerMatch)} за матч (
-                    {seasonStyle.goalsTotal} / {seasonStyle.matches})
+                    Голы — {fmt(seasonStyle.goalsTotal)} /{" "}
+                    {fmt(seasonStyle.goalsPerMatch)} за матч
                   </div>
                   <div>
-                    xG — {fmt(seasonStyle.xgPerMatch)} за матч (
-                    {fmt(seasonStyle.xgTotal)} / {seasonStyle.matches})
+                    xG — {fmt(seasonStyle.xgTotal)} /{" "}
+                    {fmt(seasonStyle.xgPerMatch)} за матч
                   </div>
                   <div>
-                    Удары — {fmt(seasonStyle.shotsPerMatch)} за матч (
-                    {seasonStyle.shotsTotal} / {seasonStyle.matches})
+                    Удары — {fmt(seasonStyle.shotsTotal)} /{" "}
+                    {fmt(seasonStyle.shotsPerMatch)} за матч
                   </div>
                   <div>
-                    Удары в створ —{" "}
-                    {fmt(seasonStyle.shotsOnTargetPerMatch)} за матч (
-                    {seasonStyle.shotsOnTargetTotal} / {seasonStyle.matches})
+                    Удары в створ — {fmt(seasonStyle.shotsOnTargetTotal)} /{" "}
+                    {fmt(seasonStyle.shotsOnTargetPerMatch)} за матч
                   </div>
                   <div>
                     Точность ударов — {fmt(seasonStyle.shotsAccPct)}%
@@ -644,15 +659,15 @@ export default async function TeamPage({ params }: { params: Params }) {
                     ⚡ Созидание и владение
                   </div>
                   <div>
-                    Попыток паса — {fmt(seasonStyle.passesPerMatch)} за матч (
-                    {seasonStyle.passesTotal} / {seasonStyle.matches})
+                    Попыток паса — {fmt(seasonStyle.passesTotal)} /{" "}
+                    {fmt(seasonStyle.passesPerMatch)} за матч
                   </div>
                   <div>
                     Точность паса — {fmt(seasonStyle.passAccPct)}%
                   </div>
                   <div>
-                    xA — {fmt(seasonStyle.xAPerMatch)} за матч (
-                    {fmt(seasonStyle.xATotal)} / {seasonStyle.matches})
+                    xA — {fmt(seasonStyle.xATotal)} /{" "}
+                    {fmt(seasonStyle.xAPerMatch)} за матч
                   </div>
                   <div>
                     pXA — {fmt(seasonStyle.pXA)} паса на 0.5 xA
@@ -663,8 +678,8 @@ export default async function TeamPage({ params }: { params: Params }) {
                 <div className="space-y-2">
                   <div className="font-semibold">🌪 Фланги и навесы</div>
                   <div>
-                    Навесы — {fmt(seasonStyle.crossesPerMatch)} за матч (
-                    {seasonStyle.crossesTotal} / {seasonStyle.matches})
+                    Навесы — {fmt(seasonStyle.crossesAttemptsTotal)} /{" "}
+                    {fmt(seasonStyle.crossesAttemptsPerMatch)} за матч
                   </div>
                   <div>
                     Точность навесов — {fmt(seasonStyle.crossAccPct)}%
@@ -674,23 +689,26 @@ export default async function TeamPage({ params }: { params: Params }) {
                     🛡 Оборона и воздух
                   </div>
                   <div>
-                    Перехваты — {fmt(seasonStyle.interceptsPerMatch)} за матч
+                    Перехваты — {fmt(seasonStyle.interceptsTotal)} /{" "}
+                    {fmt(seasonStyle.interceptsPerMatch)} за матч
                   </div>
                   <div>
-                    Попытки отбора — {fmt(seasonStyle.selectionPerMatch)} за
-                    матч
+                    Попытки отбора — {fmt(seasonStyle.selectionTotal)} /{" "}
+                    {fmt(seasonStyle.selectionPerMatch)} за матч
                   </div>
                   <div>
                     Удачные отборы —{" "}
+                    {fmt(seasonStyle.completedTacklesTotal)} /{" "}
                     {fmt(seasonStyle.completedTacklesPerMatch)} за матч
                   </div>
                   <div>
                     Всего защитных действий —{" "}
+                    {fmt(seasonStyle.defActionsTotal)} /{" "}
                     {fmt(seasonStyle.defActionsPerMatch)} за матч
                   </div>
                   <div>
-                    Воздушные дуэли — {fmt(seasonStyle.duelsAirPerMatch)} за
-                    матч
+                    Воздушные дуэли — {fmt(seasonStyle.duelsAirTotal)} /{" "}
+                    {fmt(seasonStyle.duelsAirPerMatch)} за матч
                   </div>
                   <div>
                     Победы в воздухе — {fmt(seasonStyle.aerialPct)}%
