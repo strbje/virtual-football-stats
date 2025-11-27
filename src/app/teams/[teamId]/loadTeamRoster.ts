@@ -79,7 +79,7 @@ export async function loadTeamRoster(
       tr.name
     FROM tbl_users_match_stats ums
     JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament tr       ON tr.id = tm.tournament_id
+    LEFT JOIN tournament tr       ON tr.id = tm.tournament_id
     WHERE ums.team_id = ?
     `,
     teamId,
@@ -218,7 +218,7 @@ export async function loadTeamRoster(
         ums.crosses,
         ums.allcrosses
       FROM tbl_users_match_stats ums
-      JOIN users u          ON u.id  = ums.user_id
+      LEFT JOIN users u          ON u.id  = ums.user_id
       JOIN tournament_match tm ON tm.id = ums.match_id
       WHERE ums.team_id = ?
         AND tm.tournament_id IN (${placeholders})
