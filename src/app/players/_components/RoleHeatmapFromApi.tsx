@@ -22,22 +22,39 @@ export default function RoleHeatmapFromApi({ userId, range = '' }: Props) {
   );
 
   if (isLoading) {
-    return (
-      <div className="rounded-2xl border border-emerald-200/40 bg-emerald-50/40 p-4 text-sm text-gray-600">
-        Загружаем тепловую карту…
-      </div>
-    );
-  }
-
-  if (error || !data || 'ok' in data && !data.ok) {
-    const msg = (data && 'error' in data && data.error) || (error as any)?.message || 'Нет данных';
-    return (
-      <div className="rounded-2xl border border-red-200/40 bg-red-50/40 p-4 text-sm text-red-700">
-        Ошибка загрузки: {msg}
-      </div>
-    );
-  }
-
-  // НУЖНО: передаём проп именно "data"
-  return <RoleHeatmap data={('ok' in data ? data.roles : [])} />;
+  return (
+    <div className="
+      rounded-2xl 
+      border border-zinc-700/40 
+      bg-zinc-900/40 
+      shadow-lg shadow-zinc-900/40 
+      p-4 text-sm 
+      text-foreground
+    ">
+      Загружаем тепловую карту…
+    </div>
+  );
 }
+
+if (error || (!data || ("ok" in data && !data.ok))) {
+  const msg =
+    (data && "error" in data && data.error) ||
+    (error as any)?.message ||
+    "Нет данных";
+
+  return (
+    <div className="
+      rounded-2xl 
+      border border-red-700/40 
+      bg-red-900/40 
+      shadow-lg shadow-zinc-900/40 
+      p-4 text-sm 
+      text-red-300
+    ">
+      Ошибка загрузки: {msg}
+    </div>
+  );
+}
+
+// итог
+return <RoleHeatmap data={("ok" in data ? data.roles : [])} />;
