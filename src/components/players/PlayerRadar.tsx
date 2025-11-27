@@ -98,122 +98,137 @@ export default function PlayerRadar({ title = "Профиль по амплуа"
   const polyAttr = polyPoints.map((p) => `${p.x},${p.y}`).join(" ");
 
   return (
-    <div className="rounded-xl border border-zinc-200 p-4">
-      <div className="text-[14px] font-semibold mb-2">{title}</div>
-      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-label="radar-chart">
-        {/* Сетка: кольца */}
-        {gridRadii.map((r, idx) => (
-          <circle
-            key={r}
-            cx={center}
-            cy={center}
-            r={r}
-            fill="none"
+  <div className="vfs-card p-4">
+    <div className="text-[14px] font-semibold mb-2 text-foreground">
+      {title}
+    </div>
+
+    <svg
+      width={SIZE}
+      height={SIZE}
+      viewBox={`0 0 ${SIZE} ${SIZE}`}
+      aria-label="radar-chart"
+    >
+      {/* Сетка: кольца */}
+      {gridRadii.map((r, idx) => (
+        <circle
+          key={r}
+          cx={center}
+          cy={center}
+          r={r}
+          fill="none"
+          stroke={GRID_COLOR}
+          strokeWidth={1}
+          opacity={idx === gridRadii.length - 1 ? 1 : 0.8}
+        />
+      ))}
+
+      {/* Сетка: оси */}
+      {angles.map((a, i) => {
+        const p = polarPoint(center, center, radius, a);
+        return (
+          <line
+            key={`axis-${i}`}
+            x1={center}
+            y1={center}
+            x2={p.x}
+            y2={p.y}
             stroke={GRID_COLOR}
             strokeWidth={1}
-            opacity={idx === gridRadii.length - 1 ? 1 : 0.8}
+            opacity={0.9}
           />
-        ))}
+        );
+      })}
 
-        {/* Сетка: оси */}
-        {angles.map((a, i) => {
-          const p = polarPoint(center, center, radius, a);
-          return (
-            <line
-              key={`axis-${i}`}
-              x1={center}
-              y1={center}
-              x2={p.x}
-              y2={p.y}
-              stroke={GRID_COLOR}
-              strokeWidth={1}
-              opacity={0.9}
-            />
-          );
-        })}
+      {/* Подписи осей (переносим на 1–2 строки) */}
+      {data.map((d, i) => {
+        const outer = polarPoint(
+          center,
+          center,
+          radius + LABEL_OFFSET,
+          angles[i]
+        );
+        const lines = wrapLabel(d.label, 14);
 
-        {/* Подписи осей (переносим на 1–2 строки) */}
-        {data.map((d, i) => {
-          const outer = polarPoint(center, center, radius + LABEL_OFFSET, angles[i]);
-          const lines = wrapLabel(d.label, 14);
-          // выравнивание текста по сектору
-          const align =
-            Math.cos(toRadians(angles[i] - 90)) > 0.25
-              ? "start"
-              : Math.cos(toRadians(angles[i] - 90)) < -0.25
-              ? "end"
-              : "middle";
+        const align =
+          Math.cos(toRadians(angles[i] - 90)) > 0.25
+            ? "start"
+            : Math.cos(toRadians(angles[i] - 90)) < -0.25
+            ? "end"
+            : "middle";
 
-          return (
-            <text
-              key={`label-${i}`}
-              x={outer.x}
-              y={outer.y}
-              fontSize={FONT_AXIS}
-              fill={AXIS_COLOR}
-              textAnchor={align as any}
-              dominantBaseline="middle"
-            >
-              {lines.map((ln, j) => (
-                <tspan key={j} x={outer.x} dy={j === 0 ? 0 : 14}>
-                  {ln}
-                </tspan>
-              ))}
-            </text>
-          );
-        })}
+        return (
+          <text
+            key={`label-${i}`}
+            x={outer.x}
+            y={outer.y}
+            fontSize={FONT_AXIS}
+            fill={AXIS_COLOR}
+            textAnchor={align as any}
+            dominantBaseline="middle"
+          >
+            {lines.map((ln, j) => (
+              <tspan key={j} x={outer.x} dy={j === 0 ? 0 : 14}>
+                {ln}
+              </tspan>
+            ))}
+          </text>
+        );
+      })}
 
-        {/* Полигон игрока */}
-        <polygon
-          points={polyAttr}
-          fill={POLY_FILL}
-          stroke={POLY_STROKE}
-          strokeWidth={2}
-        />
+      {/* Полигон игрока */}
+      <polygon
+        points={polyAttr}
+        fill={POLY_FILL}
+        stroke={POLY_STROKE}
+        strokeWidth={2}
+      />
 
-        {/* Точки + бейджи процентов (вынесены от полигона на BADGE_OFFSET) */}
-        {data.map((d, i) => {
-          const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
-          const dot = polarPoint(center, center, r, angles[i]);
-          const badge = polarPoint(center, center, r + BADGE_OFFSET, angles[i]);
-          const pct = Math.round(d.pct ?? 0);
+      {/* Точки + бейджи процентов */}
+      {data.map((d, i) => {
+        const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
+        const dot = polarPoint(center, center, r, angles[i]);
+        const badge = polarPoint(center, center, r + BADGE_OFFSET, angles[i]);
+        const pct = Math.round(d.pct ?? 0);
 
-          return (
-            <g key={`pt-${i}`}>
-              <circle cx={dot.x} cy={dot.y} r={3} fill={POLY_STROKE} />
-              {/* бейдж рисуем как прямоугольник с радиусом */}
-              <g transform={`translate(${badge.x}, ${badge.y})`}>
-               <g>
-  <rect
-    x={-20}
-    y={-12}
-    width={40}
-    height={16}
-    rx={6}
-    ry={6}
-    fill={BADGE_BG}           // как и раньше: '#e11d48' / твой цвет бейджа
-  />
-  <text
-    x={0}
-    y={-12 + 8}               // вертикальная центровка бейджа (12/2=6..8 смотрится лучше)
-    textAnchor="middle"
-    fontSize={10}
-    fontWeight={700}
-    fill={BADGE_TEXT}         // как и раньше: '#ffffff'
-    dominantBaseline="middle"
-  >
-    {Math.round(pct)}%
-  </text>
-</g>
+        return (
+          <g key={`pt-${i}`}>
+            <circle cx={dot.x} cy={dot.y} r={3} fill={POLY_STROKE} />
+            <g transform={`translate(${badge.x}, ${badge.y})`}>
+              <g>
+                <rect
+                  x={-20}
+                  y={-12}
+                  width={40}
+                  height={16}
+                  rx={6}
+                  ry={6}
+                  fill={BADGE_BG} // '#e11d48' / твой цвет бейджа
+                />
+                <text
+                  x={0}
+                  y={-12 + 8}
+                  textAnchor="middle"
+                  fontSize={10}
+                  fontWeight={700}
+                  fill={BADGE_TEXT} // '#ffffff'
+                  dominantBaseline="middle"
+                >
+                  {Math.round(pct)}%
+                </text>
               </g>
             </g>
-          );
-        })}
-      </svg>
+          </g>
+        );
+      })}
+    </svg>
 
-      {footnote && (
-        <div className="mt-2 text-[12px] text-zinc-500">{footnote}</div>
-      )}
-    </div>
-  );
+    {footnote && (
+      <div className="mt-2 text-[12px] text-zinc-400">
+        {footnote}
+      </div>
+    )}
+  </div>
+);
 }
+
