@@ -36,10 +36,15 @@ body {
 }
 
 @layer components {
-  /* Базовый контейнер страницы */
-  .vfs-page {
-    @apply max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-6;
+  .vfs-card {
+    @apply rounded-xl border border-zinc-700/40 bg-card shadow-sm
+           transition-all duration-200 hover:-translate-y-[1px] hover:shadow-lg;
   }
+
+  .vfs-table {
+    @apply w-full border-collapse rounded-xl overflow-hidden text-sm;
+  }
+}
 
   /* Главные заголовки страниц */
   .vfs-h1 {
