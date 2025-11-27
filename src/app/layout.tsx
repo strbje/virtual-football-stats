@@ -1,4 +1,3 @@
-// src/app/layout.tsx
 import "./globals.css";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -19,10 +18,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               🏆 Virtual Football Stats
             </Link>
             <nav className="flex gap-5 text-sm">
-              <Link href="/" className="opacity-90 hover:opacity-100">Главная</Link>
-              <Link href="/players" className="opacity-90 hover:opacity-100">Игроки</Link>
-              <Link href="/teams" className="opacity-90 hover:opacity-100">Команды</Link>
-              <Link href="/drafts" className="opacity-90 hover:opacity-100">Драфт</Link>
+              <Link href="/" className="opacity-90 hover:opacity-100">
+                Главная
+              </Link>
+              <Link href="/players" className="opacity-90 hover:opacity-100">
+                Игроки
+              </Link>
+              <Link href="/teams" className="opacity-90 hover:opacity-100">
+                Команды
+              </Link>
+              <Link href="/drafts" className="opacity-90 hover:opacity-100">
+                Драфт
+              </Link>
               <a
                 href="https://datalens.yandex/8yfey6ibqf0ou"
                 target="_blank"
