@@ -7,11 +7,16 @@ export const metadata: Metadata = {
   description: "Статистика игроков и команд • Virtual Football Stats",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="ru">
-      <body className="bg-zinc-950 text-zinc-50">
-        {/* ЕДИНСТВЕННАЯ ШАПКА САЙТА */}
+      {/* фон и текст теперь берём из CSS-переменных */}
+      <body className="min-h-screen bg-background text-foreground">
+        {/* Шапка */}
         <header className="sticky top-0 z-50 bg-blue-600 text-white">
           <div className="mx-auto max-w-7xl px-4 h-12 flex items-center gap-6">
             <Link href="/" className="font-semibold whitespace-nowrap">
@@ -42,9 +47,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
 
+        {/* Контент страниц */}
         <main className="mx-auto max-w-7xl px-4 py-8">{children}</main>
       </body>
     </html>
   );
 }
-
