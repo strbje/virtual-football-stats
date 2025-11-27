@@ -17,6 +17,24 @@ type ApiTeamStatsResponse = {
   totals: any; // структура совпадает с Totals из TeamStatsSection
 };
 
+function getApiBaseUrl(): string {
+  const env =
+    process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL || "";
+
+  // если уже есть протокол — используем как есть
+  if (env.startsWith("http://") || env.startsWith("https://")) {
+    return env;
+  }
+
+  // если задан хост без протокола (типичный случай: 89.169.162.248:3000)
+  if (env) {
+    return `http://${env}`;
+  }
+
+  // локальный fallback
+  return "http://127.0.0.1:3000";
+}
+
 function mapTournamentToLeagueLabel(name: string | null | undefined): string {
   const n = (name ?? "").toUpperCase();
 
@@ -128,11 +146,14 @@ export default async function TeamPage({
   let teamStats: ApiTeamStatsResponse | null = null;
   if (tab === "stats") {
     try {
-      const res = await fetch(`/api/team-stats/${teamIdNum}`, {
+      const base = getApiBaseUrl();
+      const res = await fetch(`${base}/api/team-stats/${teamIdNum}`, {
         cache: "no-store",
       });
       if (res.ok) {
         teamStats = (await res.json()) as ApiTeamStatsResponse;
+      } else {
+        teamStats = null;
       }
     } catch {
       teamStats = null;
