@@ -107,65 +107,70 @@ export default function FiltersClient({
   };
 
   return (
-    <form onSubmit={onSubmit} className="mb-4 flex flex-wrap gap-3 items-start">
-      <input
-        ref={qRef}
-        defaultValue={initial.q}
-        className="border px-3 py-2 rounded w-64"
-        placeholder="Игрок"
-      />
-      <input
-        ref={teamRef}
-        defaultValue={initial.team}
-        className="border px-3 py-2 rounded w-64"
-        placeholder="Команда"
-      />
-      <input
-        ref={tournRef}
-        defaultValue={initial.tournament}
-        className="border px-3 py-2 rounded w-64"
-        placeholder="Турнир"
-      />
+  <form
+    onSubmit={onSubmit}
+    className="mb-4 flex flex-wrap gap-3 items-start"
+  >
+    {/* Игрок */}
+    <input
+      ref={qRef}
+      defaultValue={initial.q}
+      className="vfs-input w-64"
+      placeholder="Игрок"
+    />
 
-      <select
-        ref={roleRef}
-        defaultValue={initial.role || ""}
-        className="border px-3 py-2 rounded"
-      >
-        <option value="">Амплуа: любое</option>
-        {roles.map((r) => (
-          <option key={r} value={r}>{r}</option>
-        ))}
-      </select>
+    {/* Команда */}
+    <input
+      ref={teamRef}
+      defaultValue={initial.team}
+      className="vfs-input w-64"
+      placeholder="Команда"
+    />
 
-      {/* ЕДИНЫЙ date-range с календарём */}
-      <input
-        ref={rangeRef}
-        className="border px-3 py-2 rounded w-64"
-        placeholder="Период: выберите в календаре"
-        // показываем пользователю человекочитаемую подпись
-        defaultValue={
-          fromDefault && toDefault ? `${fromDefault} — ${toDefault}` : ""
-        }
-        readOnly
-      />
+    {/* Турнир */}
+    <input
+      ref={tournRef}
+      defaultValue={initial.tournament}
+      className="vfs-input w-64"
+      placeholder="Турнир"
+    />
 
-      <button
-        type="submit"
-        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-      >
-        Показать
-      </button>
-      <button
-        type="button"
-        onClick={onReset}
-        className="border px-4 py-2 rounded"
-      >
-        Сбросить
-      </button>
-    </form>
-  );
-}
+    {/* Амплуа */}
+    <select
+      ref={roleRef}
+      defaultValue={initial.role || ""}
+      className="vfs-select"
+    >
+      <option value="">Амплуа: любое</option>
+      {roles.map((r) => (
+        <option key={r} value={r}>
+          {r}
+        </option>
+      ))}
+    </select>
+
+    {/* Период (date-range) */}
+    <input
+      ref={rangeRef}
+      className="vfs-input-readonly w-64"
+      placeholder="Период: выберите в календаре"
+      defaultValue={
+        fromDefault && toDefault ? `${fromDefault} — ${toDefault}` : ""
+      }
+      readOnly
+    />
+
+    {/* Кнопки */}
+    <button type="submit" className="vfs-button-primary">
+      Показать
+    </button>
+
+    <button type="button" onClick={onReset} className="vfs-button-secondary">
+      Сбросить
+    </button>
+  </form>
+);
+
 
 function toISO(d: Date): string {
   // YYYY-MM-DD в локали UTC, чтобы не ловить сдвиги
