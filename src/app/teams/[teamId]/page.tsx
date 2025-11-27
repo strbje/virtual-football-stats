@@ -367,7 +367,7 @@ export default async function TeamPage({
   searchParams,
 }: {
   params: Params;
-  searchParams?: { tab?: string; scope?: string; seasons?: string };
+  searchParams?: { tab?: string; scope?: string };
 }) {
   const teamIdNum = Number(params.teamId);
   const rawTab = searchParams?.tab;
@@ -438,59 +438,6 @@ export default async function TeamPage({
   }
 
   const currentLeagueShort = mapTournamentToLeagueLabel(info.last_tournament);
-
-  // 1.5) список сезонов, в которых команда играла (для селектора состава)
-  const seasonRows = await prisma.$queryRawUnsafe<
-    { season: number | null }[]
-  >(
-    `
-    SELECT DISTINCT
-      CAST(REGEXP_SUBSTR(tr.name, '[0-9]+') AS UNSIGNED) AS season
-    FROM tbl_users_match_stats ums
-    JOIN tournament_match tm ON tm.id = ums.match_id
-    JOIN tournament tr       ON tm.tournament_id = tr.id
-    WHERE ums.team_id = ?
-      AND tr.name LIKE '%сезон%'
-    `,
-    teamIdNum,
-  );
-
-  const seasonNumbers = seasonRows
-    .map((r) => Number(r.season))
-    .filter((s) => Number.isFinite(s) && s > 0)
-    .sort((a, b) => b - a);
-
-  const defaultSeason = seasonNumbers[0] ?? null;
-
-  let selectedSeasons: number[] = [];
-
-  if (tab === "roster" && seasonNumbers.length > 0) {
-    const raw = searchParams?.seasons ?? "";
-    const parsed = raw
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter(
-        (n) => Number.isFinite(n) && seasonNumbers.includes(Number(n)),
-      ) as number[];
-
-    if (parsed.length > 0) {
-      selectedSeasons = [...parsed].sort((a, b) => b - a);
-    } else if (defaultSeason != null) {
-      selectedSeasons = [defaultSeason];
-    }
-  }
-
-  const buildSeasonsQuery = (current: number[], toggle: number): string => {
-    const has = current.includes(toggle);
-    let next = has ? current.filter((s) => s !== toggle) : [...current, toggle];
-
-    if (next.length === 0) {
-      next = [toggle];
-    }
-
-    next = Array.from(new Set(next)).sort((a, b) => b - a);
-    return next.join(",");
-  };
 
   // 2) Распределение по лигам
   const leagueRows = await prisma.$queryRawUnsafe<{
@@ -1057,14 +1004,10 @@ export default async function TeamPage({
     teamStats = await loadTeamStats(teamIdNum, scope);
   }
 
-  // 6) если открыт таб "Состав" — грузим состав по выбранным сезонам
+  // 6) если открыт таб "Состав" — грузим состав
   let roster: TeamRosterRow[] | null = null;
   if (tab === "roster") {
-    const seasonsArg =
-      selectedSeasons && selectedSeasons.length > 0
-        ? selectedSeasons
-        : undefined;
-    roster = await loadTeamRoster(teamIdNum, seasonsArg);
+    roster = await loadTeamRoster(teamIdNum);
   }
 
   return (
@@ -1695,51 +1638,10 @@ export default async function TeamPage({
         </section>
       ) : (
         // TAB: Состав
-        <section className="mt-4 space-y-3">
-          {/* Селектор сезонов */}
-          <div className="flex items-center gap-2 text-xs text-zinc-600">
-            <span className="text-zinc-500">Сезоны:</span>
-            {seasonNumbers.length === 0 ? (
-              <span className="text-zinc-400">нет данных</span>
-            ) : (
-              seasonNumbers.map((s) => {
-                const isActive =
-                  selectedSeasons.length > 0
-                    ? selectedSeasons.includes(s)
-                    : s === defaultSeason;
-
-                const baseCurrent =
-                  selectedSeasons.length > 0
-                    ? selectedSeasons
-                    : defaultSeason != null
-                    ? [defaultSeason]
-                    : [s];
-
-                const nextParam = buildSeasonsQuery(baseCurrent, s);
-                const href = `/teams/${teamIdNum}?tab=roster&seasons=${encodeURIComponent(
-                  nextParam,
-                )}`;
-
-                return (
-                  <Link
-                    key={s}
-                    href={href}
-                    className={`px-2 py-1 rounded-full border ${
-                      isActive
-                        ? "border-blue-600 bg-blue-50 text-blue-600"
-                        : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-                    }`}
-                  >
-                    {s}
-                  </Link>
-                );
-              })
-            )}
-          </div>
-
+        <section className="mt-4">
           {!roster || roster.length === 0 ? (
             <div className="text-sm text-zinc-500">
-              Нет данных по составу для выбранного диапазона сезонов.
+              Нет данных по составу для выбранного диапазона.
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-zinc-200">
@@ -1786,10 +1688,7 @@ export default async function TeamPage({
                       Воздух, %
                     </th>
                     <th className="px-3 py-2 text-right font-semibold">
-                      Навесы
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Точность навесов, %
+                      Навесы / точность
                     </th>
                   </tr>
                 </thead>
@@ -1840,12 +1739,10 @@ export default async function TeamPage({
                       </td>
                       <td className="px-3 py-2 text-right">
                         {p.allcrosses > 0
-                          ? `${p.crosses}/${p.allcrosses}`
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {p.cross_acc != null && p.allcrosses > 0
-                          ? fmt(p.cross_acc * 100, 1)
+                          ? `${p.crosses}/${p.allcrosses} (${fmt(
+                              (p.cross_acc ?? 0) * 100,
+                              1,
+                            )}%)`
                           : "—"}
                       </td>
                     </tr>
