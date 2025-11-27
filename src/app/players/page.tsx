@@ -138,53 +138,57 @@ export default async function Page({
   );
 
   return (
-    <div className="p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">Игроки</h1>
+  <div className="p-6 space-y-4">
+    <h1 className="text-2xl font-semibold text-foreground">Игроки</h1>
 
-      <FiltersClient
-        initial={{ q, team, tournament, role, range }}
-        roles={rolesRows}
-      />
+    <FiltersClient
+      initial={{ q, team, tournament, role, range }}
+      roles={rolesRows}
+    />
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse">
-          <thead>
-            <tr className="text-left border-b">
-              <th className="py-2 pr-4">Игрок</th>
-              <th className="py-2 pr-4">Команда (последний матч)</th>
-              <th className="py-2 pr-4">Матчи</th>
+    <div className="overflow-x-auto">
+      <table className="vfs-table min-w-full border-collapse text-sm">
+        <thead>
+          <tr className="text-left border-b border-zinc-700/40">
+            <th className="py-2 pr-4 text-foreground">Игрок</th>
+            <th className="py-2 pr-4 text-foreground">Команда (последний матч)</th>
+            <th className="py-2 pr-4 text-foreground">Матчи</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.user_id}
+              className="border-b border-zinc-700/40 last:border-b-0 hover:bg-zinc-800/40"
+            >
+              <td className="px-4 py-2">
+                <Link
+                  href={`/players/${r.user_id}${range ? `?range=${range}` : ""}`}
+                  className="hover:underline text-foreground"
+                >
+                  {r.gamertag || r.username || `User #${r.user_id}`}
+                </Link>
+              </td>
+
+              <td className="py-2 pr-4 text-foreground">
+                {r.team_name || <span className="text-zinc-500">—</span>}
+              </td>
+
+              <td className="py-2 pr-4 text-foreground">{r.matches}</td>
             </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr
-                key={r.user_id}
-                className="border-b last:border-b-0 hover:bg-zinc-50"
-              >
-                <td className="px-4 py-2">
-                  <Link
-                    href={`/players/${r.user_id}${range ? `?range=${range}` : ""}`}
-                    className="hover:underline"
-                  >
-                    {r.gamertag || r.username || `User #${r.user_id}`}
-                  </Link>
-                </td>
-                <td className="py-2 pr-4">
-                  {r.team_name || <span className="text-zinc-400">—</span>}
-                </td>
-                <td className="py-2 pr-4">{r.matches}</td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td className="py-3 text-gray-500" colSpan={3}>
-                  Ничего не найдено.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          ))}
+
+          {rows.length === 0 && (
+            <tr>
+              <td className="py-3 text-zinc-500" colSpan={3}>
+                Ничего не найдено.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
-  );
-}
+  </div>
+);
+
