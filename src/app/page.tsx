@@ -144,6 +144,7 @@ function PlayerCard({
         <div className="flex-1">
           <h4 className="font-semibold text-foreground">{name}</h4>
         </div>
+
         <div className="text-lg font-bold text-blue-500">
           {suffix ? `${value}${suffix}` : value}
         </div>
@@ -186,13 +187,10 @@ export default async function HomePage() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-        <Link
-          href="/players"
-          className="vfs-card p-6 cursor-pointer"
-        >
+        <Link href="/players" className="vfs-card p-6 cursor-pointer">
           <div className="flex items-center space-x-4 mb-4">
-            <div className="bg-blue-100 p-3 rounded-full">
-              <Users className="h-8 w-8 text-blue-600" />
+            <div className="rounded-full p-3 bg-blue-500/10">
+              <Users className="h-8 w-8 text-blue-500" />
             </div>
             <div>
               <h3 className="text-xl font-semibold text-foreground">
@@ -208,13 +206,10 @@ export default async function HomePage() {
           </div>
         </Link>
 
-        <Link
-          href="/teams"
-          className="vfs-card p-6 cursor-pointer"
-        >
+        <Link href="/teams" className="vfs-card p-6 cursor-pointer">
           <div className="flex items-center space-x-4 mb-4">
-            <div className="bg-green-100 p-3 rounded-full">
-              <Trophy className="h-8 w-8 text-green-600" />
+            <div className="rounded-full p-3 bg-emerald-500/10">
+              <Trophy className="h-8 w-8 text-emerald-500" />
             </div>
             <div>
               <h3 className="text-xl font-semibold text-foreground">
@@ -314,4 +309,3 @@ function Section({
     </section>
   );
 }
-
