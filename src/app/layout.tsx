@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru">
-      <body className="bg-gray-50">
+      <body className="bg-zinc-950 text-zinc-50">
         {/* ЕДИНСТВЕННАЯ ШАПКА САЙТА */}
         <header className="sticky top-0 z-50 bg-blue-600 text-white">
           <div className="mx-auto max-w-7xl px-4 h-12 flex items-center gap-6">
@@ -42,9 +42,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
 
-        {/* Контент страниц */}
         <main className="mx-auto max-w-7xl px-4 py-8">{children}</main>
       </body>
     </html>
   );
 }
+
