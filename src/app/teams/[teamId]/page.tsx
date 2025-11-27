@@ -467,12 +467,12 @@ export default async function TeamPage({
   );
 
   const totalMatches =
-    leagueRows.reduce((s, r) => s + Number(r.cnt || 0), 0) ||
+    leagueRows.reduce((s, r) => s + Number(row.cnt || 0), 0) ||
     Number(info.matches || 0);
 
   const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
-    const row = leagueRows.find((row) => r.league_label === label);
-    const cnt = row ? Number(r.cnt) : 0;
+    const row = leagueRows.find((row) => row.league_label === label);
+    const cnt = row ? Number(row.cnt) : 0;
     const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
     return { label, cnt, pct };
   });
