@@ -129,9 +129,8 @@ function PlayerCard({
 
   return (
   <Link href={`/players/${userId}`}>
-    <div className="vfs-card p-4 cursor-pointer">
+    <div className="vfs-card-hover p-4 cursor-pointer">
       <div className="flex items-center space-x-3">
-        {/* круг 48x48 без фона, картинка заполняет диаметр */}
         <div className="relative w-12 h-12 rounded-full overflow-hidden">
           <Image
             src={iconSrc}
@@ -187,7 +186,10 @@ export default async function HomePage() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-        <Link href="/players" className="vfs-card p-6 cursor-pointer">
+        <Link
+  href="/players"
+  className="vfs-card-hover p-6 cursor-pointer"
+>
           <div className="flex items-center space-x-4 mb-4">
             <div className="rounded-full p-3 bg-blue-500/10">
               <Users className="h-8 w-8 text-blue-500" />
@@ -206,7 +208,10 @@ export default async function HomePage() {
           </div>
         </Link>
 
-        <Link href="/teams" className="vfs-card p-6 cursor-pointer">
+        <Link
+  href="/teams"
+  className="vfs-card-hover p-6 cursor-pointer"
+>
           <div className="flex items-center space-x-4 mb-4">
             <div className="rounded-full p-3 bg-emerald-500/10">
               <Trophy className="h-8 w-8 text-emerald-500" />
