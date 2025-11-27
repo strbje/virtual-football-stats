@@ -4,14 +4,21 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #020617; /* почти черный, без синего оттенка */
+  --foreground: #e5e7eb; /* светло-серый текст */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #050509; /* чуть светлее глухого чёрного, чтобы не «горели» границы */
-    --foreground: #e5e5e5;
+    --background: #020617;
+    --foreground: #e5e7eb;
   }
 }
 
@@ -21,38 +28,139 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* ==== ОБЩИЕ КОМПОНЕНТЫ ДЛЯ КАРТОЧЕК/ТАБЛИЦ ==== */
+/* ===== VFS DESIGN SYSTEM ===== */
+@layer base {
+  html, body {
+    @apply min-h-screen;
+  }
+}
+
 @layer components {
-  /* Карточки */
+  /* Базовый контейнер страницы */
+  .vfs-page {
+    @apply max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-6;
+  }
+
+  /* Главные заголовки страниц */
+  .vfs-h1 {
+    @apply text-2xl md:text-3xl font-semibold text-foreground;
+  }
+
+  .vfs-h2 {
+    @apply text-xl md:text-2xl font-semibold text-foreground;
+  }
+
+  .vfs-h3 {
+    @apply text-lg font-semibold text-foreground;
+  }
+
+  /* Карточки / блоки */
   .vfs-card {
-    @apply rounded-2xl border shadow-lg shadow-zinc-900/40
-      transition-all duration-200 hover:-translate-y-[1px] hover:shadow-xl
-      bg-white text-zinc-900 border-zinc-200;
+    @apply rounded-2xl border border-zinc-700/60 bg-zinc-900/40 
+           shadow-lg shadow-black/40 p-4 md:p-5 
+           transition-all duration-200;
   }
 
-  @media (prefers-color-scheme: dark) {
-    .vfs-card {
-      @apply bg-zinc-900/90 text-zinc-100 border-zinc-800;
-    }
+  .vfs-card-hover {
+    @apply vfs-card hover:-translate-y-[1px] hover:shadow-xl;
   }
 
-  /* Таблицы в блоках */
+  .vfs-card-muted {
+    @apply rounded-2xl border border-zinc-800/60 bg-zinc-900/60 p-3;
+  }
+
+  /* Секции с заголовком */
+  .vfs-section {
+    @apply space-y-3;
+  }
+
+  .vfs-section-title {
+    @apply text-sm font-semibold text-zinc-300 uppercase tracking-wide;
+  }
+
+  /* Ссылки */
+  .vfs-link-primary {
+    @apply text-sm text-sky-400 hover:text-sky-300 hover:underline;
+  }
+
+  .vfs-link-muted {
+    @apply text-sm text-zinc-400 hover:text-zinc-200 hover:underline;
+  }
+
+  /* Таблицы */
+  .vfs-table-wrapper {
+    @apply overflow-x-auto rounded-2xl border border-zinc-800/60 bg-zinc-950/60;
+  }
+
   .vfs-table {
-    @apply w-full text-xs rounded-2xl overflow-hidden
-      border border-zinc-200 bg-white shadow-lg shadow-zinc-900/40;
+    @apply min-w-full border-collapse text-sm;
   }
 
-  @media (prefers-color-scheme: dark) {
-    .vfs-table {
-      @apply border-zinc-800 bg-zinc-900/90 text-zinc-100;
-    }
+  .vfs-table thead tr {
+    @apply border-b border-zinc-800/80;
+  }
 
-    .vfs-table thead {
-      @apply bg-zinc-900/80 text-zinc-300;
-    }
+  .vfs-table thead th {
+    @apply px-4 py-2 text-left text-xs font-medium text-zinc-400;
+  }
 
-    .vfs-table tbody tr:hover {
-      @apply bg-zinc-800/80;
-    }
+  .vfs-table tbody tr {
+    @apply border-b border-zinc-800/60;
+  }
+
+  .vfs-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+
+  .vfs-table tbody tr:hover {
+    @apply bg-zinc-900/60;
+  }
+
+  .vfs-table td {
+    @apply px-4 py-2 text-sm text-zinc-100;
+  }
+
+  .vfs-table-empty {
+    @apply px-4 py-3 text-sm text-zinc-500;
+  }
+
+  /* Алёрты / состояния загрузки */
+  .vfs-alert {
+    @apply rounded-2xl border border-zinc-700/60 bg-zinc-900/60 
+           p-4 text-sm text-zinc-200;
+  }
+
+  .vfs-alert-success {
+    @apply rounded-2xl border border-emerald-500/40 bg-emerald-900/40 
+           p-4 text-sm text-emerald-100;
+  }
+
+  .vfs-alert-error {
+    @apply rounded-2xl border border-red-500/40 bg-red-900/40 
+           p-4 text-sm text-red-100;
+  }
+
+  /* Табы */
+  .vfs-tabs {
+    @apply border-b border-zinc-800/80 mt-2;
+  }
+
+  .vfs-tab-link {
+    @apply pb-2 text-sm text-zinc-500 hover:text-zinc-200;
+  }
+
+  .vfs-tab-link-active {
+    @apply pb-2 text-sm font-medium text-sky-400 border-b-2 border-sky-400;
+  }
+
+  /* Пилюли-переключатели (фильтры) */
+  .vfs-pill {
+    @apply px-2 py-1 rounded-full border text-xs 
+           border-zinc-700 text-zinc-400 hover:bg-zinc-900/60;
+  }
+
+  .vfs-pill-active {
+    @apply px-2 py-1 rounded-full border text-xs 
+           border-sky-500 bg-sky-900/40 text-sky-300;
   }
 }
