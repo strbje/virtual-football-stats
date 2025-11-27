@@ -8,7 +8,11 @@ import TeamRadarClient from "@/components/teams/TeamRadarClient";
 import TeamStatsSection, {
   TeamTotals,
 } from "@/components/teams/TeamStatsSection";
-import { loadTeamRoster, type TeamRosterRow } from "./loadTeamRoster";
+import {
+  loadTeamRoster,
+  type TeamRosterRow,
+  type TournamentOption,
+} from "./loadTeamRoster";
 
 export const dynamic = "force-dynamic";
 
@@ -367,13 +371,28 @@ export default async function TeamPage({
   searchParams,
 }: {
   params: Params;
-  searchParams?: { tab?: string; scope?: string };
+  searchParams?: { tab?: string; scope?: string; tournaments?: string };
 }) {
   const teamIdNum = Number(params.teamId);
   const rawTab = searchParams?.tab;
   const tab: "profile" | "stats" | "roster" =
     rawTab === "stats" ? "stats" : rawTab === "roster" ? "roster" : "profile";
   const scope = searchParams?.scope === "all" ? "all" : "recent";
+
+  // парсим турниры из query (?tournaments=12,15,18)
+  const tournamentsParam = searchParams?.tournaments;
+  const tournamentsFromQuery: number[] =
+    tournamentsParam && tournamentsParam.length > 0
+      ? tournamentsParam
+          .split(",")
+          .map((s) => Number(s.trim()))
+          .filter((n) => Number.isFinite(n))
+      : [];
+
+  const makeRosterHref = (ids: number[]) =>
+    `/teams/${teamIdNum}?tab=roster${
+      ids.length ? `&tournaments=${ids.join(",")}` : ""
+    }`;
 
   if (!teamIdNum || Number.isNaN(teamIdNum)) {
     return <div className="p-6">Неверный ID команды.</div>;
@@ -1004,10 +1023,17 @@ export default async function TeamPage({
     teamStats = await loadTeamStats(teamIdNum, scope);
   }
 
-  // 6) если открыт таб "Состав" — грузим состав
-  let roster: TeamRosterRow[] | null = null;
+  // 6) если открыт таб "Состав" — грузим состав (с учётом выбранных турниров)
+  let roster: TeamRosterRow[] = [];
+  let rosterTournaments: TournamentOption[] = [];
+  let rosterSelectedIds: number[] = [];
+
   if (tab === "roster") {
-    roster = await loadTeamRoster(teamIdNum);
+    const rosterResult = await loadTeamRoster(teamIdNum, tournamentsFromQuery);
+
+    roster = rosterResult.players;
+    rosterTournaments = rosterResult.tournaments;
+    rosterSelectedIds = rosterResult.selectedTournamentIds;
   }
 
   return (
@@ -1638,7 +1664,47 @@ export default async function TeamPage({
         </section>
       ) : (
         // TAB: Состав
-        <section className="mt-4">
+        <section className="mt-4 space-y-3">
+          {/* селектор турниров для состава */}
+          <div>
+            <div className="text-xs text-zinc-500 mb-1">
+              Турниры (можно выбрать несколько, статистика суммируется):
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {rosterTournaments.map((t) => {
+                const selected = rosterSelectedIds.includes(t.id);
+
+                const labelParts: string[] = [];
+                if (t.seasonNumber != null) {
+                  labelParts.push(String(t.seasonNumber));
+                }
+                labelParts.push(t.leagueLabel);
+                const label = labelParts.join(" ");
+
+                const nextIds = selected
+                  ? rosterSelectedIds.filter((id) => id !== t.id)
+                  : [...rosterSelectedIds, t.id].sort((a, b) => a - b);
+
+                const href = makeRosterHref(nextIds);
+
+                return (
+                  <Link
+                    key={t.id}
+                    href={href}
+                    className={`px-2 py-1 rounded-full border text-xs ${
+                      selected
+                        ? "border-blue-600 text-blue-600 bg-blue-50"
+                        : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+                    }`}
+                    title={t.name}
+                  >
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
           {!roster || roster.length === 0 ? (
             <div className="text-sm text-zinc-500">
               Нет данных по составу для выбранного диапазона.
@@ -1688,7 +1754,10 @@ export default async function TeamPage({
                       Воздух, %
                     </th>
                     <th className="px-3 py-2 text-right font-semibold">
-                      Навесы / точность
+                      Навесы
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Точность навесов, %
                     </th>
                   </tr>
                 </thead>
@@ -1739,10 +1808,12 @@ export default async function TeamPage({
                       </td>
                       <td className="px-3 py-2 text-right">
                         {p.allcrosses > 0
-                          ? `${p.crosses}/${p.allcrosses} (${fmt(
-                              (p.cross_acc ?? 0) * 100,
-                              1,
-                            )}%)`
+                          ? `${p.crosses}/${p.allcrosses}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {p.allcrosses > 0 && p.cross_acc != null
+                          ? fmt(p.cross_acc * 100, 1)
                           : "—"}
                       </td>
                     </tr>
