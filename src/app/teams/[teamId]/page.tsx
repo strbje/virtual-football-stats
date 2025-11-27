@@ -11,13 +11,6 @@ export const dynamic = "force-dynamic";
 
 type Params = { teamId: string };
 
-// базовый URL — как на странице игрока
-const BASE =
-  process.env.NEXT_PUBLIC_BASE_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://127.0.0.1:3000");
-
-const abs = (path: string) => new URL(path, BASE).toString();
-
 type ApiTeamStatsResponse = {
   ok: boolean;
   matches: number;
@@ -135,7 +128,7 @@ export default async function TeamPage({
   let teamStats: ApiTeamStatsResponse | null = null;
   if (tab === "stats") {
     try {
-      const res = await fetch(abs(`/api/team-stats/${teamIdNum}`), {
+      const res = await fetch(`/api/team-stats/${teamIdNum}`, {
         cache: "no-store",
       });
       if (res.ok) {
@@ -611,7 +604,6 @@ export default async function TeamPage({
         "interceptsPerMatch",
         true,
       ),
-      // здесь была опечатка "AllselectionPerMatch" — исправлено
       allselectionPerMatch: getRank(
         leagueTeams,
         teamIdNum,
