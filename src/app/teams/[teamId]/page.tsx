@@ -1772,9 +1772,10 @@ export default async function TeamPage({
                     <th className="px-3 py-2 text-right font-semibold">
                       Воздух, %
                     </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Навесы / точность
-                    </th>
+                   <th className="px-3 py-2 text-right font-semibold">Навесы</th>
+<th className="px-3 py-2 text-right font-semibold">
+  Точность навесов, %
+</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1823,13 +1824,15 @@ export default async function TeamPage({
                           : "—"}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {p.allcrosses > 0
-                          ? `${p.crosses}/${p.allcrosses} (${fmt(
-                              (p.cross_acc ?? 0) * 100,
-                              1,
-                            )}%)`
-                          : "—"}
-                      </td>
+  {p.allcrosses > 0 ? `${p.crosses}/${p.allcrosses}` : "—"}
+</td>
+<td className="px-3 py-2 text-right">
+  {p.cross_acc != null
+    ? fmt(p.cross_acc * 100, 1)
+    : p.allcrosses > 0
+      ? "0"
+      : "—"}
+</td>
                     </tr>
                   ))}
                 </tbody>
