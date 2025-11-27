@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from "swr";
-import RoleHeatmap from "./RoleHeatmap";
+import RoleHeatmap from "@/components/players/RoleHeatmap";
 
 type Props = {
   userId: number;
