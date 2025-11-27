@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 export type TournamentOption = {
   id: number;
   name: string;
-  leagueLabel: string;      // ПЛ / ФНЛ / ПФЛ / ЛФЛ / Прочие / Кубок
+  leagueLabel: string; // ПЛ / ФНЛ / ПФЛ / ЛФЛ / Прочие / Кубок
   seasonNumber: number | null;
   isCup: boolean;
 };
@@ -32,8 +32,8 @@ export type TeamRosterRow = {
 
   aerial_pct: number | null;
 
-  crosses: number;          // удачные
-  allcrosses: number;       // все
+  crosses: number; // удачные
+  allcrosses: number; // все
   cross_acc: number | null; // 0–1
 };
 
@@ -79,7 +79,7 @@ export async function loadTeamRoster(
       tr.name
     FROM tbl_users_match_stats ums
     JOIN tournament_match tm ON tm.id = ums.match_id
-    LEFT JOIN tournament tr       ON tr.id = tm.tournament_id
+    JOIN tournament tr       ON tr.id = tm.tournament_id
     WHERE ums.team_id = ?
     `,
     teamId,
@@ -99,12 +99,12 @@ export async function loadTeamRoster(
     };
   });
 
-  // сортируем: сначала по сезону (новые -> старые), затем по типу лиги/кубка
+  // сортировка: новые сезоны выше
   const leagueOrder = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие", "Кубок"];
   tournaments.sort((a, b) => {
     const sa = a.seasonNumber ?? -9999;
     const sb = b.seasonNumber ?? -9999;
-    if (sa !== sb) return sb - sa; // по убыванию сезона
+    if (sa !== sb) return sb - sa;
 
     const ia = leagueOrder.indexOf(a.leagueLabel);
     const ib = leagueOrder.indexOf(b.leagueLabel);
@@ -117,21 +117,15 @@ export async function loadTeamRoster(
     return { tournaments: [], selectedTournamentIds: [], players: [] };
   }
 
-  // 2) определить, какие турниры выбраны
-  let selectedIds: number[];
+  // 2) какие турниры выбраны
+  let selectedIds: number[] = [];
 
   if (tournamentIds && tournamentIds.length > 0) {
     const existing = new Set(tournaments.map((t) => t.id));
     selectedIds = tournamentIds.filter((id) => existing.has(id));
-    if (selectedIds.length === 0) {
-      // все переданные id не найдены – откатываемся к дефолту
-      selectedIds = [];
-    }
-  } else {
-    selectedIds = [];
   }
 
-  // дефолт: если явно ничего не выбрано — берём все турниры последнего сезона
+  // дефолт — все турниры последнего сезона
   if (selectedIds.length === 0) {
     const maxSeason = tournaments.reduce<number | null>((acc, t) => {
       if (t.seasonNumber == null) return acc;
@@ -144,12 +138,11 @@ export async function loadTeamRoster(
         .filter((t) => t.seasonNumber === maxSeason)
         .map((t) => t.id);
     } else {
-      // если вообще нет сезонов в названии — берём последний по id
       selectedIds = [tournaments[0].id];
     }
   }
 
-  // 3) агрегат по игрокам для выбранного набора турниров
+  // 3) агрегат по игрокам для выбранных турниров
   type DbRow = {
     user_id: number;
     username: string | null;
@@ -189,7 +182,7 @@ export async function loadTeamRoster(
       SELECT
         ums.user_id,
         u.username,
-        u.username AS gamertag,
+        u.gamertag,
 
         ums.match_id,
 
@@ -218,8 +211,8 @@ export async function loadTeamRoster(
         ums.crosses,
         ums.allcrosses
       FROM tbl_users_match_stats ums
-      LEFT JOIN users u          ON u.id  = ums.user_id
-      JOIN tournament_match tm ON tm.id = ums.match_id
+      LEFT JOIN tbl_users u      ON u.id = ums.user_id
+      JOIN tournament_match tm   ON tm.id = ums.match_id
       WHERE ums.team_id = ?
         AND tm.tournament_id IN (${placeholders})
     )
@@ -237,16 +230,16 @@ export async function loadTeamRoster(
       SUM(shots_on_target)             AS shots_on_target,
 
       SUM(allpasses)                   AS allpasses,
-      SUM(completedpasses)            AS completedpasses,
+      SUM(completedpasses)             AS completedpasses,
       SUM(passes_xa)                   AS passes_xa,
 
       SUM(intercepts)                  AS intercepts,
       SUM(selection)                   AS selection,
-      SUM(completedtackles)           AS completedtackles,
+      SUM(completedtackles)            AS completedtackles,
       SUM(blocks)                      AS blocks,
       SUM(outs)                        AS outs,
       SUM(outplayed)                   AS outplayed,
-      SUM(penalised_fails)            AS penalised_fails,
+      SUM(penalised_fails)             AS penalised_fails,
 
       SUM(duels_air)                   AS duels_air,
       SUM(duels_air_win)               AS duels_air_win,
@@ -259,11 +252,7 @@ export async function loadTeamRoster(
     ORDER BY matches DESC, goals DESC, assists DESC, user_id ASC
   `;
 
-  const rows = await prisma.$queryRawUnsafe<DbRow[]>(
-    sql,
-    teamId,
-    ...selectedIds,
-  );
+  const rows = await prisma.$queryRawUnsafe<DbRow[]>(sql, teamId, ...selectedIds);
 
   const players: TeamRosterRow[] = rows.map((r) => {
     const goals = Number(r.goals || 0);
@@ -272,13 +261,11 @@ export async function loadTeamRoster(
 
     const shots = Number(r.shots || 0);
     const shotsOnTarget = Number(r.shots_on_target || 0);
-    const shots_on_target_pct =
-      shots > 0 ? shotsOnTarget / shots : null;
+    const shots_on_target_pct = shots > 0 ? shotsOnTarget / shots : null;
 
     const allpasses = Number(r.allpasses || 0);
     const completedpasses = Number(r.completedpasses || 0);
-    const pass_acc =
-      allpasses > 0 ? completedpasses / allpasses : null;
+    const pass_acc = allpasses > 0 ? completedpasses / allpasses : null;
 
     const intercepts = Number(r.intercepts || 0);
     const selection = Number(r.selection || 0);
@@ -290,26 +277,22 @@ export async function loadTeamRoster(
     const outplayed = Number(r.outplayed || 0);
     const penalised_fails = Number(r.penalised_fails || 0);
     const beaten_rate =
-      def_actions > 0
-        ? (outplayed + penalised_fails) / def_actions
-        : null;
+      def_actions > 0 ? (outplayed + penalised_fails) / def_actions : null;
 
     const duels_air = Number(r.duels_air || 0);
     const duels_air_win = Number(r.duels_air_win || 0);
-    const aerial_pct =
-      duels_air > 0 ? duels_air_win / duels_air : null;
+    const aerial_pct = duels_air > 0 ? duels_air_win / duels_air : null;
 
     const crosses = Number(r.crosses || 0);
     const allcrosses = Number(r.allcrosses || 0);
-    const cross_acc =
-      allcrosses > 0 ? crosses / allcrosses : null;
+    const cross_acc = allcrosses > 0 ? crosses / allcrosses : null;
 
     return {
       user_id: Number(r.user_id),
       username: r.username ?? null,
       gamertag: r.gamertag ?? null,
 
-      matches: Number(r.matches || 0),
+      matches: Number((r as any).matches || 0),
       goals,
       assists,
       goal_contrib,
