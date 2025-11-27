@@ -170,6 +170,7 @@ export default function FiltersClient({
     </button>
   </form>
 );
+}
 
 
 function toISO(d: Date): string {
