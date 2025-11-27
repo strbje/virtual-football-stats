@@ -1,3 +1,4 @@
+/* src/app/globals.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -7,22 +8,51 @@
   --foreground: #171717;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #050509; /* чуть светлее глухого чёрного, чтобы не «горели» границы */
+    --foreground: #e5e5e5;
   }
 }
 
 body {
-  /* фон берём из Tailwind (bg-gray-50 в layout.tsx), поэтому тут фон не задаём */
+  background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ==== ОБЩИЕ КОМПОНЕНТЫ ДЛЯ КАРТОЧЕК/ТАБЛИЦ ==== */
+@layer components {
+  /* Карточки */
+  .vfs-card {
+    @apply rounded-2xl border shadow-lg shadow-zinc-900/40
+      transition-all duration-200 hover:-translate-y-[1px] hover:shadow-xl
+      bg-white text-zinc-900 border-zinc-200;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .vfs-card {
+      @apply bg-zinc-900/90 text-zinc-100 border-zinc-800;
+    }
+  }
+
+  /* Таблицы в блоках */
+  .vfs-table {
+    @apply w-full text-xs rounded-2xl overflow-hidden
+      border border-zinc-200 bg-white shadow-lg shadow-zinc-900/40;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .vfs-table {
+      @apply border-zinc-800 bg-zinc-900/90 text-zinc-100;
+    }
+
+    .vfs-table thead {
+      @apply bg-zinc-900/80 text-zinc-300;
+    }
+
+    .vfs-table tbody tr:hover {
+      @apply bg-zinc-800/80;
+    }
+  }
 }
