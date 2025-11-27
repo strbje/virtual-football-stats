@@ -501,7 +501,9 @@ export async function GET(
         ${OFFICIAL_FILTER}
       ORDER BY t.name ASC
     `);
-    const tournamentsUsed = (tournamentsRows ?? []).map((r) => String(r.name));
+    const tournamentsUsed = (tournamentsRows ?? []).map((r: { name: string }) =>
+  String(r.name),
+);
 
     // 3) пул сравнения
     const COHORT_SQL =
@@ -560,7 +562,7 @@ export async function GET(
       const arr = cohortRows
         .map((r: any) => numOrNull(r[key]))
         .filter((x: number | null): x is number => x !== null)
-        .sort((a, b) => a - b);
+        .sort((a: number, b: number) => a - b);
 
       if (!arr.length) {
         return { key, label: LABELS[key] ?? key, pct: null };
