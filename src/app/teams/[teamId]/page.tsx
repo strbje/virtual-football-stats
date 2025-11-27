@@ -1470,6 +1470,26 @@ export default async function TeamPage({
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {ranks?.allselectionPerMatch && (
+                        <span
+                          className={
+                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                            rankColor(
+                              ranks.allselectionPerMatch.rank,
+                              ranks.allselectionPerMatch.total,
+                            )
+                          }
+                        >
+                          {ranks.allselectionPerMatch.rank}
+                        </span>
+                      )}
+                      <span>
+                        Попытки отбора —{" "}
+                        {fmt(seasonStyle.allselectionPerMatch)} за матч
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
                       {ranks?.selectionPerMatch && (
                         <span
                           className={
@@ -1484,28 +1504,8 @@ export default async function TeamPage({
                         </span>
                       )}
                       <span>
-                        Попытки отбора —{" "}
-                        {fmt(seasonStyle.selectionPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.completedTacklesPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.completedTacklesPerMatch.rank,
-                              ranks.completedTacklesPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.completedTacklesPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
                         Удачные отборы —{" "}
-                        {fmt(seasonStyle.completedTacklesPerMatch)} за матч
+                        {fmt(seasonStyle.selectionPerMatch)} за матч
                       </span>
                     </div>
 
