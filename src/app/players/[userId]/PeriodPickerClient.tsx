@@ -30,14 +30,14 @@ export default function PlayerPeriodPicker({ initialRange }: { initialRange: str
   }, [initialRange, pathname, router, sp]);
 
   return (
-    <input
-      ref={inputRef}
-      className="h-9 w-[280px] rounded-md border px-3 text-sm"
-      placeholder="Период: выберите в календаре"
-      defaultValue={initialRange ? initialRange.replace("_to_", " — ") : ""}
-      readOnly
-    />
-  );
+  <input
+    ref={inputRef}
+    className="vfs-input w-[280px]"
+    placeholder="Период: выберите в календаре"
+    defaultValue={initialRange ? initialRange.replace("_to_", " — ") : ""}
+    readOnly
+  />
+);
 }
 
 function fmt(d: Date) {
