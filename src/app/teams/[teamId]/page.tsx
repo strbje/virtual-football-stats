@@ -1739,65 +1739,67 @@ export default async function TeamPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {roster.map((p) => (
-                    <tr
-                      key={p.user_id}
-                      className="border-t border-zinc-100 hover:bg-zinc-50"
-                    >
-                      <td className="px-3 py-2">
-                        {p.gamertag || p.username || `ID ${p.user_id}`}
-                      </td>
-                      <td className="px-3 py-2 text-right">{p.matches}</td>
-                      <td className="px-3 py-2 text-right">{p.goals}</td>
-                      <td className="px-3 py-2 text-right">{p.assists}</td>
-                      <td className="px-3 py-2 text-right">
-                        {p.goal_contrib}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {fmt(p.xg, 2)}
-                      </td>
-                      <td className="px-3 py-2 text-right">{p.shots}</td>
-                      <td className="px-3 py-2 text-right">
-                        {p.shots_on_target_pct != null
-                          ? fmt(p.shots_on_target_pct * 100, 1)
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {p.pass_acc != null
-                          ? fmt(p.pass_acc * 100, 1)
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {fmt(p.passes_xa, 2)}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {p.def_actions}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {p.beaten_rate != null
-                          ? fmt(p.beaten_rate * 100, 1)
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {p.aerial_pct != null
-                          ? fmt(p.aerial_pct * 100, 1)
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {p.allcrosses > 0
-                          ? `${p.crosses}/${p.allcrosses}`
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {p.cross_acc != null
-                          ? fmt(p.cross_acc * 100, 1)
-                          : p.allcrosses > 0
-                            ? "0"
-                            : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
+  {roster.map((p) => (
+    <tr
+      key={p.user_id}
+      className="border-t border-zinc-100 hover:bg-zinc-50"
+    >
+      <td className="px-3 py-2">
+        {p.gamertag || p.username || `ID ${p.user_id}`}
+      </td>
+      <td className="px-3 py-2 text-right">{p.matches}</td>
+      <td className="px-3 py-2 text-right">{p.goals}</td>
+      <td className="px-3 py-2 text-right">{p.assists}</td>
+      <td className="px-3 py-2 text-right">{p.goal_contrib}</td>
+      <td className="px-3 py-2 text-right">{fmt(p.xg, 2)}</td>
+      <td className="px-3 py-2 text-right">{p.shots}</td>
+
+      {/* Уд. в створ, % */}
+      <td className="px-3 py-2 text-right">
+        {p.shots_on_target_pct != null
+          ? `${fmt(p.shots_on_target_pct * 100, 1)}%`
+          : "—"}
+      </td>
+
+      {/* Точность паса, % */}
+      <td className="px-3 py-2 text-right">
+        {p.pass_acc != null ? `${fmt(p.pass_acc * 100, 1)}%` : "—"}
+      </td>
+
+      <td className="px-3 py-2 text-right">{fmt(p.passes_xa, 2)}</td>
+
+      <td className="px-3 py-2 text-right">{p.def_actions}</td>
+
+      {/* Beaten Rate, % */}
+      <td className="px-3 py-2 text-right">
+        {p.beaten_rate != null
+          ? `${fmt(p.beaten_rate * 100, 1)}%`
+          : "—"}
+      </td>
+
+      {/* Воздух, % */}
+      <td className="px-3 py-2 text-right">
+        {p.aerial_pct != null
+          ? `${fmt(p.aerial_pct * 100, 1)}%`
+          : "—"}
+      </td>
+
+      {/* Навесы */}
+      <td className="px-3 py-2 text-right">
+        {p.allcrosses > 0 ? `${p.crosses}/${p.allcrosses}` : "—"}
+      </td>
+
+      {/* Точность навесов, % */}
+      <td className="px-3 py-2 text-right">
+        {p.cross_acc != null
+          ? `${fmt(p.cross_acc * 100, 1)}%`
+          : p.allcrosses > 0
+            ? "0%"
+            : "—"}
+      </td>
+    </tr>
+  ))}
+</tbody>
               </table>
             </div>
           )}
