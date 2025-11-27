@@ -752,4 +752,5 @@ export default async function PlayerPage({
     )}
   </div>
 );
+}
 
