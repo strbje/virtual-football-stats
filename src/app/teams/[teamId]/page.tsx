@@ -1631,7 +1631,7 @@ export default async function TeamPage({
             </section>
           </div>
         </div>
-      ) : tab === "stats" ? (
+     ) : tab === "stats" ? (
         // TAB: Статистика команды
         <section className="mt-4">
           {/* Переключатель периода */}
@@ -1676,58 +1676,11 @@ export default async function TeamPage({
         // TAB: Состав
         <section className="mt-4 space-y-3">
           {/* селектор турниров для состава */}
-                   <section className="mt-4 space-y-3">
-  {/* селектор турниров для состава */}
-  <TeamRosterTournamentSelector
-    teamId={teamIdNum}
-    tournaments={rosterTournaments}
-    selectedIds={rosterSelectedIds}
-  />
-
-  {!roster || roster.length === 0 ? (
-    <div className="text-sm text-zinc-500">
-      Нет данных по составу для выбранного диапазона.
-    </div>
-  ) : (
-    // дальше таблица, как у тебя сейчас
-  )}
-</section>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {rosterTournaments.map((t) => {
-                const selected = rosterSelectedIds.includes(t.id);
-
-                const labelParts: string[] = [];
-                if (t.seasonNumber != null) {
-                  labelParts.push(String(t.seasonNumber));
-                }
-                labelParts.push(t.leagueLabel);
-                const label = labelParts.join(" ");
-
-                const nextIds = selected
-                  ? rosterSelectedIds.filter((id) => id !== t.id)
-                  : [...rosterSelectedIds, t.id].sort((a, b) => a - b);
-
-                const href = makeRosterHref(nextIds);
-
-                return (
-                  <Link
-                    key={t.id}
-                    href={href}
-                    className={`px-2 py-1 rounded-full border text-xs ${
-                      selected
-                        ? "border-blue-600 text-blue-600 bg-blue-50"
-                        : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-                    }`}
-                    title={t.name}
-                  >
-                    {label}
-                  </Link>
-                );
-              })}
-            </div>
-          </details>
-
+          <TeamRosterTournamentSelector
+            teamId={teamIdNum}
+            tournaments={rosterTournaments}
+            selectedIds={rosterSelectedIds}
+          />
 
           {!roster || roster.length === 0 ? (
             <div className="text-sm text-zinc-500">
@@ -1777,10 +1730,12 @@ export default async function TeamPage({
                     <th className="px-3 py-2 text-right font-semibold">
                       Воздух, %
                     </th>
-                   <th className="px-3 py-2 text-right font-semibold">Навесы</th>
-<th className="px-3 py-2 text-right font-semibold">
-  Точность навесов, %
-</th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Навесы
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Точность навесов, %
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1829,15 +1784,17 @@ export default async function TeamPage({
                           : "—"}
                       </td>
                       <td className="px-3 py-2 text-right">
-  {p.allcrosses > 0 ? `${p.crosses}/${p.allcrosses}` : "—"}
-</td>
-<td className="px-3 py-2 text-right">
-  {p.cross_acc != null
-    ? fmt(p.cross_acc * 100, 1)
-    : p.allcrosses > 0
-      ? "0"
-      : "—"}
-</td>
+                        {p.allcrosses > 0
+                          ? `${p.crosses}/${p.allcrosses}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {p.cross_acc != null
+                          ? fmt(p.cross_acc * 100, 1)
+                          : p.allcrosses > 0
+                            ? "0"
+                            : "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
