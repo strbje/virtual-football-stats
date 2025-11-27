@@ -5,35 +5,13 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import OpponentsHistoryClient from "@/components/teams/OpponentsHistoryClient";
 import TeamRadarClient from "@/components/teams/TeamRadarClient";
-import TeamStatsSection from "@/components/teams/TeamStatsSection";
+import TeamStatsSection, {
+  TeamTotals,
+} from "@/components/teams/TeamStatsSection";
 
 export const dynamic = "force-dynamic";
 
 type Params = { teamId: string };
-
-type ApiTeamStatsResponse = {
-  ok: boolean;
-  matches: number;
-  totals: any; // структура совпадает с Totals из TeamStatsSection
-};
-
-function getApiBaseUrl(): string {
-  const env =
-    process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL || "";
-
-  // если уже есть протокол — используем как есть
-  if (env.startsWith("http://") || env.startsWith("https://")) {
-    return env;
-  }
-
-  // если задан хост без протокола (типичный случай: 89.169.162.248:3000)
-  if (env) {
-    return `http://${env}`;
-  }
-
-  // локальный fallback
-  return "http://127.0.0.1:3000";
-}
 
 function mapTournamentToLeagueLabel(name: string | null | undefined): string {
   const n = (name ?? "").toUpperCase();
@@ -128,36 +106,274 @@ type OpponentMatchClient = {
   tournament: string;
 };
 
+// === загрузка агрегированной статистики команды (как /api/player-stats, но по team_id) ===
+
+const SEASON_MIN = 18;
+
+async function loadTeamStats(
+  teamId: number,
+  scope: "recent" | "all",
+): Promise<{ matches: number; totals: TeamTotals } | null> {
+  const seasonFilter =
+    scope === "all"
+      ? `t.name REGEXP '\\\\([0-9]+ сезон\\\\)'`
+      : `
+  t.name REGEXP '\\\\([0-9]+ сезон\\\\)'
+  AND CAST(REGEXP_SUBSTR(t.name, '[0-9]+') AS UNSIGNED) >= ${SEASON_MIN}
+`;
+
+  const sql = `
+    WITH base AS (
+      SELECT
+        ums.team_id,
+        ums.match_id,
+
+        ums.goals,
+        ums.assists,
+        ums.goals_expected        AS xg,
+        ums.kicked,
+        ums.kickedin,
+        ums.kickedout,
+
+        ums.passes                AS passes_xa,
+        ums.allpasses,
+        ums.completedpasses,
+        ums.ipasses,
+        ums.pregoal_passes,
+
+        ums.allstockes,
+        ums.completedstockes,
+
+        ums.intercepts,
+        ums.selection,
+        ums.completedtackles,
+        ums.blocks,
+        ums.allselection,
+
+        ums.outs,
+        ums.outplayed,
+        ums.penalised_fails,
+
+        ums.duels_air,
+        ums.duels_air_win,
+        ums.duels_off_win,
+        ums.duels_off_lose,
+
+        ums.crosses,
+        ums.allcrosses
+
+      FROM tbl_users_match_stats ums
+      JOIN tournament_match tm ON tm.id = ums.match_id
+      JOIN tournament t        ON t.id  = tm.tournament_id
+      WHERE ums.team_id = ${teamId}
+        AND (${seasonFilter})
+    ),
+    per_team AS (
+      SELECT
+        team_id,
+        CAST(COUNT(DISTINCT match_id) AS UNSIGNED) AS matches,
+
+        SUM(goals)          AS goals,
+        SUM(assists)        AS assists,
+        SUM(xg)             AS xg,
+
+        SUM(kickedin)       AS kickedin,
+        SUM(kickedout)      AS kickedout,
+
+        SUM(passes_xa)      AS passes_xa,
+        SUM(allpasses)      AS allpasses,
+        SUM(completedpasses) AS completedpasses,
+        SUM(ipasses)        AS ipasses,
+        SUM(pregoal_passes) AS pregoal_passes,
+
+        SUM(allstockes)     AS allstockes,
+        SUM(completedstockes) AS completedstockes,
+
+        SUM(intercepts)     AS intercepts,
+        SUM(selection)      AS selection,
+        SUM(completedtackles) AS completedtackles,
+        SUM(blocks)         AS blocks,
+        SUM(allselection)   AS allselection,
+
+        SUM(outs)           AS outs,
+        SUM(outplayed)      AS outplayed,
+        SUM(penalised_fails) AS penalised_fails,
+
+        SUM(duels_air)      AS duels_air,
+        SUM(duels_air_win)  AS duels_air_win,
+        SUM(duels_off_win)  AS duels_off_win,
+        SUM(duels_off_lose) AS duels_off_lose,
+
+        SUM(crosses)        AS crosses,
+        SUM(allcrosses)     AS allcrosses
+      FROM base
+      GROUP BY team_id
+    )
+    SELECT
+      team_id,
+      matches,
+
+      goals,
+      assists,
+      (goals + assists) AS goal_contrib,
+      xg,
+      (goals - xg)      AS xg_delta,
+
+      (kickedin + kickedout) AS shots,
+      CASE
+        WHEN (kickedin + kickedout) > 0
+          THEN kickedin * 1.0 / (kickedin + kickedout)
+        ELSE NULL
+      END AS shots_on_target_pct,
+      CASE
+        WHEN goals > 0
+          THEN (kickedin + kickedout) * 1.0 / goals
+        ELSE NULL
+      END AS shots_per_goal,
+
+      passes_xa,
+      ipasses        AS key_passes,
+      pregoal_passes AS pre_assists,
+      allpasses,
+      completedpasses,
+      CASE
+        WHEN allpasses > 0
+          THEN completedpasses * 1.0 / allpasses
+        ELSE NULL
+      END AS pass_acc,
+      CASE
+        WHEN passes_xa > 0
+          THEN 0.5 * allpasses * 1.0 / passes_xa
+        ELSE NULL
+      END AS pxa,
+
+      allstockes,
+      completedstockes,
+      CASE
+        WHEN allstockes > 0
+          THEN completedstockes * 1.0 / allstockes
+        ELSE NULL
+      END AS dribble_pct,
+
+      intercepts,
+      selection,
+      completedtackles,
+      blocks,
+      allselection,
+      (intercepts + selection + completedtackles + blocks) AS def_actions,
+      CASE
+        WHEN (intercepts + selection + completedtackles + blocks) > 0
+          THEN (outplayed + penalised_fails) * 1.0 /
+               (intercepts + selection + completedtackles + blocks)
+        ELSE NULL
+      END AS beaten_rate,
+
+      outs,
+      duels_air,
+      duels_air_win,
+      CASE
+        WHEN duels_air > 0
+          THEN duels_air_win * 1.0 / duels_air
+        ELSE NULL
+      END AS aerial_pct,
+
+      duels_off_win,
+      duels_off_lose,
+      (duels_off_win + duels_off_lose) AS off_duels_total,
+      CASE
+        WHEN (duels_off_win + duels_off_lose) > 0
+          THEN duels_off_win * 1.0 / (duels_off_win + duels_off_lose)
+        ELSE NULL
+      END AS off_duels_win_pct,
+
+      crosses,
+      allcrosses,
+      CASE
+        WHEN allcrosses > 0
+          THEN crosses * 1.0 / allcrosses
+        ELSE NULL
+      END AS cross_acc
+    FROM per_team
+    LIMIT 1
+  `;
+
+  const rows = (await prisma.$queryRawUnsafe<any[]>(sql)) ?? [];
+  const row = rows[0];
+  if (!row) return null;
+
+  const num = (v: any) => (v == null ? 0 : Number(v));
+
+  const totals: TeamTotals = {
+    matches: num(row.matches),
+
+    goals: num(row.goals),
+    assists: num(row.assists),
+    goal_contrib: num(row.goal_contrib),
+    xg: num(row.xg),
+    xg_delta: num(row.xg_delta),
+    shots: num(row.shots),
+    shots_on_target_pct:
+      row.shots_on_target_pct == null ? null : Number(row.shots_on_target_pct),
+    shots_per_goal:
+      row.shots_per_goal == null ? null : Number(row.shots_per_goal),
+
+    passes_xa: num(row.passes_xa),
+    key_passes: num(row.key_passes),
+    pre_assists: num(row.pre_assists),
+    allpasses: num(row.allpasses),
+    completedpasses: num(row.completedpasses),
+    pass_acc: row.pass_acc == null ? null : Number(row.pass_acc),
+    pxa: row.pxa == null ? null : Number(row.pxa),
+
+    allstockes: num(row.allstockes),
+    completedstockes: num(row.completedstockes),
+    dribble_pct: row.dribble_pct == null ? null : Number(row.dribble_pct),
+
+    intercepts: num(row.intercepts),
+    selection: num(row.selection),
+    completedtackles: num(row.completedtackles),
+    blocks: num(row.blocks),
+    allselection: num(row.allselection),
+    def_actions: num(row.def_actions),
+    beaten_rate: row.beaten_rate == null ? null : Number(row.beaten_rate),
+
+    outs: num(row.outs),
+    duels_air: num(row.duels_air),
+    duels_air_win: num(row.duels_air_win),
+    aerial_pct: row.aerial_pct == null ? null : Number(row.aerial_pct),
+
+    duels_off_win: num(row.duels_off_win),
+    duels_off_lose: num(row.duels_off_lose),
+    off_duels_total: num(row.off_duels_total),
+    off_duels_win_pct:
+      row.off_duels_win_pct == null ? null : Number(row.off_duels_win_pct),
+
+    crosses: num(row.crosses),
+    allcrosses: num(row.allcrosses),
+    cross_acc: row.cross_acc == null ? null : Number(row.cross_acc),
+  };
+
+  return {
+    matches: totals.matches,
+    totals,
+  };
+}
+
+// === сама страница команды ===
+
 export default async function TeamPage({
   params,
   searchParams,
 }: {
   params: Params;
-  searchParams?: { tab?: string };
+  searchParams?: { tab?: string; scope?: string };
 }) {
   const teamIdNum = Number(params.teamId);
   const tab = searchParams?.tab === "stats" ? "stats" : "profile";
+  const scope = searchParams?.scope === "all" ? "all" : "recent";
 
   if (!teamIdNum || Number.isNaN(teamIdNum)) {
     return <div className="p-6">Неверный ID команды.</div>;
-  }
-
-  // если открыт таб статистики — тянем агрегат для TeamStatsSection
-  let teamStats: ApiTeamStatsResponse | null = null;
-  if (tab === "stats") {
-    try {
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/api/team-stats/${teamIdNum}`, {
-        cache: "no-store",
-      });
-      if (res.ok) {
-        teamStats = (await res.json()) as ApiTeamStatsResponse;
-      } else {
-        teamStats = null;
-      }
-    } catch {
-      teamStats = null;
-    }
   }
 
   // 1) Основная инфа по команде
@@ -256,7 +472,7 @@ export default async function TeamPage({
 
   const leagues = ["ПЛ", "ФНЛ", "ПФЛ", "ЛФЛ", "Прочие"].map((label) => {
     const row = leagueRows.find((r) => r.league_label === label);
-    const cnt = row ? Number(row.cnt) : 0;
+    const cnt = row ? Number(r.cnt) : 0;
     const pct = totalMatches > 0 ? Math.round((cnt / totalMatches) * 100) : 0;
     return { label, cnt, pct };
   });
@@ -276,8 +492,8 @@ export default async function TeamPage({
     crosses: number | null;
     allcrosses: number | null;
     intercepts: number | null;
-    allselection: number | null;
     selection: number | null;
+    completedtackles: number | null;
     blocks: number | null;
     def_actions: number | null;
     duels_air: number | null;
@@ -322,8 +538,8 @@ export default async function TeamPage({
         SUM(ums.crosses)                            AS crosses,
         SUM(ums.allcrosses)                         AS allcrosses,
         SUM(ums.intercepts)                         AS intercepts,
-        SUM(ums.allselection)                       AS allselection,
         SUM(ums.selection)                          AS selection,
+        SUM(ums.completedtackles)                   AS completedtackles,
         SUM(ums.blocks)                             AS blocks,
         SUM(ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS def_actions,
         SUM(ums.duels_air)                          AS duels_air,
@@ -347,8 +563,8 @@ export default async function TeamPage({
       a.crosses,
       a.allcrosses,
       a.intercepts,
-      a.allselection,
       a.selection,
+      a.completedtackles,
       a.blocks,
       a.def_actions,
       a.duels_air,
@@ -396,8 +612,8 @@ export default async function TeamPage({
         crossAccPct: number | null;
         // оборона
         interceptsPerMatch: number | null;
-        allselectionPerMatch: number | null;
         selectionPerMatch: number | null;
+        completedTacklesPerMatch: number | null;
         defActionsPerMatch: number | null;
         duelsAirPerMatch: number | null;
         aerialPct: number | null;
@@ -463,8 +679,8 @@ export default async function TeamPage({
 
       // оборона
       interceptsPerMatch: divPerMatch(season.intercepts),
-      allselectionPerMatch: divPerMatch(season.allselection),
       selectionPerMatch: divPerMatch(season.selection),
+      completedTacklesPerMatch: divPerMatch(season.completedtackles),
       defActionsPerMatch: divPerMatch(season.def_actions),
       duelsAirPerMatch: divPerMatch(season.duels_air),
       aerialPct:
@@ -490,8 +706,8 @@ export default async function TeamPage({
         crossesPerMatch?: { rank: number; total: number } | null;
         crossAccPct?: { rank: number; total: number } | null;
         interceptsPerMatch?: { rank: number; total: number } | null;
-        allselectionPerMatch?: { rank: number; total: number } | null;
         selectionPerMatch?: { rank: number; total: number } | null;
+        completedTacklesPerMatch?: { rank: number; total: number } | null;
         defActionsPerMatch?: { rank: number; total: number } | null;
         duelsAirPerMatch?: { rank: number; total: number } | null;
         aerialPct?: { rank: number; total: number } | null;
@@ -513,8 +729,8 @@ export default async function TeamPage({
         SUM(ums.crosses) AS crosses,
         SUM(ums.allcrosses) AS allcrosses,
         SUM(ums.intercepts) AS intercepts,
-        SUM(ums.allselection) AS allselection,
         SUM(ums.selection) AS selection,
+        SUM(ums.completedtackles) AS completedtackles,
         SUM(ums.blocks) AS blocks,
         SUM(ums.intercepts + ums.selection + ums.completedtackles + ums.blocks) AS def_actions,
         SUM(ums.duels_air) AS duels_air,
@@ -529,8 +745,7 @@ export default async function TeamPage({
 
     const leagueTeams = leagueTeamsRaw.map((t) => {
       const m = Number(t.matches || 0);
-      const div = (x: number | null) =>
-        m > 0 ? Number(x ?? 0) / m : null;
+      const div = (x: number | null) => (m > 0 ? Number(x ?? 0) / m : null);
 
       const shotsTotal = Number(t.shots || 0);
       const shotsOnTargetTotal = Number(t.shots_on_target || 0);
@@ -550,9 +765,7 @@ export default async function TeamPage({
         shotsAccPct:
           shotsTotal > 0 ? (shotsOnTargetTotal * 100) / shotsTotal : null,
         passesPerShot:
-          shotsTotal > 0 && passesTotal > 0
-            ? passesTotal / shotsTotal
-            : null,
+          shotsTotal > 0 && passesTotal > 0 ? passesTotal / shotsTotal : null,
         shotDanger:
           shotsTotal > 0 ? Number(t.xg || 0) / shotsTotal : null,
         passesPerMatch: div(passesTotal),
@@ -571,8 +784,8 @@ export default async function TeamPage({
             ? (crossesSuccess * 100) / crossesAttempts
             : null,
         interceptsPerMatch: div(t.intercepts),
-        allselectionPerMatch: div(t.allselection),
         selectionPerMatch: div(t.selection),
+        completedTacklesPerMatch: div(t.completedtackles),
         defActionsPerMatch: div(t.def_actions),
         duelsAirPerMatch: div(t.duels_air),
         aerialPct:
@@ -591,12 +804,7 @@ export default async function TeamPage({
         true,
       ),
       shotsAccPct: getRank(leagueTeams, teamIdNum, "shotsAccPct", true),
-      passesPerShot: getRank(
-        leagueTeams,
-        teamIdNum,
-        "passesPerShot",
-        false,
-      ),
+      passesPerShot: getRank(leagueTeams, teamIdNum, "passesPerShot", false),
       shotDanger: getRank(leagueTeams, teamIdNum, "shotDanger", true),
       passesPerMatch: getRank(
         leagueTeams,
@@ -613,28 +821,23 @@ export default async function TeamPage({
         "crossesPerMatch",
         true,
       ),
-      crossAccPct: getRank(
-        leagueTeams,
-        teamIdNum,
-        "crossAccPct",
-        true,
-      ),
+      crossAccPct: getRank(leagueTeams, teamIdNum, "crossAccPct", true),
       interceptsPerMatch: getRank(
         leagueTeams,
         teamIdNum,
         "interceptsPerMatch",
         true,
       ),
-      allselectionPerMatch: getRank(
-        leagueTeams,
-        teamIdNum,
-        "allselectionPerMatch",
-        true,
-      ),
       selectionPerMatch: getRank(
         leagueTeams,
         teamIdNum,
         "selectionPerMatch",
+        true,
+      ),
+      completedTacklesPerMatch: getRank(
+        leagueTeams,
+        teamIdNum,
+        "completedTacklesPerMatch",
         true,
       ),
       defActionsPerMatch: getRank(
@@ -792,6 +995,12 @@ export default async function TeamPage({
   // 4) Форма = 10 последних официальных матчей
   const form = opponentMatches.slice(0, 10);
 
+  // 5) если открыт таб "Статистика" — грузим стату команды
+  let teamStats: { matches: number; totals: TeamTotals } | null = null;
+  if (tab === "stats") {
+    teamStats = await loadTeamStats(teamIdNum, scope);
+  }
+
   return (
     <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
       {/* Заголовок */}
@@ -833,7 +1042,7 @@ export default async function TeamPage({
             Профиль
           </Link>
           <Link
-            href={`/teams/${teamIdNum}?tab=stats`}
+            href={`/teams/${teamIdNum}?tab=stats&scope=${scope}`}
             className={`pb-2 ${
               tab === "stats"
                 ? "border-b-2 border-blue-600 text-blue-600 font-medium"
@@ -846,7 +1055,7 @@ export default async function TeamPage({
       </div>
 
       {tab === "profile" ? (
-        /* Профиль — как раньше */
+        /* ВТОРАЯ СТРОКА: профиль (распределение, стиль, форма, радар) */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Распределение по лигам + топ-3 соперников + стиль сезона */}
           <section className="rounded-xl border border-zinc-200 p-4">
@@ -1176,7 +1385,8 @@ export default async function TeamPage({
                         </span>
                       )}
                       <span>
-                        Точность навесов — {fmt(seasonStyle.crossAccPct)}%
+                        Точность навесов —{" "}
+                        {fmt(seasonStyle.crossAccPct)}%
                       </span>
                     </div>
 
@@ -1205,26 +1415,6 @@ export default async function TeamPage({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {ranks?.allselectionPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.allselectionPerMatch.rank,
-                              ranks.allselectionPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.allselectionPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Попытки отбора —{" "}
-                        {fmt(seasonStyle.allselectionPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
                       {ranks?.selectionPerMatch && (
                         <span
                           className={
@@ -1239,8 +1429,28 @@ export default async function TeamPage({
                         </span>
                       )}
                       <span>
-                        Удачные отборы —{" "}
+                        Попытки отбора —{" "}
                         {fmt(seasonStyle.selectionPerMatch)} за матч
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {ranks?.completedTacklesPerMatch && (
+                        <span
+                          className={
+                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                            rankColor(
+                              ranks.completedTacklesPerMatch.rank,
+                              ranks.completedTacklesPerMatch.total,
+                            )
+                          }
+                        >
+                          {ranks.completedTacklesPerMatch.rank}
+                        </span>
+                      )}
+                      <span>
+                        Удачные отборы —{" "}
+                        {fmt(seasonStyle.completedTacklesPerMatch)} за матч
                       </span>
                     </div>
 
@@ -1299,7 +1509,8 @@ export default async function TeamPage({
                         </span>
                       )}
                       <span>
-                        Победы в воздухе — {fmt(seasonStyle.aerialPct)}%
+                        Победы в воздухе —{" "}
+                        {fmt(seasonStyle.aerialPct)}%
                       </span>
                     </div>
                   </div>
@@ -1308,7 +1519,7 @@ export default async function TeamPage({
             )}
           </section>
 
-          {/* Форма команды + радар в одном правом столбце */}
+          {/* Форма команды + радар */}
           <div className="flex flex-col gap-4">
             {/* Форма команды + история соперников */}
             <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
@@ -1326,10 +1537,16 @@ export default async function TeamPage({
                   <div className="flex flex-wrap gap-1">
                     {form.map((m, idx) => {
                       let bg = "bg-zinc-100 text-zinc-700";
-                      if (m.res === "W") bg = "bg-emerald-100 text-emerald-700";
-                      else if (m.res === "L") bg = "bg-red-100 text-red-700";
+                      if (m.res === "W")
+                        bg = "bg-emerald-100 text-emerald-700";
+                      else if (m.res === "L")
+                        bg = "bg-red-100 text-red-700";
 
-                      const title = [m.date || "", m.opponentName, m.tournament]
+                      const title = [
+                        m.date || "",
+                        m.opponentName,
+                        m.tournament,
+                      ]
                         .filter(Boolean)
                         .join(" · ");
 
@@ -1345,7 +1562,7 @@ export default async function TeamPage({
                     })}
                   </div>
 
-                  {/* Селектор соперника + список очных матчей */}
+                  {/* список очных матчей */}
                   <div className="mt-1 max-h-[260px] min-h-[260px] overflow-y-auto pr-1">
                     <OpponentsHistoryClient matches={opponentMatches} />
                   </div>
@@ -1360,11 +1577,38 @@ export default async function TeamPage({
           </div>
         </div>
       ) : (
-        /* TAB: Статистика команды */
+        // TAB: Статистика команды
         <section className="mt-4">
-          {!teamStats || !teamStats.ok ? (
-            <div className="text-sm text-red-600">
-              Не удалось загрузить статистику команды.
+          {/* Переключатель периода */}
+          <div className="flex items-center gap-3 text-xs text-zinc-600 mb-4">
+            <span className="text-zinc-500">Период:</span>
+
+            <Link
+              href={`/teams/${teamIdNum}?tab=stats&scope=recent`}
+              className={`px-2 py-1 rounded-full border text-xs ${
+                scope === "recent"
+                  ? "border-blue-600 text-blue-600 bg-blue-50"
+                  : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              C 18 сезона
+            </Link>
+
+            <Link
+              href={`/teams/${teamIdNum}?tab=stats&scope=all`}
+              className={`px-2 py-1 rounded-full border text-xs ${
+                scope === "all"
+                  ? "border-blue-600 text-blue-600 bg-blue-50"
+                  : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              За всю историю
+            </Link>
+          </div>
+
+          {!teamStats ? (
+            <div className="text-sm text-zinc-500">
+              Статистика команды не найдена для выбранного периода.
             </div>
           ) : (
             <TeamStatsSection
