@@ -128,29 +128,29 @@ function PlayerCard({
       : TROPHY_ICON_BY_PLACE[3];
 
   return (
-    <Link href={`/players/${userId}`}>
-      <div className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer">
-        <div className="flex items-center space-x-3">
-          {/* круг 48x48 без фона, картинка заполняет диаметр */}
-          <div className="relative w-12 h-12 rounded-full overflow-hidden">
-            <Image
-              src={iconSrc}
-              alt={`place-${place ?? 3}`}
-              fill
-              className="object-contain"
-            />
-          </div>
+  <Link href={`/players/${userId}`}>
+    <div className="vfs-card p-4 cursor-pointer">
+      <div className="flex items-center space-x-3">
+        {/* круг 48x48 без фона, картинка заполняет диаметр */}
+        <div className="relative w-12 h-12 rounded-full overflow-hidden">
+          <Image
+            src={iconSrc}
+            alt={`place-${place ?? 3}`}
+            fill
+            className="object-contain"
+          />
+        </div>
 
-          <div className="flex-1">
-            <h4 className="font-semibold text-gray-800">{name}</h4>
-          </div>
-          <div className="text-lg font-bold text-blue-600">
-            {suffix ? `${value}${suffix}` : value}
-          </div>
+        <div className="flex-1">
+          <h4 className="font-semibold text-foreground">{name}</h4>
+        </div>
+        <div className="text-lg font-bold text-blue-500">
+          {suffix ? `${value}${suffix}` : value}
         </div>
       </div>
-    </Link>
-  );
+    </div>
+  </Link>
+);
 }
 
 async function fetchTop() {
@@ -177,125 +177,123 @@ export default async function HomePage() {
   const { topMatches, topGoals, topAssists, topDefense, topGk } = await fetchTop();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-2xl mx-auto mb-12">
-          <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">
-            Поиск игроков и команд
-          </h2>
-        </div>
+    // фон задаётся в layout через bg-background, здесь фон не трогаем
+    <div className="max-w-6xl mx-auto space-y-12">
+      <div className="max-w-2xl mx-auto">
+        <h2 className="text-3xl font-bold text-center text-foreground mb-6">
+          Поиск игроков и команд
+        </h2>
+      </div>
 
-        <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          <Link
-            href="/players"
-            className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow cursor-pointer"
-          >
-            <div className="flex items-center space-x-4 mb-4">
-              <div className="bg-blue-100 p-3 rounded-full">
-                <Users className="h-8 w-8 text-blue-600" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-gray-800">
-                  Профили игроков
-                </h3>
-                <p className="text-gray-600">
-                  Детальная статистика и рейтинги
-                </p>
-              </div>
+      <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+        <Link
+          href="/players"
+          className="vfs-card p-6 cursor-pointer"
+        >
+          <div className="flex items-center space-x-4 mb-4">
+            <div className="bg-blue-100 p-3 rounded-full">
+              <Users className="h-8 w-8 text-blue-600" />
             </div>
-            <div className="text-sm text-gray-500">
-              Просмотрите статистику игроков, их рейтинги, сильные и слабые
-              стороны
+            <div>
+              <h3 className="text-xl font-semibold text-foreground">
+                Профили игроков
+              </h3>
+              <p className="text-sm text-zinc-400">
+                Детальная статистика и рейтинги
+              </p>
             </div>
-          </Link>
-
-          <Link
-            href="/teams"
-            className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow cursor-pointer"
-          >
-            <div className="flex items-center space-x-4 mb-4">
-              <div className="bg-green-100 p-3 rounded-full">
-                <Trophy className="h-8 w-8 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-gray-800">
-                  Профили команд
-                </h3>
-                <p className="text-gray-600">
-                  Составы и информация о командах
-                </p>
-              </div>
-            </div>
-            <div className="text-sm text-gray-500">
-              Изучите составы команд, основную информацию и статистику
-            </div>
-          </Link>
-        </div>
-
-        {/* Номинации слева направо, внутри каждой — топ-3 сверху вниз */}
-        <div className="mt-12 max-w-6xl mx-auto">
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-8">
-            <Section title="Топ по матчам">
-              {topMatches.map((r, idx) => (
-                <PlayerCard
-                  key={r.user_id}
-                  userId={r.user_id}
-                  name={r.display_name}
-                  value={r.val}
-                  place={idx + 1}
-                />
-              ))}
-            </Section>
-
-            <Section title="Топ по голам">
-              {topGoals.map((r, idx) => (
-                <PlayerCard
-                  key={r.user_id}
-                  userId={r.user_id}
-                  name={r.display_name}
-                  value={r.val}
-                  place={idx + 1}
-                />
-              ))}
-            </Section>
-
-            <Section title="Топ по голевым">
-              {topAssists.map((r, idx) => (
-                <PlayerCard
-                  key={r.user_id}
-                  userId={r.user_id}
-                  name={r.display_name}
-                  value={r.val}
-                  place={idx + 1}
-                />
-              ))}
-            </Section>
-
-            <Section title="Топ по защитным действиям">
-              {topDefense.map((r, idx) => (
-                <PlayerCard
-                  key={r.user_id}
-                  userId={r.user_id}
-                  name={r.display_name}
-                  value={r.val}
-                  place={idx + 1}
-                />
-              ))}
-            </Section>
-
-            <Section title="Топ по % сейвов">
-              {topGk.map((r, idx) => (
-                <PlayerCard
-                  key={r.user_id}
-                  userId={r.user_id}
-                  name={r.display_name}
-                  value={Math.round(r.save_pct * 1000) / 10}
-                  suffix="%"
-                  place={idx + 1}
-                />
-              ))}
-            </Section>
           </div>
+          <div className="text-sm text-zinc-400">
+            Просмотрите статистику игроков, их рейтинги, сильные и слабые стороны
+          </div>
+        </Link>
+
+        <Link
+          href="/teams"
+          className="vfs-card p-6 cursor-pointer"
+        >
+          <div className="flex items-center space-x-4 mb-4">
+            <div className="bg-green-100 p-3 rounded-full">
+              <Trophy className="h-8 w-8 text-green-600" />
+            </div>
+            <div>
+              <h3 className="text-xl font-semibold text-foreground">
+                Профили команд
+              </h3>
+              <p className="text-sm text-zinc-400">
+                Составы и информация о командах
+              </p>
+            </div>
+          </div>
+          <div className="text-sm text-zinc-400">
+            Изучите составы команд, основную информацию и статистику
+          </div>
+        </Link>
+      </div>
+
+      {/* Номинации слева направо, внутри каждой — топ-3 сверху вниз */}
+      <div className="max-w-6xl mx-auto">
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-8">
+          <Section title="Топ по матчам">
+            {topMatches.map((r, idx) => (
+              <PlayerCard
+                key={r.user_id}
+                userId={r.user_id}
+                name={r.display_name}
+                value={r.val}
+                place={idx + 1}
+              />
+            ))}
+          </Section>
+
+          <Section title="Топ по голам">
+            {topGoals.map((r, idx) => (
+              <PlayerCard
+                key={r.user_id}
+                userId={r.user_id}
+                name={r.display_name}
+                value={r.val}
+                place={idx + 1}
+              />
+            ))}
+          </Section>
+
+          <Section title="Топ по голевым">
+            {topAssists.map((r, idx) => (
+              <PlayerCard
+                key={r.user_id}
+                userId={r.user_id}
+                name={r.display_name}
+                value={r.val}
+                place={idx + 1}
+              />
+            ))}
+          </Section>
+
+          <Section title="Топ по защитным действиям">
+            {topDefense.map((r, idx) => (
+              <PlayerCard
+                key={r.user_id}
+                userId={r.user_id}
+                name={r.display_name}
+                value={r.val}
+                place={idx + 1}
+              />
+            ))}
+          </Section>
+
+          <Section title="Топ по % сейвов">
+            {topGk.map((r, idx) => (
+              <PlayerCard
+                key={r.user_id}
+                userId={r.user_id}
+                name={r.display_name}
+                value={Math.round(r.save_pct * 1000) / 10}
+                suffix="%"
+                place={idx + 1}
+              />
+            ))}
+          </Section>
         </div>
       </div>
     </div>
@@ -311,9 +309,9 @@ function Section({
 }) {
   return (
     <section>
-      <h3 className="text-2xl font-bold text-gray-800 mb-4">{title}</h3>
-      {/* топ-3 сверху вниз */}
+      <h3 className="text-2xl font-bold text-foreground mb-4">{title}</h3>
       <div className="space-y-4">{children}</div>
     </section>
   );
 }
+
