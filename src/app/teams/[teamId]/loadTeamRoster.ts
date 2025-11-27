@@ -32,8 +32,8 @@ export type TeamRosterRow = {
 
   aerial_pct: number | null;
 
-  crosses: number;        // удачные
-  allcrosses: number;     // все
+  crosses: number;          // удачные
+  allcrosses: number;       // все
   cross_acc: number | null; // 0–1
 };
 
@@ -189,7 +189,7 @@ export async function loadTeamRoster(
       SELECT
         ums.user_id,
         u.username,
-        u.gamertag,
+        u.username AS gamertag,
 
         ums.match_id,
 
@@ -237,16 +237,16 @@ export async function loadTeamRoster(
       SUM(shots_on_target)             AS shots_on_target,
 
       SUM(allpasses)                   AS allpasses,
-      SUM(completedpasses)             AS completedpasses,
+      SUM(completedpasses)            AS completedpasses,
       SUM(passes_xa)                   AS passes_xa,
 
       SUM(intercepts)                  AS intercepts,
       SUM(selection)                   AS selection,
-      SUM(completedtackles)            AS completedtackles,
+      SUM(completedtackles)           AS completedtackles,
       SUM(blocks)                      AS blocks,
       SUM(outs)                        AS outs,
       SUM(outplayed)                   AS outplayed,
-      SUM(penalised_fails)             AS penalised_fails,
+      SUM(penalised_fails)            AS penalised_fails,
 
       SUM(duels_air)                   AS duels_air,
       SUM(duels_air_win)               AS duels_air_win,
