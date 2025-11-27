@@ -160,6 +160,17 @@ body {
            border-zinc-700 text-zinc-400 hover:bg-zinc-900/60;
   }
 
+.vfs-input {
+  @apply h-9 w-full rounded-md
+         border border-zinc-700
+         bg-zinc-900/40
+         text-sm text-foreground
+         px-3
+         placeholder:text-zinc-500
+         focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500;
+}
+
+
   .vfs-pill-active {
     @apply px-2 py-1 rounded-full border text-xs
            border-sky-500 bg-sky-900/40 text-sky-300;
