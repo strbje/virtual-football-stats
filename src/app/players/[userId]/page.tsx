@@ -237,16 +237,16 @@ export default async function PlayerPage({
   };
 
   return (
-  <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
+  <div className="vfs-page">
     {/* Заголовок */}
-    <div>
-      <h1 className="text-2xl font-semibold text-foreground">{nickname}</h1>
+    <div className="space-y-1">
+      <h1 className="vfs-h1">{nickname}</h1>
       {teamName ? (
         <div className="text-zinc-400 text-sm mt-1">{teamName}</div>
       ) : null}
       <Link
         href="/players"
-        className="text-blue-400 hover:text-blue-300 mt-3 inline-block text-sm"
+        className="vfs-link-primary mt-3 inline-block"
       >
         ← Ко всем игрокам
       </Link>
@@ -273,25 +273,17 @@ export default async function PlayerPage({
     </div>
 
     {/* Табы */}
-    <div className="border-b border-zinc-800/60 mt-2">
+    <div className="vfs-tabs">
       <nav className="flex gap-4 text-sm">
         <Link
           href={`/players/${userId}`}
-          className={`pb-2 ${
-            tab === "profile"
-              ? "border-b-2 border-blue-400 text-blue-300 font-medium"
-              : "text-zinc-400 hover:text-zinc-100"
-          }`}
+          className={tab === "profile" ? "vfs-tab-link-active" : "vfs-tab-link"}
         >
           Профиль
         </Link>
         <Link
           href={`/players/${userId}?tab=stats&scope=${scope}`}
-          className={`pb-2 ${
-            tab === "stats"
-              ? "border-b-2 border-blue-400 text-blue-300 font-medium"
-              : "text-zinc-400 hover:text-zinc-100"
-          }`}
+          className={tab === "stats" ? "vfs-tab-link-active" : "vfs-tab-link"}
         >
           Статистика
         </Link>
@@ -336,9 +328,9 @@ export default async function PlayerPage({
       </>
     ) : (
       // ====== TAB: STATISTICS ======
-      <section className="mt-4">
+      <section className="mt-4 space-y-4">
         {!statsTotals ? (
-          <div className="text-sm text-red-400">
+          <div className="vfs-alert-error">
             Не удалось загрузить статистику игрока.
           </div>
         ) : (
@@ -350,11 +342,7 @@ export default async function PlayerPage({
               {/* С 18 сезона (= recent) */}
               <Link
                 href={`/players/${userId}?tab=stats&scope=recent`}
-                className={`px-2 py-1 rounded-full border text-xs transition-colors ${
-                  scope === "recent"
-                    ? "border-blue-400 bg-blue-500/10 text-blue-300"
-                    : "border-zinc-700 text-zinc-300 hover:bg-zinc-800/60"
-                }`}
+                className={scope === "recent" ? "vfs-pill-active" : "vfs-pill"}
               >
                 C 18 сезона
               </Link>
@@ -362,11 +350,7 @@ export default async function PlayerPage({
               {/* За всю карьеру (= all) */}
               <Link
                 href={`/players/${userId}?tab=stats&scope=all`}
-                className={`px-2 py-1 rounded-full border text-xs transition-colors ${
-                  scope === "all"
-                    ? "border-blue-400 bg-blue-500/10 text-blue-300"
-                    : "border-zinc-700 text-zinc-300 hover:bg-zinc-800/60"
-                }`}
+                className={scope === "all" ? "vfs-pill-active" : "vfs-pill"}
               >
                 За всю карьеру
               </Link>
@@ -424,7 +408,7 @@ export default async function PlayerPage({
                       )}
                     </dd>
                   </div>
-                  <div className="flex justify_between">
+                  <div className="flex justify-between">
                     <dt>Реализация от xG</dt>
                     <dd>{Number(statsTotals.xg_delta).toFixed(1)}</dd>
                   </div>
@@ -519,7 +503,8 @@ export default async function PlayerPage({
                           {formatPerMatch(
                             statsPerMatch.completedpasses,
                             2,
-                          )} за матч)
+                          )}{" "}
+                          за матч)
                         </span>
                       )}
                     </dd>
@@ -565,7 +550,8 @@ export default async function PlayerPage({
                           {formatPerMatch(
                             statsPerMatch.completedstockes,
                             2,
-                          )} за матч)
+                          )}{" "}
+                          за матч)
                         </span>
                       )}
                     </dd>
@@ -586,7 +572,8 @@ export default async function PlayerPage({
                           {formatPerMatch(
                             statsPerMatch.off_duels_total,
                             2,
-                          )} за матч)
+                          )}{" "}
+                          за матч)
                         </span>
                       )}
                     </dd>
@@ -753,4 +740,5 @@ export default async function PlayerPage({
   </div>
 );
 }
+
 
