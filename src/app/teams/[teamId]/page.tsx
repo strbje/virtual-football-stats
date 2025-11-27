@@ -1675,11 +1675,20 @@ export default async function TeamPage({
         // TAB: Состав
         <section className="mt-4 space-y-3">
           {/* селектор турниров для состава */}
-          <div>
-            <div className="text-xs text-zinc-500 mb-1">
-              Турниры (можно выбрать несколько, статистика суммируется):
-            </div>
-            <div className="flex flex-wrap gap-2">
+                   <details className="rounded-xl border border-zinc-200 bg-zinc-50/40 p-3">
+            <summary className="flex items-center justify-between cursor-pointer text-xs text-zinc-600">
+              <span>
+                Турниры (можно выбрать несколько, статистика суммируется)
+              </span>
+              <span className="text-[11px] text-zinc-400">
+                выбрано:{" "}
+                {rosterSelectedIds.length === rosterTournaments.length
+                  ? "все"
+                  : rosterSelectedIds.length}
+              </span>
+            </summary>
+
+            <div className="mt-3 flex flex-wrap gap-2">
               {rosterTournaments.map((t) => {
                 const selected = rosterSelectedIds.includes(t.id);
 
@@ -1712,7 +1721,8 @@ export default async function TeamPage({
                 );
               })}
             </div>
-          </div>
+          </details>
+
 
           {!roster || roster.length === 0 ? (
             <div className="text-sm text-zinc-500">
