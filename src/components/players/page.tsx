@@ -15,17 +15,19 @@ export default function PlayersRolesBlock({ data, title = 'Распределе�
   const rows = [...data].filter(d => d.percent > 0).sort((a, b) => b.percent - a.percent);
 
   return (
-    <div className="space-y-6">
-      <h3 className="font-semibold text-lg">{title}</h3>
+  <section className="vfs-section">
+    <h3 className="vfs-h3">{title}</h3>
 
-      {/* Прогресс-бары по амплуа */}
-      <RoleDistributionSection data={rows} />
+    {/* Прогресс-бары по амплуа */}
+    <RoleDistributionSection data={rows} />
 
-      {/* Тепловая карта амплуа */}
-      <div>
-        <h4 className="font-medium mb-2">Тепловая карта</h4>
-        <RoleHeatmap data={rows} />
-      </div>
+    {/* Тепловая карта амплуа */}
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold text-foreground">
+        Тепловая карта амплуа
+      </h4>
+      <RoleHeatmap data={rows} />
     </div>
-  );
+  </section>
+);
 }
