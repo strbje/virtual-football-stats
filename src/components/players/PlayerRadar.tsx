@@ -15,12 +15,12 @@ const FONT_BADGE = 11;       // размер шрифта в бейджах
 const FONT_TITLE = 14;       // размер заголовка блока
 
 // Цвета
-const GRID_COLOR = "#e5e7eb";         // сетка (zinc-200)
-const AXIS_COLOR = "#111827";         // подписи осей (zinc-900)
-const POLY_STROKE = "#ef4444";        // обводка полигона (red-500)
-const POLY_FILL = "rgba(239,68,68,0.12)"; // заливка полигона
+const GRID_COLOR = "rgba(148,163,184,0.4)";         // сетка (zinc-200)
+const AXIS_COLOR = "#e5e7eb";         // подписи осей (zinc-900)
+const POLY_STROKE = "#f87171";        // обводка полигона (red-500)
+const POLY_FILL = "rgba(239,68,68,0.35)"; // заливка полигона
 const BADGE_BG = "#ef4444";           // фон бейджа (red-500)
-const BADGE_TEXT = "#ffffff";         // текст в бейдже
+const BADGE_TEXT = "#f9fafb";         // текст в бейдже
 
 // Кастомные названия метрик (по желанию)
 // ключ = пришедший label из API, значение = как показать на графике
