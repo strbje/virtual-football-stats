@@ -1718,147 +1718,135 @@ export default async function TeamPage({
     ) : (
       // TAB: Состав
       <section className="mt-4 space-y-3">
-        {/* селектор турниров для состава */}
-        <TeamRosterTournamentSelector
-          teamId={teamIdNum}
-          tournaments={rosterTournaments}
-          selectedIds={rosterSelectedIds}
-        />
+  {/* селектор турниров для состава */}
+  <TeamRosterTournamentSelector
+    teamId={teamIdNum}
+    tournaments={rosterTournaments}
+    selectedIds={rosterSelectedIds}
+  />
 
-        {!roster || roster.length === 0 ? (
-          <div className="text-sm text-zinc-500">
-            Нет данных по составу для выбранного диапазона.
-          </div>
-        ) : (
-          <div className="overflow-x-auto vfs-card">
-            <table className="vfs-table min-w-full text-xs">
-              <thead>
-                <tr className="text-zinc-400">
-                  <th className="px-3 py-2 text-left font-semibold">
-                    Игрок
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Матчи
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Голы
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Ассисты
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Г+П
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    xG
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Удары
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Уд. в створ, %
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Точность паса, %
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    xA (пасы)
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Защитные действия
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Beaten Rate, %
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Воздух, %
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Навесы
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Точность навесов, %
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {roster.map((p) => (
-                  <tr
-                    key={p.user_id}
-                    className="border-t border-zinc-800/40 hover:bg-zinc-800/40"
-                  >
-                    <td className="px-3 py-2">
-                      {p.gamertag || p.username || `ID ${p.user_id}`}
-                    </td>
-                    <td className="px-3 py-2 text-right">{p.matches}</td>
-                    <td className="px-3 py-2 text-right">{p.goals}</td>
-                    <td className="px-3 py-2 text-right">{p.assists}</td>
-                    <td className="px-3 py-2 text-right">
-                      {p.goal_contrib}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {fmt(p.xg, 2)}
-                    </td>
-                    <td className="px-3 py-2 text-right">{p.shots}</td>
+  {!roster || roster.length === 0 ? (
+    <div className="text-sm text-zinc-500">
+      Нет данных по составу для выбранного диапазона.
+    </div>
+  ) : (
+    <div className="overflow-x-auto vfs-card relative">
+      <table className="vfs-table min-w-full text-xs">
+        <thead>
+          <tr className="text-zinc-400">
+            {/* ЛИПКИЙ заголовок первого столбца */}
+            <th
+              className="
+                sticky left-0 z-20
+                px-3 py-2 text-left font-semibold
+                bg-background
+              "
+            >
+              Игрок
+            </th>
+            <th className="px-3 py-2 text-right font-semibold">Матчи</th>
+            <th className="px-3 py-2 text-right font-semibold">Голы</th>
+            <th className="px-3 py-2 text-right font-semibold">Ассисты</th>
+            <th className="px-3 py-2 text-right font-semibold">Г+П</th>
+            <th className="px-3 py-2 text-right font-semibold">xG</th>
+            <th className="px-3 py-2 text-right font-semibold">Удары</th>
+            <th className="px-3 py-2 text-right font-semibold">
+              Уд. в створ, %
+            </th>
+            <th className="px-3 py-2 text-right font-semibold">
+              Точность паса, %
+            </th>
+            <th className="px-3 py-2 text-right font-semibold">xA (пасы)</th>
+            <th className="px-3 py-2 text-right font-semibold">
+              Защитные действия
+            </th>
+            <th className="px-3 py-2 text-right font-semibold">
+              Beaten Rate, %
+            </th>
+            <th className="px-3 py-2 text-right font-semibold">Воздух, %</th>
+            <th className="px-3 py-2 text-right font-semibold">Навесы</th>
+            <th className="px-3 py-2 text-right font-semibold">
+              Точность навесов, %
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {roster.map((p) => (
+            <tr
+              key={p.user_id}
+              className="group border-t border-zinc-800/40 hover:bg-zinc-800/40"
+            >
+              {/* ЛИПКАЯ ячейка с именем игрока */}
+              <td
+                className="
+                  sticky left-0 z-10
+                  px-3 py-2
+                  bg-background
+                  group-hover:bg-zinc-800/40
+                "
+              >
+                {p.gamertag || p.username || `ID ${p.user_id}`}
+              </td>
 
-                    {/* Уд. в створ, % */}
-                    <td className="px-3 py-2 text-right">
-                      {p.shots_on_target_pct != null
-                        ? `${fmt(p.shots_on_target_pct * 100, 1)}%`
-                        : "—"}
-                    </td>
+              <td className="px-3 py-2 text-right">{p.matches}</td>
+              <td className="px-3 py-2 text-right">{p.goals}</td>
+              <td className="px-3 py-2 text-right">{p.assists}</td>
+              <td className="px-3 py-2 text-right">{p.goal_contrib}</td>
+              <td className="px-3 py-2 text-right">{fmt(p.xg, 2)}</td>
+              <td className="px-3 py-2 text-right">{p.shots}</td>
 
-                    {/* Точность паса, % */}
-                    <td className="px-3 py-2 text-right">
-                      {p.pass_acc != null
-                        ? `${fmt(p.pass_acc * 100, 1)}%`
-                        : "—"}
-                    </td>
+              {/* Уд. в створ, % */}
+              <td className="px-3 py-2 text-right">
+                {p.shots_on_target_pct != null
+                  ? `${fmt(p.shots_on_target_pct * 100, 1)}%`
+                  : "—"}
+              </td>
 
-                    <td className="px-3 py-2 text-right">
-                      {fmt(p.passes_xa, 2)}
-                    </td>
+              {/* Точность паса, % */}
+              <td className="px-3 py-2 text-right">
+                {p.pass_acc != null
+                  ? `${fmt(p.pass_acc * 100, 1)}%`
+                  : "—"}
+              </td>
 
-                    <td className="px-3 py-2 text-right">
-                      {p.def_actions}
-                    </td>
+              <td className="px-3 py-2 text-right">{fmt(p.passes_xa, 2)}</td>
 
-                    {/* Beaten Rate, % */}
-                    <td className="px-3 py-2 text-right">
-                      {p.beaten_rate != null
-                        ? `${fmt(p.beaten_rate * 100, 1)}%`
-                        : "—"}
-                    </td>
+              <td className="px-3 py-2 text-right">{p.def_actions}</td>
 
-                    {/* Воздух, % */}
-                    <td className="px-3 py-2 text-right">
-                      {p.aerial_pct != null
-                        ? `${fmt(p.aerial_pct * 100, 1)}%`
-                        : "—"}
-                    </td>
+              {/* Beaten Rate, % */}
+              <td className="px-3 py-2 text-right">
+                {p.beaten_rate != null
+                  ? `${fmt(p.beaten_rate * 100, 1)}%`
+                  : "—"}
+              </td>
 
-                    {/* Навесы */}
-                    <td className="px-3 py-2 text-right">
-                      {p.allcrosses > 0
-                        ? `${p.crosses}/${p.allcrosses}`
-                        : "—"}
-                    </td>
+              {/* Воздух, % */}
+              <td className="px-3 py-2 text-right">
+                {p.aerial_pct != null
+                  ? `${fmt(p.aerial_pct * 100, 1)}%`
+                  : "—"}
+              </td>
 
-                    {/* Точность навесов, % */}
-                    <td className="px-3 py-2 text-right">
-                      {p.cross_acc != null
-                        ? `${fmt(p.cross_acc * 100, 1)}%`
-                        : p.allcrosses > 0
-                          ? "0%"
-                          : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+              {/* Навесы */}
+              <td className="px-3 py-2 text-right">
+                {p.allcrosses > 0 ? `${p.crosses}/${p.allcrosses}` : "—"}
+              </td>
+
+              {/* Точность навесов, % */}
+              <td className="px-3 py-2 text-right">
+                {p.cross_acc != null
+                  ? `${fmt(p.cross_acc * 100, 1)}%`
+                  : p.allcrosses > 0
+                    ? "0%"
+                    : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</section>
     )}
   </div>
 );
