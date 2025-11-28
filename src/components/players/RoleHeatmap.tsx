@@ -90,35 +90,90 @@ export default function RoleHeatmap({ data, caption }: Props) {
   const maxPercent = items.reduce((m, d) => Math.max(m, d.percent), 0);
 
   return (
-    <div className="rounded-2xl border border-emerald-200/40 bg-emerald-50/40 p-4">
-      {caption && <div className="text-sm text-gray-600 mb-2">{caption}</div>}
+  <div className="vfs-card p-4">
+    {caption && (
+      <div className="mb-2 text-sm text-zinc-400">
+        {caption}
+      </div>
+    )}
 
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label="Тепловая карта амплуа">
-        {/* фон */}
-        <rect x={0} y={0} width={W} height={H} rx={18} ry={18} fill="#eafff3" />
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width={W}
+      height={H}
+      role="img"
+      aria-label="Тепловая карта амплуа"
+    >
+      {/* фон: убираем светлую заливку, оставляем прозрачным */}
+      <rect x={0} y={0} width={W} height={H} rx={18} ry={18} fill="transparent" />
 
-        {/* разметка поля */}
-        <rect x={BOXES.attack.x} y={BOXES.attack.y} width={BOXES.attack.w} height={BOXES.attack.h} rx={10} fill="none" stroke="#10b98122" />
-        <line x1={30} y1={BOXES.midLine} x2={W - 30} y2={BOXES.midLine} stroke="#10b98122" />
-        <rect x={BOXES.defense.x} y={BOXES.defense.y} width={BOXES.defense.w} height={BOXES.defense.h} rx={10} fill="none" stroke="#10b98122" />
+      {/* разметка поля */}
+      <rect
+        x={BOXES.attack.x}
+        y={BOXES.attack.y}
+        width={BOXES.attack.w}
+        height={BOXES.attack.h}
+        rx={10}
+        fill="none"
+        stroke="#10b98122"
+      />
+      <line
+        x1={30}
+        y1={BOXES.midLine}
+        x2={W - 30}
+        y2={BOXES.midLine}
+        stroke="#10b98122"
+      />
+      <rect
+        x={BOXES.defense.x}
+        y={BOXES.defense.y}
+        width={BOXES.defense.w}
+        height={BOXES.defense.h}
+        rx={10}
+        fill="none"
+        stroke="#10b98122"
+      />
 
-        {/* точки */}
-        {items.map(({ role, percent }) => {
-          const { x, y } = POS[role];
-          const fill = colorByShare(percent, maxPercent);
-          const pct = Math.round(percent);
-          const title = `${LABEL[role]} — ${pct}% (цвет относительно максимума ${Math.round(maxPercent)}%)`;
+      {/* точки */}
+      {items.map(({ role, percent }) => {
+        const { x, y } = POS[role];
+        const fill = colorByShare(percent, maxPercent);
+        const pct = Math.round(percent);
+        const title = `${LABEL[role]} — ${pct}% (цвет относительно максимума ${Math.round(
+          maxPercent,
+        )}%)`;
 
-          return (
-            <g key={role} transform={`translate(${x},${y})`} style={{ cursor: 'default' }}>
-              <title>{title}</title>
-              <circle r={R} fill={fill} stroke={STROKE} strokeWidth={2} />
-              <text textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight={700} fill="#0f172a" y={-2}>{role}</text>
-              <text textAnchor="middle" dominantBaseline="central" fontSize={11} fill="#0f172acc" y={14}>{pct}%</text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
+        return (
+          <g
+            key={role}
+            transform={`translate(${x},${y})`}
+            style={{ cursor: "default" }}
+          >
+            <title>{title}</title>
+            <circle r={R} fill={fill} stroke={STROKE} strokeWidth={2} />
+            <text
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={12}
+              fontWeight={700}
+              fill="#e5e7eb"        // светлый текст под тёмную тему
+              y={-2}
+            >
+              {role}
+            </text>
+            <text
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={11}
+              fill="#cbd5f5"        // чуть мягче для процента
+              y={14}
+            >
+              {pct}%
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  </div>
+);
 }
