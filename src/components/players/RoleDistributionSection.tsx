@@ -1,26 +1,17 @@
 // src/components/players/RoleDistributionSection.tsx
 import * as React from "react";
 
-// Новый нормальный тип
+// Новый тип
 type RoleItem = { label: string; value: number };
-// Старый тип, который приходит со страницы
+// Старый тип, который приходил с сервера
 type LegacyRolePercent = { role: string; percent: number };
-// Правый бар (лиги)
+// Лиги
 type LeagueItem = { label: string; pct: number };
 
 type Props = {
-  /** Новый проп — уже готовые пары label/value */
   roles?: RoleItem[];
-  /** Наследный проп — мог быть либо RoleItem[], либо RolePercent[] */
   data?: RoleItem[] | LegacyRolePercent[];
   leagues?: LeagueItem[];
-
-  /** Опциональная ручная ширина колонок, px */
-  labelWidthPx?: number;
-  rolesBarWidthPx?: number;
-  leaguesBarWidthPx?: number;
-
-  /** Если true — показываем состав групп в tooltip по амплуа и для "Прочие" по лигам */
   tooltip?: boolean;
 };
 
@@ -39,7 +30,7 @@ function toRoleItems(input?: RoleItem[] | LegacyRolePercent[]): RoleItem[] {
   if (!input) return [];
   const first = input[0] as any;
 
-  // Уже новый формат
+  // Уже новый формат { label, value }
   if (first && "label" in first && "value" in first) {
     return (input as RoleItem[]).map((r) => ({
       label: r.label,
@@ -47,7 +38,7 @@ function toRoleItems(input?: RoleItem[] | LegacyRolePercent[]): RoleItem[] {
     }));
   }
 
-  // Старый формат: { role, percent }
+  // Старый формат { role, percent }
   return (input as LegacyRolePercent[]).map((r) => ({
     label: r.role,
     value: Number(r.percent || 0),
@@ -58,14 +49,10 @@ function BarRow({
   label,
   percent,
   hint,
-  labelWidthPx = 180,
-  barWidthPx = 260,
 }: {
   label: string;
   percent: number;
   hint?: string;
-  labelWidthPx?: number;
-  barWidthPx?: number;
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(percent)));
 
@@ -73,18 +60,14 @@ function BarRow({
     <div className="flex items-center gap-3 text-xs md:text-sm">
       {/* подпись слева */}
       <div
-        className="shrink-0 text-zinc-100 leading-snug break-words"
-        style={{ width: labelWidthPx }}
+        className="w-40 shrink-0 text-zinc-100 leading-snug break-words"
         title={hint}
       >
         {label}
       </div>
 
-      {/* полоса */}
-      <div
-        className="relative h-1.5 rounded-full bg-zinc-800 overflow-hidden"
-        style={{ width: barWidthPx }}
-      >
+      {/* полоса: фон + заполнение */}
+      <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
         <div
           className="h-full rounded-full bg-sky-400"
           style={{ width: `${pct}%` }}
@@ -92,7 +75,7 @@ function BarRow({
       </div>
 
       {/* процент справа */}
-      <div className="w-10 text-right text-zinc-200">{pct}%</div>
+      <div className="w-10 text-right text-zinc-100">{pct}%</div>
     </div>
   );
 }
@@ -101,12 +84,9 @@ export default function RoleDistributionSection({
   roles,
   data,
   leagues = [],
-  labelWidthPx = 180,
-  rolesBarWidthPx = 260,
-  leaguesBarWidthPx = 260,
   tooltip = false,
 }: Props) {
-  // Унифицируем вход: слева — агрегированные группы амплуа
+  // Левый столбец: амплуа (агрегированные группы)
   const left = roles ? toRoleItems(roles) : toRoleItems(data);
 
   // тултипы по амплуа
@@ -139,8 +119,6 @@ export default function RoleDistributionSection({
                 label={r.label}
                 percent={r.value}
                 hint={roleHints[r.label]}
-                labelWidthPx={labelWidthPx}
-                barWidthPx={rolesBarWidthPx}
               />
             ))}
           </div>
@@ -161,8 +139,6 @@ export default function RoleDistributionSection({
                   label={l.label}
                   percent={l.pct}
                   hint={leagueHints[l.label]}
-                  labelWidthPx={labelWidthPx}
-                  barWidthPx={leaguesBarWidthPx}
                 />
               ))}
             </div>
