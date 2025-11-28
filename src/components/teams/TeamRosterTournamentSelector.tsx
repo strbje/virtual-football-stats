@@ -55,8 +55,6 @@ export default function TeamRosterTournamentSelector({
 
   return (
   <div className="relative inline-block w-full">
-
-    {/* Кнопка */}
     <button
       type="button"
       onClick={() => setOpen((v) => !v)}
@@ -78,9 +76,10 @@ export default function TeamRosterTournamentSelector({
     {open && (
       <div
         className="
-          absolute z-20 mt-1 w-full 
-          vfs-card p-2 
-          shadow-xl
+          absolute z-30 mt-1 w-full
+          rounded-xl border border-zinc-800 
+          bg-background
+          p-2 shadow-xl
         "
       >
         <div className="max-h-64 overflow-y-auto space-y-1 text-xs">
