@@ -1,4 +1,3 @@
-// src/components/players/RoleDistributionSection.tsx
 import * as React from "react";
 
 // Новый тип
@@ -58,16 +57,19 @@ function BarRow({
 
   return (
     <div className="flex items-center gap-3 text-xs md:text-sm">
-      {/* подпись слева */}
+      {/* подпись слева, тултип по наведению */}
       <div
-        className="w-40 shrink-0 text-zinc-100 leading-snug break-words"
+        className="w-44 shrink-0 text-zinc-100 leading-snug break-words"
         title={hint}
       >
         {label}
       </div>
 
-      {/* полоса: фон + заполнение */}
-      <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+      {/* полоса фиксированной ширины */}
+      <div
+        className="h-1.5 rounded-full bg-zinc-800 overflow-hidden"
+        style={{ width: 180 }}
+      >
         <div
           className="h-full rounded-full bg-sky-400"
           style={{ width: `${pct}%` }}
@@ -86,10 +88,8 @@ export default function RoleDistributionSection({
   leagues = [],
   tooltip = false,
 }: Props) {
-  // Левый столбец: амплуа (агрегированные группы)
   const left = roles ? toRoleItems(roles) : toRoleItems(data);
 
-  // тултипы по амплуа
   const roleHints: Record<string, string | undefined> = {};
   if (tooltip) {
     for (const [groupLabel, codes] of Object.entries(GROUP_ROLES)) {
@@ -97,7 +97,6 @@ export default function RoleDistributionSection({
     }
   }
 
-  // тултип по лигам
   const leagueHints: Record<string, string | undefined> = {};
   if (tooltip) {
     leagueHints["Прочие"] =
