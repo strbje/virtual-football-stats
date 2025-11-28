@@ -144,6 +144,85 @@ export default function RoleHeatmap({ data, caption }: Props) {
         )}%)`;
 
         return (
+  <div className="vfs-card p-4">
+    {caption && (
+      <div className="mb-2 text-sm text-zinc-400">
+        {caption}
+      </div>
+    )}
+
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width={W}
+      height={H}
+      role="img"
+      aria-label="Тепловая карта амплуа"
+    >
+      {/* общий фон внутри карточки остаётся прозрачным */}
+      <rect
+        x={0}
+        y={0}
+        width={W}
+        height={H}
+        rx={18}
+        ry={18}
+        fill="transparent"
+      />
+
+      {/* основное поле */}
+      <rect
+        x={24}
+        y={18}
+        width={W - 48}
+        height={H - 36}
+        rx={22}
+        fill="rgba(15,23,42,0.95)"        // тёмный «газон» поверх карточки
+        stroke="#22c55e66"                // заметный зелёный контур
+        strokeWidth={2}
+      />
+
+      {/* разметка: верхняя зона атаки */}
+      <rect
+        x={BOXES.attack.x}
+        y={BOXES.attack.y}
+        width={BOXES.attack.w}
+        height={BOXES.attack.h}
+        rx={10}
+        fill="none"
+        stroke="#22c55e55"                // чуть ярче, чем раньше
+      />
+
+      {/* центральная линия */}
+      <line
+        x1={30}
+        y1={BOXES.midLine}
+        x2={W - 30}
+        y2={BOXES.midLine}
+        stroke="#22c55e55"
+        strokeWidth={1}
+      />
+
+      {/* нижняя защитная зона */}
+      <rect
+        x={BOXES.defense.x}
+        y={BOXES.defense.y}
+        width={BOXES.defense.w}
+        height={BOXES.defense.h}
+        rx={10}
+        fill="none"
+        stroke="#22c55e55"
+      />
+
+      {/* точки амплуа */}
+      {items.map(({ role, percent }) => {
+        const { x, y } = POS[role];
+        const fill = colorByShare(percent, maxPercent);
+        const pct = Math.round(percent);
+        const title = `${LABEL[role]} — ${pct}% (цвет относительно максимума ${Math.round(
+          maxPercent,
+        )}%)`;
+
+        return (
           <g
             key={role}
             transform={`translate(${x},${y})`}
@@ -156,7 +235,7 @@ export default function RoleHeatmap({ data, caption }: Props) {
               dominantBaseline="central"
               fontSize={12}
               fontWeight={700}
-              fill="#e5e7eb"        // светлый текст под тёмную тему
+              fill="#e5e7eb"       // яркий текст роли
               y={-2}
             >
               {role}
@@ -165,7 +244,7 @@ export default function RoleHeatmap({ data, caption }: Props) {
               textAnchor="middle"
               dominantBaseline="central"
               fontSize={11}
-              fill="#cbd5f5"        // чуть мягче для процента
+              fill="#cbd5f5"       // чуть мягче для процента
               y={14}
             >
               {pct}%
@@ -177,3 +256,4 @@ export default function RoleHeatmap({ data, caption }: Props) {
   </div>
 );
 }
+
