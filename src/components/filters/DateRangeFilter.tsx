@@ -42,30 +42,43 @@ export default function DateRangeFilter({ initialRange }: { initialRange: string
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <input
-        ref={fromRef}
-        type="text"
-        placeholder="ДД.ММ.ГГГГ"
-        className="rounded border px-2 py-1 text-sm w-28"
-        value={from}
-        onChange={(e) => setFrom(e.target.value)}
-      />
-      <span className="text-gray-400">—</span>
-      <input
-        ref={toRef}
-        type="text"
-        placeholder="ДД.ММ.ГГГГ"
-        className="rounded border px-2 py-1 text-sm w-28"
-        value={to}
-        onChange={(e) => setTo(e.target.value)}
-      />
-      <button onClick={apply} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">
-        OK
-      </button>
-      <button onClick={reset} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">
-        Сброс
-      </button>
-    </div>
-  );
-}
+  <div className="flex items-center gap-2">
+    <input
+      ref={fromRef}
+      type="text"
+      placeholder="ДД.ММ.ГГГГ"
+      className="w-28 rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1 text-sm
+                 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-sky-500"
+      value={from}
+      onChange={(e) => setFrom(e.target.value)}
+    />
+
+    <span className="text-zinc-500">—</span>
+
+    <input
+      ref={toRef}
+      type="text"
+      placeholder="ДД.ММ.ГГГГ"
+      className="w-28 rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1 text-sm
+                 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-sky-500"
+      value={to}
+      onChange={(e) => setTo(e.target.value)}
+    />
+
+    <button
+      onClick={apply}
+      className="rounded-md border border-zinc-700 px-3 py-1 text-sm 
+                 text-zinc-200 hover:bg-zinc-800"
+    >
+      OK
+    </button>
+
+    <button
+      onClick={reset}
+      className="rounded-md border border-zinc-700 px-3 py-1 text-sm
+                 text-zinc-200 hover:bg-zinc-800"
+    >
+      Сброс
+    </button>
+  </div>
+);
