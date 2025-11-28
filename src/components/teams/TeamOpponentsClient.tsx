@@ -127,57 +127,73 @@ export function TeamOpponentsClient({
     const matchesCount = Array.isArray(o.matches) ? o.matches.length : Number(o.matches ?? 0);
 
     return (
-      <option key={o.opponentId} value={o.opponentId}>
-        {o.opponentName} — {o.wins}-{o.draws}-{o.losses} ({matchesCount})
-      </option>
-    );
-  })}
-</select>
+  <div className="space-y-2">
+    {/* строка поиска + селектор + сводка */}
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-zinc-400">Соперник:</span>
 
-          {/* краткая сводка по выбранному сопернику */}
-          {selected && (
-            <span className="text-zinc-400">
-              {summary.wins}-{summary.draws}-{summary.losses} · мячи{" "}
-              {summary.gf}:{summary.ga}{" "}
-              <span className="font-semibold text-foreground">
-                ({summary.diff >= 0 ? "+" : ""}
-                {summary.diff})
-              </span>
-            </span>
-          )}
+      <input
+        type="text"
+        className="rounded-md border border-zinc-700 bg-zinc-900/60 px-2 py-1 text-xs text-zinc-100 placeholder:text-zinc-500 min-w-[160px]"
+        placeholder="Введите название команды"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
+      <select
+        className="rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-xs text-zinc-100 min-w-[220px]"
+        value={selectedId ?? undefined}
+        onChange={(e) => setSelectedId(Number(e.target.value))}
+      >
+        {filteredOpponents.map((o) => (
+          <option key={o.opponentId} value={o.opponentId}>
+            {o.opponentName} · {o.wins}-{o.draws}-{o.losses} (
+            {Array.isArray(o.matches) ? o.matches.length : Number(o.matches ?? 0)}
+            )
+          </option>
+        ))}
+      </select>
+
+      {summary && (
+        <div className="text-[11px] text-zinc-400">
+          {summary.wins}-{summary.draws}-{summary.loses} · мячи{" "}
+          {summary.gf}:{summary.ga} ({summary.diffStr})
         </div>
+      )}
+    </div>
 
-        {/* Список матчей против выбранного соперника с прокруткой */}
-        <div className="max-h-44 overflow-y-auto mt-2 border-t border-zinc-800 pt-2 text-xs text-zinc-400">
-          {selected?.matches.map((m, idx) => {
-            let color = "text-zinc-300";
-            if (m.res === "W") color = "text-emerald-400";
-            else if (m.res === "L") color = "text-red-400";
+    {/* список матчей с выбранным соперником — оставляем текущую логику,
+        можно только слегка подкрутить цвета под тёмную тему */}
+    <div className="border-t border-zinc-800 pt-2 max-h-52 overflow-y-auto text-xs">
+      {currentMatches.length === 0 ? (
+        <div className="text-zinc-500">Нет матчей с выбранным соперником.</div>
+      ) : (
+        <ul className="space-y-1">
+          {currentMatches.map((m, idx) => {
+            const color =
+              m.res === "W"
+                ? "text-emerald-400"
+                : m.res === "L"
+                ? "text-red-400"
+                : "text-zinc-200";
 
             return (
-              <div
-                key={idx}
-                className="flex justify-between gap-3 py-0.5"
-                title={m.opponentName}
+              <li
+                key={`${m.opponentId}-${idx}`}
+                className="flex justify-between gap-2"
               >
-                <span className="text-zinc-500">{m.date || "—"}</span>
-                <span className="flex-1 truncate text-right">
-                  <span className={color}>
-                    {m.scored}:{m.missed} ({m.res})
-                  </span>
+                <span className="text-zinc-500">
+                  {m.date || "—"} · {m.tournament || "Турнир не указан"}
                 </span>
-              </div>
+                <span className={clsx("font-medium", color)}>
+                  {m.scored}:{m.missed} ({m.res})
+                </span>
+              </li>
             );
           })}
-
-          {selected && selected.matches.length === 0 && (
-            <div className="text-zinc-500 py-1">
-              Матчей против этого соперника пока нет.
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-  </section>
+        </ul>
+      )}
+    </div>
+  </div>
 );
 }
