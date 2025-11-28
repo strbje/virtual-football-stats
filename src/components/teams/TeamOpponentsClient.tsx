@@ -33,7 +33,7 @@ export function TeamOpponentsClient({
     opponents[0]?.opponentId ?? null,
   );
 
-  // Отфильтрованный список по поиску
+  // фильтр по строке поиска
   const filteredOpponents = useMemo(() => {
     if (!query.trim()) return opponents;
     const q = query.toLowerCase();
@@ -42,16 +42,16 @@ export function TeamOpponentsClient({
     );
   }, [opponents, query]);
 
-  // Текущий выбранный соперник
+  // текущий соперник
   const selected =
     opponents.find((o) => o.opponentId === selectedId) ??
     filteredOpponents[0] ??
     null;
 
-  // Что показываем в инпуте поиска
+  // что показываем в инпуте
   const inputValue = query || (selected ? selected.opponentName : "");
 
-  // Сводка по выбранному сопернику
+  // сводка W/D/L и мячи
   const summary = useMemo(() => {
     if (!selected) {
       return {
@@ -82,71 +82,66 @@ export function TeamOpponentsClient({
       </h3>
 
       {opponents.length === 0 ? (
-        <div className="text-xs text-muted-foreground">
+        <div className="text-xs text-zinc-400">
           Недостаточно данных по матчам.
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Чипы результатов (оставлены в верхней части файла, если были) */}
+          {/* Чипы результатов остаются выше в файле, их не трогаем */}
 
-          {/* Соперник + поиск + селектор + сводка W/D/L и разница мячей — В ОДНУ СТРОКУ */}
+          {/* Соперник + поиск + сводка W/D/L и разница мячей */}
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-zinc-400">Соперник:</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-400">Соперник:</span>
+              <div className="relative">
+                <input
+                  className="rounded-md border border-zinc-700 bg-zinc-900/70 px-2 py-1 text-xs min-w-[220px] text-zinc-100 placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  placeholder="Начните вводить команду"
+                  list="team-opponents-list"
+                  value={inputValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setQuery(v);
 
-            {/* Поиск по названию */}
-            <div className="relative">
-              <input
-                className="rounded-md border border-zinc-700 bg-zinc-900/70 px-2 py-1 text-xs min-w-[220px] text-zinc-100 placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-                placeholder="Начните вводить команду"
-                list="team-opponents-list"
-                value={inputValue}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setQuery(v);
-
-                  const exact = opponents.find(
-                    (o) =>
-                      o.opponentName.toLowerCase() === v.toLowerCase(),
-                  );
-                  if (exact) {
-                    setSelectedId(exact.opponentId);
-                  }
-                }}
-              />
-              <datalist id="team-opponents-list">
-                {filteredOpponents.map((o) => (
-                  <option
-                    key={o.opponentId}
-                    value={o.opponentName}
-                  />
-                ))}
-              </datalist>
+                    const exact = opponents.find(
+                      (o) =>
+                        o.opponentName.toLowerCase() === v.toLowerCase(),
+                    );
+                    if (exact) {
+                      setSelectedId(exact.opponentId);
+                    }
+                  }}
+                />
+                <datalist id="team-opponents-list">
+                  {filteredOpponents.map((o) => (
+                    <option
+                      key={o.opponentId}
+                      value={o.opponentName}
+                    />
+                  ))}
+                </datalist>
+              </div>
             </div>
 
-            {/* Селектор соперников (как было раньше) */}
-            <select
-              className="rounded-md border border-zinc-700 bg-zinc-900/70 px-2 py-1 text-xs min-w-[220px] text-zinc-100"
-              value={selectedId ?? undefined}
-              onChange={(e) => setSelectedId(Number(e.target.value))}
-            >
-              {filteredOpponents.map((o) => (
-                <option key={o.opponentId} value={o.opponentId}>
-                  {o.opponentName} — {o.wins}-{o.draws}-{o.losses} (
-                  {o.matches.length})
-                </option>
-              ))}
-            </select>
-
-            {/* Краткая сводка, как на старом скрине */}
             {selected && (
-              <span className="text-xs text-zinc-300">
-                {summary.wins}-{summary.draws}-{summary.losses} · мячи{" "}
-                {summary.gf}:{summary.ga}{" "}
-                <span className="font-semibold">
-                  ({summary.diff >= 0 ? "+" : ""}
-                  {summary.diff})
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300">
+                  W {summary.wins}
                 </span>
-              </span>
+                <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-200">
+                  D {summary.draws}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-red-900/50 text-red-300">
+                  L {summary.losses}
+                </span>
+                <span className="ml-2 text-zinc-300">
+                  Голы: {summary.gf}:{summary.ga}{" "}
+                  <span className="font-semibold">
+                    ({summary.diff >= 0 ? "+" : ""}
+                    {summary.diff})
+                  </span>
+                </span>
+              </div>
             )}
           </div>
 
