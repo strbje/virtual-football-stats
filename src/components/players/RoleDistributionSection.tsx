@@ -2,7 +2,7 @@ import * as React from "react";
 
 // Новый тип
 type RoleItem = { label: string; value: number };
-// Старый тип, который приходил с сервера
+// Старый тип
 type LegacyRolePercent = { role: string; percent: number };
 // Лиги
 type LeagueItem = { label: string; pct: number };
@@ -57,19 +57,16 @@ function BarRow({
 
   return (
     <div className="flex items-center gap-3 text-xs md:text-sm">
-      {/* подпись слева, тултип по наведению */}
+      {/* подпись слева, перенос по словам, тултип на hover */}
       <div
-        className="w-44 shrink-0 text-zinc-100 leading-snug break-words"
+        className="w-44 shrink-0 text-zinc-100 leading-snug whitespace-normal break-words"
         title={hint}
       >
         {label}
       </div>
 
-      {/* полоса фиксированной ширины */}
-      <div
-        className="h-1.5 rounded-full bg-zinc-800 overflow-hidden"
-        style={{ width: 180 }}
-      >
+      {/* трек фиксированной ширины, хорошо видимый на тёмном фоне */}
+      <div className="h-2.5 w-40 rounded-full bg-zinc-700/80 overflow-hidden">
         <div
           className="h-full rounded-full bg-sky-400"
           style={{ width: `${pct}%` }}
@@ -106,7 +103,7 @@ export default function RoleDistributionSection({
   return (
     <div className="vfs-card">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Левый: амплуа */}
+        {/* Левый столбец: амплуа */}
         <div>
           <h3 className="text-sm font-semibold text-foreground mb-2">
             Распределение по амплуа
@@ -123,7 +120,7 @@ export default function RoleDistributionSection({
           </div>
         </div>
 
-        {/* Правый: лиги */}
+        {/* Правый столбец: лиги */}
         <div>
           <h3 className="text-sm font-semibold text-foreground mb-2">
             Распределение по лигам
