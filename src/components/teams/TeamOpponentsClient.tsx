@@ -80,85 +80,90 @@ export function TeamOpponentsClient({
     </h3>
 
     {opponents.length === 0 ? (
-      <div className="text-xs text-zinc-500">
+      <div className="text-xs text-zinc-400">
         Недостаточно данных по матчам.
       </div>
     ) : (
       <div className="space-y-3">
-        {/* строка фильтра по сопернику — всё в один ряд */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-[11px] text-zinc-500">Соперник:</span>
+        {/* Чипы результатов (общая форма по последним матчам команды) — остаются как в исходном коде выше */}
 
-          {/* поиск по названию команды */}
-          <input
-            className="vfs-input h-8 text-xs min-w-[180px]"
-            placeholder="Введите название команды"
-            value={query}
-            onChange={(e) => {
-              const v = e.target.value;
-              setQuery(v);
+        {/* Соперник + поиск + сводка W/D/L и разница мячей */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-400">Соперник:</span>
+            <div className="relative">
+              <input
+                className="vfs-input text-xs min-w-[220px]"
+                placeholder="Начните вводить команду"
+                list="team-opponents-list"
+                value={inputValue}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setQuery(v);
 
-              // если ввели точное имя — выбираем соперника сразу
-              const exact = opponents.find(
-                (o) => o.opponentName.toLowerCase() === v.toLowerCase(),
-              );
-              if (exact) {
-                setSelectedId(exact.opponentId);
-              }
-            }}
-          />
+                  // Если ввели точное имя — сразу выбираем соперника
+                  const exact = opponents.find(
+                    (o) => o.opponentName.toLowerCase() === v.toLowerCase(),
+                  );
+                  if (exact) {
+                    setSelectedId(exact.opponentId);
+                  }
+                }}
+              />
+              <datalist id="team-opponents-list">
+                {filteredOpponents.map((o) => (
+                  <option key={o.opponentId} value={o.opponentName} />
+                ))}
+              </datalist>
+            </div>
+          </div>
 
-          {/* селект соперников, как на старом скрине */}
-          <select
-  className="vfs-select h-8 text-xs min-w-[220px]"
-  value={selectedId ?? ""}
-  onChange={(e) => {
-    const id = Number(e.target.value);
-    setSelectedId(Number.isNaN(id) ? null : id);
-  }}
->
-  {filteredOpponents.map((o) => (
-    <option key={o.opponentId} value={o.opponentId}>
-      {o.opponentName} — {o.wins}-{o.draws}-{o.losses} ({o.matches.length})
-    </option>
-  ))}
-</select>
-
-          {/* сводка W-D-L и мячи — в той же строке */}
           {selected && (
-            <span className="ml-2 text-[11px] text-zinc-400 whitespace-nowrap">
-              {summary.wins}-{summary.draws}-{summary.losses} · мячи{" "}
-              {summary.gf}:{summary.ga} (
-              {summary.diff >= 0 ? "+" : ""}
-              {summary.diff})
-            </span>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+                W {summary.wins}
+              </span>
+              <span className="px-2 py-0.5 rounded-full border border-zinc-500/40 bg-zinc-500/10 text-zinc-200">
+                D {summary.draws}
+              </span>
+              <span className="px-2 py-0.5 rounded-full border border-red-500/40 bg-red-500/10 text-red-300">
+                L {summary.losses}
+              </span>
+              <span className="ml-2 text-zinc-400">
+                Голы: {summary.gf}:{summary.ga}{" "}
+                <span className="font-semibold text-foreground">
+                  ({summary.diff >= 0 ? "+" : ""}
+                  {summary.diff})
+                </span>
+              </span>
+            </div>
           )}
         </div>
 
-        {/* список матчей против выбранного соперника */}
-        <div className="max-h-44 overflow-y-auto mt-1 border-t border-zinc-800/70 pt-2 text-xs">
-          {selected?.matches.length ? (
-            selected.matches.map((m, idx) => {
-              let color = "text-zinc-300";
-              if (m.res === "W") color = "text-emerald-400";
-              else if (m.res === "L") color = "text-red-400";
+        {/* Список матчей против выбранного соперника с прокруткой */}
+        <div className="max-h-44 overflow-y-auto mt-2 border-t border-zinc-800 pt-2 text-xs text-zinc-400">
+          {selected?.matches.map((m, idx) => {
+            let color = "text-zinc-300";
+            if (m.res === "W") color = "text-emerald-400";
+            else if (m.res === "L") color = "text-red-400";
 
-              return (
-                <div
-                  key={idx}
-                  className="flex justify-between gap-3 py-0.5"
-                  title={m.opponentName}
-                >
-                  <span className="text-zinc-500">
-                    {m.date || "—"} · {m.tournament || "Турнир не указан"}
-                  </span>
+            return (
+              <div
+                key={idx}
+                className="flex justify-between gap-3 py-0.5"
+                title={m.opponentName}
+              >
+                <span className="text-zinc-500">{m.date || "—"}</span>
+                <span className="flex-1 truncate text-right">
                   <span className={color}>
                     {m.scored}:{m.missed} ({m.res})
                   </span>
-                </div>
-              );
-            })
-          ) : (
+                </span>
+              </div>
+            );
+          })}
+
+          {selected && selected.matches.length === 0 && (
             <div className="text-zinc-500 py-1">
               Матчей против этого соперника пока нет.
             </div>
