@@ -180,5 +180,4 @@ export function TeamOpponentsClient({
     )}
   </section>
 );
-
 }
