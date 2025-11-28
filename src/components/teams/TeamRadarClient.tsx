@@ -134,18 +134,19 @@ function wrapLabel(label: string, maxLen = 10): string[] {
 }
 
 function TeamRadarSvg({ data }: RadarProps) {
-  const SIZE = 400;      // общий размер SVG 
-  const PADDING = 90;    // было 50 — больше отступ, радар чуть меньше → больше места под подписи
+  const SIZE = 400; // общий размер SVG
+  const PADDING = 90; // отступ от краёв
   const GRID_STEPS = 5;
-  const LABEL_OFFSET = 34; // было 46 — подписи ближе к кругу, меньше вылетают наружу
-  const BADGE_INNER = 14;  // бейджи процентов чуть глубже внутрь, меньше пересечений с текстом
+  const LABEL_OFFSET = 34;
+  const BADGE_INNER = 14;
 
-  const GRID_COLOR = "#e5e7eb";
-  const AXIS_COLOR = "#111827";
-  const POLY_STROKE = "#ef4444";
-  const POLY_FILL = "rgba(239,68,68,0.12)";
+  // Цвета адаптированы под общий стиль (темная/светлая тема)
+  const GRID_COLOR = "rgba(148,163,184,0.4)"; // мягкая сетка (zinc-400 с альфой)
+  const AXIS_COLOR = "var(--foreground)"; // текст осей по цвету темы
+  const POLY_STROKE = "#ef4444"; // основной красный
+  const POLY_FILL = "rgba(239,68,68,0.16)";
   const BADGE_BG = "#ef4444";
-  const BADGE_TEXT = "#ffffff";
+  const BADGE_TEXT = "#f9fafb"; // почти белый
 
   const N = data.length || 1;
   const center = SIZE / 2;
@@ -170,6 +171,10 @@ function TeamRadarSvg({ data }: RadarProps) {
       viewBox={`0 0 ${SIZE} ${SIZE}`}
       aria-label="team-radar-chart"
       className="max-w-full"
+      style={{
+        fontFamily:
+          "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      }}
     >
       {/* Сетка: кольца */}
       {gridRadii.map((r, idx) => (
@@ -180,8 +185,8 @@ function TeamRadarSvg({ data }: RadarProps) {
           r={r}
           fill="none"
           stroke={GRID_COLOR}
-          strokeWidth={1}
-          opacity={idx === gridRadii.length - 1 ? 1 : 0.8}
+          strokeWidth={idx === gridRadii.length - 1 ? 1.2 : 1}
+          opacity={idx === gridRadii.length - 1 ? 0.9 : 0.6}
         />
       ))}
 
@@ -197,14 +202,13 @@ function TeamRadarSvg({ data }: RadarProps) {
             y2={p.y}
             stroke={GRID_COLOR}
             strokeWidth={1}
-            opacity={0.9}
+            opacity={0.8}
           />
         );
       })}
 
-      {/* Подписи осей (с переносом) */}
-      // Подписи осей — всегда по центру точки, чтобы не обрезались
-{data.map((d, i) => {
+      {/* Подписи осей — всегда по центру точки, чтобы не обрезались */}
+      {data.map((d, i) => {
         const outer = polarPoint(
           center,
           center,
@@ -215,30 +219,34 @@ function TeamRadarSvg({ data }: RadarProps) {
         const align =
           alignCos > 0.25 ? "start" : alignCos < -0.25 ? "end" : "middle";
 
-  return (
-    <text
-      key={`label-${i}`}
-      x={outer.x}
-      y={outer.y}
-      fontSize={9}
-      fill={AXIS_COLOR}
-     textAnchor={align as any}
+        return (
+          <text
+            key={`label-${i}`}
+            x={outer.x}
+            y={outer.y}
+            fontSize={9}
+            fill={AXIS_COLOR}
+            textAnchor={align as any}
             dominantBaseline="middle"
           >
-      {d.label}
-    </text>
-  );
-})}
-
+            {d.label}
+          </text>
+        );
+      })}
 
       {/* Полигон команды */}
-      <polygon points={polyAttr} fill={POLY_FILL} stroke={POLY_STROKE} strokeWidth={2} />
+      <polygon
+        points={polyAttr}
+        fill={POLY_FILL}
+        stroke={POLY_STROKE}
+        strokeWidth={2}
+      />
 
-      {/* Точки + бейджи процентов (уводим БЕЙДЖ ВНУТРЬ полигона) */}
+      {/* Точки + бейджи процентов (бейдж уводим внутрь) */}
       {data.map((d, i) => {
         const r = radius * Math.max(0, Math.min(1, (d.pct ?? 0) / 100));
         const dot = polarPoint(center, center, r, angles[i]);
-        const badgeR = Math.max(0, r - BADGE_INNER); // было r + offset → теперь внутрь
+        const badgeR = Math.max(0, r - BADGE_INNER);
         const badge = polarPoint(center, center, badgeR, angles[i]);
         const pct = Math.round(d.pct ?? 0);
 
@@ -257,7 +265,7 @@ function TeamRadarSvg({ data }: RadarProps) {
               />
               <text
                 x={0}
-                y={-10 + 7}
+                y={-3}
                 textAnchor="middle"
                 fontSize={10}
                 fontWeight={700}
@@ -273,6 +281,7 @@ function TeamRadarSvg({ data }: RadarProps) {
     </svg>
   );
 }
+
 
 /** ---------- Основной клиентский компонент ---------- */
 
@@ -375,20 +384,25 @@ export default function TeamRadarClient({ teamId, scope = "recent" }: Props) {
   });
 
   return (
-    <div className="space-y-3 text-xs text-zinc-700">
-      <div className="text-[11px] text-zinc-500">
-        Диапазон: официальные матчи (с 18 сезона), всего {matches || 0} матчей.
-      </div>
+  <div className="space-y-3 text-xs text-foreground">
 
-      <div className="flex items-center justify-center max-w-md mx-auto">
-  <TeamRadarSvg data={radarData} />
-</div>
-
-      <div className="text-[11px] text-zinc-500 mt-1">
-        Радар показывает перцентили по командам лиги (0–100%, где 100% — топ
-        команды по метрике). При отсутствии перцентилей используется
-        нормализация по фиксированным диапазонам.
-      </div>
+    {/* Верхняя подпись */}
+    <div className="text-[11px] text-muted-foreground">
+      Диапазон: официальные матчи (с 18 сезона), всего {matches || 0} матчей.
     </div>
-  );
+
+    {/* Центрированный радар */}
+    <div className="flex justify-center w-full">
+      <TeamRadarSvg data={radarData} />
+    </div>
+
+    {/* Нижняя подпись */}
+    <div className="text-[11px] text-muted-foreground mt-1">
+      Радар показывает перцентили по командам лиги (0–100%, где 100% — топ
+      команды по метрике). При отсутствии перцентилей используется
+      нормализация по фиксированным диапазонам.
+    </div>
+
+  </div>
+);
 }
