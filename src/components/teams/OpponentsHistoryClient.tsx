@@ -129,75 +129,80 @@ export default function OpponentsHistoryClient({ matches }: Props) {
   }, [selectedId, filteredOpponents, opponents]);
 
   if (opponents.length === 0) {
-    return (
-      <div className="text-xs text-zinc-500">
-        Нет официальных матчей против других команд.
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-2">
-      {/* строка поиска + селектор + сводка */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-zinc-500">Соперник:</span>
-
-        <input
-          type="text"
-          className="border border-zinc-200 rounded-md px-2 py-1 text-xs min-w-[160px]"
-          placeholder="Введите название команды"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-
-        <select
-          className="border border-zinc-200 rounded-md px-2 py-1 text-xs min-w-[220px]"
-          value={selectedId ?? undefined}
-          onChange={(e) => setSelectedId(Number(e.target.value))}
-        >
-          {filteredOpponents.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name} · {o.wins}-{o.draws}-{o.loses} ({o.matches})
-            </option>
-          ))}
-        </select>
-
-        {summary && (
-          <div className="text-[11px] text-zinc-600">
-            {summary.wins}-{summary.draws}-{summary.loses} · мячи{" "}
-            {summary.gf}:{summary.ga} ({summary.diffStr})
-          </div>
-        )}
-      </div>
-
-      {/* список матчей с выбранным соперником */}
-      <div className="border-t border-zinc-100 pt-2 max-h-52 overflow-y-auto text-xs">
-        {currentMatches.length === 0 ? (
-          <div className="text-zinc-500">Нет матчей с выбранным соперником.</div>
-        ) : (
-          <ul className="space-y-1">
-            {currentMatches.map((m, idx) => (
-              <li
-                key={`${m.opponentId}-${idx}`}
-                className="flex justify-between gap-2"
-              >
-                <span className="text-zinc-500">
-                  {m.date || "—"} · {m.tournament || "Турнир не указан"}
-                </span>
-                <span
-                  className={clsx("font-medium", {
-                    "text-emerald-700": m.res === "W",
-                    "text-zinc-700": m.res === "D",
-                    "text-red-700": m.res === "L",
-                  })}
-                >
-                  {m.scored}:{m.missed} ({m.res})
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+    <div className="text-xs text-zinc-400">
+      Нет официальных матчей против других команд.
     </div>
   );
 }
+
+  return (
+  <div className="space-y-3">
+    {/* строка поиска + селектор + сводка */}
+    <div className="flex flex-wrap items-center gap-3 text-xs">
+      <span className="text-[11px] text-zinc-400">Соперник:</span>
+
+      <input
+        type="text"
+        className="vfs-input h-8 min-w-[180px] text-xs"
+        placeholder="Введите название команды"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
+      <select
+        className="vfs-select h-8 min-w-[220px] text-xs"
+        value={selectedId ?? undefined}
+        onChange={(e) => setSelectedId(Number(e.target.value))}
+      >
+        {filteredOpponents.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name} · {o.wins}-{o.draws}-{o.loses} ({o.matches})
+          </option>
+        ))}
+      </select>
+
+      {summary && (
+        <div className="text-[11px] text-zinc-400">
+          {summary.wins}-{summary.draws}-{summary.loses} · мячи{" "}
+          {summary.gf}:{summary.ga} ({summary.diffStr})
+        </div>
+      )}
+    </div>
+
+    {/* список матчей с выбранным соперником */}
+    <div className="border-t border-zinc-800 pt-2 max-h-52 overflow-y-auto text-xs">
+      {currentMatches.length === 0 ? (
+        <div className="text-zinc-500">
+          Нет матчей с выбранным соперником.
+        </div>
+      ) : (
+        <ul className="space-y-1">
+          {currentMatches.map((m, idx) => (
+            <li
+              key={`${m.opponentId}-${idx}`}
+              className="flex justify-between gap-2"
+            >
+              <span className="text-zinc-500">
+                {m.date || "—"} · {m.tournament || "Турнир не указан"}
+              </span>
+              <span
+                className={clsx(
+                  "font-medium",
+                  {
+                    "text-emerald-400": m.res === "W",
+                    "text-zinc-300": m.res === "D",
+                    "text-rose-400": m.res === "L",
+                  }
+                )}
+              >
+                {m.scored}:{m.missed} ({m.res})
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  </div>
+);
+
