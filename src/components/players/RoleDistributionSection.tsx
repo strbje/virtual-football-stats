@@ -8,6 +8,19 @@ type Props = {
   roles?: RoleItem[];
   data?: RoleItem[] | LegacyRolePercent[];
   leagues?: LeagueItem[];
+  tooltip?: boolean;
+};
+
+// Группы амплуа для подсказок
+const GROUP_ROLES: Record<string, string[]> = {
+  Форвард: ["ЦФД", "ЛФД", "ПФД", "ФРВ", "ЛФА", "ПФА"],
+  "Атакующий полузащитник": ["ЦАП", "ЛАП", "ПАП"],
+  "Крайний полузащитник": ["ЛП", "ПП"],
+  "Центральный полузащитник": ["ЦП", "ЛЦП", "ПЦП"],
+  "Опорный полузащитник": ["ЦОП", "ЛОП", "ПОП"],
+  "Крайний защитник": ["ЛЗ", "ПЗ"],
+  "Центральный защитник": ["ЦЗ", "ЛЦЗ", "ПЦЗ"],
+  Вратарь: ["ВРТ"],
 };
 
 function toRoleItems(
@@ -29,18 +42,21 @@ function toRoleItems(
   }));
 }
 
-function BarRow({
-  label,
-  percent,
-}: {
+type BarRowProps = {
   label: string;
   percent: number;
-}) {
+  hint?: string;
+};
+
+function BarRow({ label, percent, hint }: BarRowProps) {
   const pct = Math.max(0, Math.min(100, Math.round(percent)));
 
   return (
-    <div className="grid grid-cols-[1fr_60px_40px] items-center gap-2 text-sm">
-      {/* название амплуа */}
+    <div
+      className="grid grid-cols-[1fr_80px_40px] items-center gap-2 text-sm"
+      title={hint}
+    >
+      {/* название (может переноситься на 2 строки) */}
       <div className="text-zinc-100 leading-snug">{label}</div>
 
       {/* бар */}
@@ -51,7 +67,7 @@ function BarRow({
         />
       </div>
 
-      {/* число */}
+      {/* число справа */}
       <div className="text-right text-zinc-200">{pct}%</div>
     </div>
   );
@@ -61,13 +77,27 @@ export default function RoleDistributionSection({
   roles,
   data,
   leagues = [],
+  tooltip = false,
 }: Props) {
   const left = roles ? toRoleItems(roles) : toRoleItems(data);
+
+  const roleHints: Record<string, string | undefined> = {};
+  if (tooltip) {
+    for (const [group, list] of Object.entries(GROUP_ROLES)) {
+      roleHints[group] = `Входит: ${list.join(", ")}`;
+    }
+  }
+
+  const leagueHints: Record<string, string | undefined> = {};
+  if (tooltip) {
+    leagueHints["Прочие"] =
+      "Включает турниры вне ПЛ/ФНЛ/ПФЛ/ЛФЛ (например, LastDance, Кубок России и др.)";
+  }
 
   return (
     <div className="vfs-card p-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        {/* Левая колонка */}
+        {/* Левая колонка: амплуа */}
         <div>
           <h3 className="text-sm font-semibold text-zinc-100 mb-3">
             Распределение по амплуа
@@ -75,12 +105,17 @@ export default function RoleDistributionSection({
 
           <div className="space-y-2">
             {left.map((r) => (
-              <BarRow key={r.label} label={r.label} percent={r.value} />
+              <BarRow
+                key={r.label}
+                label={r.label}
+                percent={r.value}
+                hint={roleHints[r.label]}
+              />
             ))}
           </div>
         </div>
 
-        {/* Правая колонка */}
+        {/* Правая колонка: лиги */}
         <div>
           <h3 className="text-sm font-semibold text-zinc-100 mb-3">
             Распределение по лигам
@@ -91,7 +126,12 @@ export default function RoleDistributionSection({
           ) : (
             <div className="space-y-2">
               {leagues.map((l) => (
-                <BarRow key={l.label} label={l.label} percent={l.pct} />
+                <BarRow
+                  key={l.label}
+                  label={l.label}
+                  percent={l.pct}
+                  hint={leagueHints[l.label]}
+                />
               ))}
             </div>
           )}
