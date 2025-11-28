@@ -85,58 +85,61 @@ export function TeamOpponentsClient({
       </div>
     ) : (
       <div className="space-y-3">
-        {/* Чипы результатов (общая форма по последним матчам команды) — остаются как в исходном коде выше */}
+        {/* чипы результатов (W/D/L по последним 10 матчам) остаются выше в компоненте */}
 
-        {/* Соперник + поиск + сводка W/D/L и разница мячей */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-400">Соперник:</span>
-            <div className="relative">
-              <input
-                className="vfs-input text-xs min-w-[220px]"
-                placeholder="Начните вводить команду"
-                list="team-opponents-list"
-                value={inputValue}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setQuery(v);
+        {/* Соперник + поиск + селект + сводка — В ОДНУ ЛИНИЮ */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-zinc-400">Соперник:</span>
 
-                  // Если ввели точное имя — сразу выбираем соперника
-                  const exact = opponents.find(
-                    (o) => o.opponentName.toLowerCase() === v.toLowerCase(),
-                  );
-                  if (exact) {
-                    setSelectedId(exact.opponentId);
-                  }
-                }}
-              />
-              <datalist id="team-opponents-list">
-                {filteredOpponents.map((o) => (
-                  <option key={o.opponentId} value={o.opponentName} />
-                ))}
-              </datalist>
-            </div>
+          {/* поиск по названию */}
+          <div className="relative">
+            <input
+              className="vfs-input text-xs min-w-[200px]"
+              placeholder="Введите название команды"
+              list="team-opponents-list"
+              value={inputValue}
+              onChange={(e) => {
+                const v = e.target.value;
+                setQuery(v);
+
+                const exact = opponents.find(
+                  (o) => o.opponentName.toLowerCase() === v.toLowerCase(),
+                );
+                if (exact) {
+                  setSelectedId(exact.opponentId);
+                }
+              }}
+            />
+            <datalist id="team-opponents-list">
+              {filteredOpponents.map((o) => (
+                <option key={o.opponentId} value={o.opponentName} />
+              ))}
+            </datalist>
           </div>
 
+          {/* селект соперника */}
+          <select
+            className="vfs-select text-xs min-w-[220px]"
+            value={selectedId ?? undefined}
+            onChange={(e) => setSelectedId(Number(e.target.value))}
+          >
+            {filteredOpponents.map((o) => (
+              <option key={o.opponentId} value={o.opponentId}>
+                {o.opponentName} — {o.wins}-{o.draws}-{o.losses} ({o.matches})
+              </option>
+            ))}
+          </select>
+
+          {/* краткая сводка по выбранному сопернику */}
           {selected && (
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
-                W {summary.wins}
+            <span className="text-zinc-400">
+              {summary.wins}-{summary.draws}-{summary.losses} · мячи{" "}
+              {summary.gf}:{summary.ga}{" "}
+              <span className="font-semibold text-foreground">
+                ({summary.diff >= 0 ? "+" : ""}
+                {summary.diff})
               </span>
-              <span className="px-2 py-0.5 rounded-full border border-zinc-500/40 bg-zinc-500/10 text-zinc-200">
-                D {summary.draws}
-              </span>
-              <span className="px-2 py-0.5 rounded-full border border-red-500/40 bg-red-500/10 text-red-300">
-                L {summary.losses}
-              </span>
-              <span className="ml-2 text-zinc-400">
-                Голы: {summary.gf}:{summary.ga}{" "}
-                <span className="font-semibold text-foreground">
-                  ({summary.diff >= 0 ? "+" : ""}
-                  {summary.diff})
-                </span>
-              </span>
-            </div>
+            </span>
           )}
         </div>
 
