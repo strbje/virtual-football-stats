@@ -110,10 +110,13 @@ export default function RoleDistributionSection({
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+  <div className="vfs-card">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       {/* Левый: амплуа */}
       <div>
-        <div className="text-sm font-semibold mb-2">Распределение по амплуа</div>
+        <h3 className="text-sm font-semibold text-foreground mb-2">
+          Распределение по амплуа
+        </h3>
         <div>
           {left.map((r) => (
             <BarRow
@@ -130,7 +133,9 @@ export default function RoleDistributionSection({
 
       {/* Правый: лиги */}
       <div>
-        <div className="text-sm font-semibold mb-2">Распределение по лигам</div>
+        <h3 className="text-sm font-semibold text-foreground mb-2">
+          Распределение по лигам
+        </h3>
         {!leagues?.length ? (
           <div className="text-sm text-zinc-500">Нет данных</div>
         ) : (
@@ -149,5 +154,5 @@ export default function RoleDistributionSection({
         )}
       </div>
     </div>
-  );
-}
+  </div>
+);
