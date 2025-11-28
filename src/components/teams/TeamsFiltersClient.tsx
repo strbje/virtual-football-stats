@@ -62,39 +62,84 @@ export default function TeamsFiltersClient({ initial }: Props) {
   };
 
   return (
-    <div className="flex flex-wrap gap-2 mb-4">
-      <input
-        className="border rounded px-2 py-1 text-sm"
-        placeholder="Команда"
-        value={team}
-        onChange={(e) => setTeam(e.target.value)}
-      />
-      <input
-        className="border rounded px-2 py-1 text-sm"
-        placeholder="Турнир"
-        value={tournament}
-        onChange={(e) => setTournament(e.target.value)}
-      />
-      <input
-        ref={dateInputRef}
-        className="border rounded px-2 py-1 text-sm"
-        placeholder="Период: выберите в календаре"
-        readOnly
-      />
-      <button
-        type="button"
-        onClick={apply}
-        className="bg-blue-600 text-white text-sm px-3 py-1 rounded"
-      >
-        Показать
-      </button>
-      <button
-        type="button"
-        onClick={reset}
-        className="border border-zinc-300 text-sm px-3 py-1 rounded"
-      >
-        Сбросить
-      </button>
-    </div>
-  );
+  <div className="flex flex-wrap gap-2 mb-4">
+
+    <input
+      className="
+        px-2 py-1 text-sm
+        rounded-lg
+        bg-background
+        border border-zinc-700/40
+        text-foreground
+        placeholder:text-muted-foreground
+        focus:outline-none 
+        focus:ring-2 focus:ring-blue-500
+      "
+      placeholder="Команда"
+      value={team}
+      onChange={(e) => setTeam(e.target.value)}
+    />
+
+    <input
+      className="
+        px-2 py-1 text-sm
+        rounded-lg
+        bg-background
+        border border-zinc-700/40
+        text-foreground
+        placeholder:text-muted-foreground
+        focus:outline-none 
+        focus:ring-2 focus:ring-blue-500
+      "
+      placeholder="Турнир"
+      value={tournament}
+      onChange={(e) => setTournament(e.target.value)}
+    />
+
+    <input
+      ref={dateInputRef}
+      className="
+        px-2 py-1 text-sm
+        rounded-lg
+        bg-background
+        border border-zinc-700/40
+        text-foreground
+        placeholder:text-muted-foreground
+        focus:outline-none 
+        focus:ring-2 focus:ring-blue-500
+      "
+      placeholder="Период: выберите в календаре"
+      readOnly
+    />
+
+    <button
+      type="button"
+      onClick={apply}
+      className="
+        px-3 py-1 text-sm font-medium
+        rounded-lg
+        bg-blue-600 
+        text-white
+        hover:bg-blue-500
+      "
+    >
+      Показать
+    </button>
+
+    <button
+      type="button"
+      onClick={reset}
+      className="
+        px-3 py-1 text-sm font-medium
+        rounded-lg
+        border border-zinc-700/40
+        text-foreground
+        hover:bg-zinc-800/30
+      "
+    >
+      Сбросить
+    </button>
+
+  </div>
+);
 }
