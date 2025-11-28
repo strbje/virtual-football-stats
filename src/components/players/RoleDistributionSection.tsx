@@ -67,13 +67,13 @@ function BarRow({
   return (
     <div
       className="flex items-center gap-3 text-xs md:text-sm"
-      title={hint || undefined} // подсказка только по hover
+      title={hint || undefined}
     >
       {/* подпись слева */}
-      <div className="w-[210px] shrink-0 text-zinc-200">{label}</div>
+      <div className="w-40 shrink-0 text-zinc-200">{label}</div>
 
-      {/* полоса */}
-      <div className="relative h-1.5 w-[260px] rounded-full bg-zinc-800 overflow-hidden">
+      {/* полоса — занимает всё свободное место */}
+      <div className="relative h-1.5 flex-1 rounded-full bg-zinc-800 overflow-hidden">
         <div
           className="h-full rounded-full bg-sky-400"
           style={{ width: `${pct}%` }}
@@ -81,7 +81,9 @@ function BarRow({
       </div>
 
       {/* процент справа */}
-      <div className="w-10 text-right text-zinc-200">{pct.toFixed(0)}%</div>
+      <div className="w-10 shrink-0 text-right text-zinc-200">
+        {pct.toFixed(0)}%
+      </div>
     </div>
   );
 }
