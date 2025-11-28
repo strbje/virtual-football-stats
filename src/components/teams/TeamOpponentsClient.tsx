@@ -110,19 +110,19 @@ export function TeamOpponentsClient({
 
           {/* селект соперников, как на старом скрине */}
           <select
-            className="vfs-select h-8 text-xs min-w-[220px]"
-            value={selectedId ?? ""}
-            onChange={(e) => {
-              const id = Number(e.target.value);
-              setSelectedId(Number.isNaN(id) ? null : id);
-            }}
-          >
-            {filteredOpponents.map((o) => (
-              <option key={o.opponentId} value={o.opponentId}>
-                {o.opponentName} — {o.wins}-{o.draws}-{o.losses} ({o.matches})
-              </option>
-            ))}
-          </select>
+  className="vfs-select h-8 text-xs min-w-[220px]"
+  value={selectedId ?? ""}
+  onChange={(e) => {
+    const id = Number(e.target.value);
+    setSelectedId(Number.isNaN(id) ? null : id);
+  }}
+>
+  {filteredOpponents.map((o) => (
+    <option key={o.opponentId} value={o.opponentId}>
+      {o.opponentName} — {o.wins}-{o.draws}-{o.losses} ({o.matches.length})
+    </option>
+  ))}
+</select>
 
           {/* сводка W-D-L и мячи — в той же строке */}
           {selected && (
