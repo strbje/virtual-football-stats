@@ -82,3 +82,4 @@ export default function DateRangeFilter({ initialRange }: { initialRange: string
     </button>
   </div>
 );
+}
