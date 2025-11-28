@@ -119,16 +119,20 @@ export function TeamOpponentsClient({
 
           {/* селект соперника */}
           <select
-            className="vfs-select text-xs min-w-[220px]"
-            value={selectedId ?? undefined}
-            onChange={(e) => setSelectedId(Number(e.target.value))}
-          >
-            {filteredOpponents.map((o) => (
-              <option key={o.opponentId} value={o.opponentId}>
-                {o.opponentName} — {o.wins}-{o.draws}-{o.losses} ({o.matches})
-              </option>
-            ))}
-          </select>
+  className="vfs-select text-xs min-w-[220px]"
+  value={selectedId ?? undefined}
+  onChange={(e) => setSelectedId(Number(e.target.value))}
+>
+  {filteredOpponents.map((o) => {
+    const matchesCount = Array.isArray(o.matches) ? o.matches.length : Number(o.matches ?? 0);
+
+    return (
+      <option key={o.opponentId} value={o.opponentId}>
+        {o.opponentName} — {o.wins}-{o.draws}-{o.losses} ({matchesCount})
+      </option>
+    );
+  })}
+</select>
 
           {/* краткая сводка по выбранному сопернику */}
           {selected && (
