@@ -1060,796 +1060,806 @@ export default async function TeamPage({
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
-      {/* Заголовок */}
-      <div>
-        <h1 className="text-2xl font-semibold">{info.team_name}</h1>
-      </div>
+  <div className="mx-auto max-w-6xl p-4 md:p-6 space-y-6">
+    {/* Заголовок */}
+    <div>
+      <h1 className="text-2xl font-semibold text-foreground">
+        {info.team_name}
+      </h1>
+    </div>
 
-      {/* Верхние плитки */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
-          <div className="text-sm text-zinc-500 mb-1">Матчи</div>
-          <div className="text-2xl font-semibold">{info.matches}</div>
+    {/* Верхние плитки */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="vfs-card p-3 md:p-4 min-h-[80px] flex flex-col justify-center">
+        <div className="text-xs text-zinc-500 mb-1">Матчи</div>
+        <div className="text-2xl font-semibold text-foreground">
+          {info.matches}
+        </div>
+        <div className="text-[11px] text-zinc-400 mt-2">
+          *учтены только матчи с записью статистики
+        </div>
+      </div>
+      <div className="vfs-card p-3 md:p-4 min-h-[80px] flex flex-col justify-center">
+        <div className="text-xs text-zinc-500 mb-1">Актуальная лига</div>
+        <div className="text-2xl font-semibold text-foreground">
+          {currentLeagueShort}
+        </div>
+        {info.last_tournament && (
           <div className="text-[11px] text-zinc-400 mt-2">
-            *учтены только матчи с записью статистики
+            по последнему матчу: {info.last_tournament}
           </div>
-        </div>
-        <div className="rounded-xl border border-zinc-200 p-3 min-h-[80px] flex flex-col justify-center">
-          <div className="text-sm text-zinc-500 mb-1">Актуальная лига</div>
-          <div className="text-2xl font-semibold">{currentLeagueShort}</div>
-          {info.last_tournament && (
-            <div className="text-[11px] text-zinc-400 mt-2">
-              по последнему матчу: {info.last_tournament}
-            </div>
-          )}
-        </div>
+        )}
       </div>
+    </div>
 
-      {/* Табы */}
-      <div className="border-b border-zinc-200 mt-2">
-        <nav className="flex gap-4 text-sm">
-          <Link
-            href={`/teams/${teamIdNum}`}
-            className={`pb-2 ${
-              tab === "profile"
-                ? "border-b-2 border-blue-600 text-blue-600 font-medium"
-                : "text-zinc-500 hover:text-zinc-800"
-            }`}
-          >
-            Профиль
-          </Link>
-          <Link
-            href={`/teams/${teamIdNum}?tab=stats&scope=${scope}`}
-            className={`pb-2 ${
-              tab === "stats"
-                ? "border-b-2 border-blue-600 text-blue-600 font-medium"
-                : "text-zinc-500 hover:text-zinc-800"
-            }`}
-          >
-            Статистика
-          </Link>
-          <Link
-            href={`/teams/${teamIdNum}?tab=roster`}
-            className={`pb-2 ${
-              tab === "roster"
-                ? "border-b-2 border-blue-600 text-blue-600 font-medium"
-                : "text-zinc-500 hover:text-zinc-800"
-            }`}
-          >
-            Состав
-          </Link>
-        </nav>
-      </div>
+    {/* Табы */}
+    <div className="border-b border-zinc-800/60 mt-2">
+      <nav className="flex gap-4 text-sm">
+        <Link
+          href={`/teams/${teamIdNum}`}
+          className={`pb-2 ${
+            tab === "profile"
+              ? "border-b-2 border-blue-500 text-foreground font-medium"
+              : "text-zinc-500 hover:text-foreground"
+          }`}
+        >
+          Профиль
+        </Link>
+        <Link
+          href={`/teams/${teamIdNum}?tab=stats&scope=${scope}`}
+          className={`pb-2 ${
+            tab === "stats"
+              ? "border-b-2 border-blue-500 text-foreground font-medium"
+              : "text-zinc-500 hover:text-foreground"
+          }`}
+        >
+          Статистика
+        </Link>
+        <Link
+          href={`/teams/${teamIdNum}?tab=roster`}
+          className={`pb-2 ${
+            tab === "roster"
+              ? "border-b-2 border-blue-500 text-foreground font-medium"
+              : "text-zinc-500 hover:text-foreground"
+          }`}
+        >
+          Состав
+        </Link>
+      </nav>
+    </div>
 
-      {tab === "profile" ? (
-        /* ВТОРАЯ СТРОКА: профиль (распределение, стиль, форма, радар) */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Распределение по лигам + топ-3 соперников + стиль сезона */}
-          <section className="rounded-xl border border-zinc-200 p-4">
-            <h3 className="text-sm font-semibold text-zinc-800 mb-3">
-              Распределение матчей по лигам
-            </h3>
-            <div className="space-y-2">
-              {leagues.map((l) => (
-                <div key={l.label} className="flex items-center gap-2 text-sm">
-                  <div className="w-14">{l.label}</div>
-                  <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500"
-                      style={{ width: `${l.pct}%` }}
-                    />
-                  </div>
-                  <div className="w-24 text-right text-xs text-zinc-500">
-                    {l.cnt} ({l.pct}%)
-                  </div>
+    {tab === "profile" ? (
+      /* ВТОРАЯ СТРОКА: профиль (распределение, стиль, форма, радар) */
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Распределение по лигам + топ-3 соперников + стиль сезона */}
+        <section className="vfs-card p-4">
+          <h3 className="text-sm font-semibold text-foreground mb-3">
+            Распределение матчей по лигам
+          </h3>
+          <div className="space-y-2">
+            {leagues.map((l) => (
+              <div key={l.label} className="flex items-center gap-2 text-sm">
+                <div className="w-14 text-zinc-400">{l.label}</div>
+                <div className="flex-1 h-2 bg-zinc-800/40 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500"
+                    style={{ width: `${l.pct}%` }}
+                  />
                 </div>
-              ))}
-            </div>
-
-            {/* Самые удобные / неудобные соперники */}
-            {eligibleOpponents.length > 0 && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                {/* Удобные */}
-                <div>
-                  <h4 className="font-semibold mb-1">
-                    Самые удобные соперники
-                  </h4>
-                  <ul className="space-y-1">
-                    {bestOpponents.map((o) => (
-                      <li key={o.id} className="flex justify-between gap-2">
-                        <span className="text-emerald-700">{o.name}</span>
-                        <span className="text-emerald-700 font-semibold">
-                          {o.wins}-{o.draws}-{o.loses}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Неудобные */}
-                <div>
-                  <h4 className="font-semibold mb-1">
-                    Самые неудобные соперники
-                  </h4>
-                  <ul className="space-y-1">
-                    {worstOpponents.map((o) => (
-                      <li key={o.id} className="flex justify-between gap-2">
-                        <span className="text-red-700">{o.name}</span>
-                        <span className="text-red-700 font-semibold">
-                          {o.wins}-{o.draws}-{o.loses}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                <div className="w-24 text-right text-xs text-zinc-500">
+                  {l.cnt} ({l.pct}%)
                 </div>
               </div>
-            )}
+            ))}
+          </div>
 
-            {/* Стиль игры в текущем сезоне */}
-            {seasonStyle && (
-              <div className="mt-6 border-t border-zinc-200 pt-4 text-xs space-y-3">
-                <div className="text-[11px] uppercase text-zinc-500">
-                  ⚙️ Стиль игры — {seasonStyle.tournamentName},{" "}
-                  {seasonStyle.matches} матчей
+          {/* Самые удобные / неудобные соперники */}
+          {eligibleOpponents.length > 0 && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              {/* Удобные */}
+              <div>
+                <h4 className="font-semibold text-foreground mb-1">
+                  Самые удобные соперники
+                </h4>
+                <ul className="space-y-1">
+                  {bestOpponents.map((o) => (
+                    <li key={o.id} className="flex justify-between gap-2">
+                      <span className="text-emerald-500">{o.name}</span>
+                      <span className="text-emerald-500 font-semibold">
+                        {o.wins}-{o.draws}-{o.loses}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Неудобные */}
+              <div>
+                <h4 className="font-semibold text-foreground mb-1">
+                  Самые неудобные соперники
+                </h4>
+                <ul className="space-y-1">
+                  {worstOpponents.map((o) => (
+                    <li key={o.id} className="flex justify-between gap-2">
+                      <span className="text-red-400">{o.name}</span>
+                      <span className="text-red-400 font-semibold">
+                        {o.wins}-{o.draws}-{o.loses}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Стиль игры в текущем сезоне */}
+          {seasonStyle && (
+            <div className="mt-6 border-t border-zinc-800/50 pt-4 text-xs space-y-3">
+              <div className="text-[11px] uppercase text-zinc-500">
+                ⚙️ Стиль игры — {seasonStyle.tournamentName},{" "}
+                {seasonStyle.matches} матчей
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Атака + Созидание */}
+                <div className="space-y-2">
+                  <div className="font-semibold text-foreground">🎯 Атака</div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.goalsPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.goalsPerMatch.rank,
+                            ranks.goalsPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.goalsPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Голы — {seasonStyle.goalsTotal} /{" "}
+                      {fmt(seasonStyle.goalsPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.xgPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.xgPerMatch.rank,
+                            ranks.xgPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.xgPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      xG — {fmt(seasonStyle.xgTotal)} /{" "}
+                      {fmt(seasonStyle.xgPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.shotsPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.shotsPerMatch.rank,
+                            ranks.shotsPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.shotsPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Удары — {seasonStyle.shotsTotal} /{" "}
+                      {fmt(seasonStyle.shotsPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.shotsOnTargetPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.shotsOnTargetPerMatch.rank,
+                            ranks.shotsOnTargetPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.shotsOnTargetPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Удары в створ — {seasonStyle.shotsOnTargetTotal} /{" "}
+                      {fmt(seasonStyle.shotsOnTargetPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.shotsAccPct && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.shotsAccPct.rank,
+                            ranks.shotsAccPct.total,
+                          )
+                        }
+                      >
+                        {ranks.shotsAccPct.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Точность ударов — {fmt(seasonStyle.shotsAccPct)}%
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.passesPerShot && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.passesPerShot.rank,
+                            ranks.passesPerShot.total,
+                          )
+                        }
+                      >
+                        {ranks.passesPerShot.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Пасов на удар — {fmt(seasonStyle.passesPerShot)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.shotDanger && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.shotDanger.rank,
+                            ranks.shotDanger.total,
+                          )
+                        }
+                      >
+                        {ranks.shotDanger.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Кэф опасности удара —{" "}
+                      {fmt(seasonStyle.shotDanger, 2)}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 font-semibold text-foreground">
+                    ⚡ Созидание и владение
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.passesPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.passesPerMatch.rank,
+                            ranks.passesPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.passesPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Попыток паса — {seasonStyle.passesTotal} /{" "}
+                      {fmt(seasonStyle.passesPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.passAccPct && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.passAccPct.rank,
+                            ranks.passAccPct.total,
+                          )
+                        }
+                      >
+                        {ranks.passAccPct.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Точность паса — {fmt(seasonStyle.passAccPct)}%
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.xAPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.xAPerMatch.rank,
+                            ranks.xAPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.xAPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      xA — {fmt(seasonStyle.xATotal)} /{" "}
+                      {fmt(seasonStyle.xAPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.pXA && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(ranks.pXA.rank, ranks.pXA.total)
+                        }
+                      >
+                        {ranks.pXA.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      pXA — {fmt(seasonStyle.pXA)} паса на 0.5 xA
+                    </span>
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Атака + Созидание */}
-                  <div className="space-y-2">
-                    <div className="font-semibold">🎯 Атака</div>
 
-                    <div className="flex items-center gap-2">
-                      {ranks?.goalsPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.goalsPerMatch.rank,
-                              ranks.goalsPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.goalsPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Голы — {seasonStyle.goalsTotal} /{" "}
-                        {fmt(seasonStyle.goalsPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.xgPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.xgPerMatch.rank,
-                              ranks.xgPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.xgPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        xG — {fmt(seasonStyle.xgTotal)} /{" "}
-                        {fmt(seasonStyle.xgPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.shotsPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.shotsPerMatch.rank,
-                              ranks.shotsPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.shotsPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Удары — {seasonStyle.shotsTotal} /{" "}
-                        {fmt(seasonStyle.shotsPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.shotsOnTargetPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.shotsOnTargetPerMatch.rank,
-                              ranks.shotsOnTargetPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.shotsOnTargetPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Удары в створ — {seasonStyle.shotsOnTargetTotal} /{" "}
-                        {fmt(seasonStyle.shotsOnTargetPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.shotsAccPct && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.shotsAccPct.rank,
-                              ranks.shotsAccPct.total,
-                            )
-                          }
-                        >
-                          {ranks.shotsAccPct.rank}
-                        </span>
-                      )}
-                      <span>
-                        Точность ударов — {fmt(seasonStyle.shotsAccPct)}%
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.passesPerShot && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.passesPerShot.rank,
-                              ranks.passesPerShot.total,
-                            )
-                          }
-                        >
-                          {ranks.passesPerShot.rank}
-                        </span>
-                      )}
-                      <span>
-                        Пасов на удар — {fmt(seasonStyle.passesPerShot)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.shotDanger && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.shotDanger.rank,
-                              ranks.shotDanger.total,
-                            )
-                          }
-                        >
-                          {ranks.shotDanger.rank}
-                        </span>
-                      )}
-                      <span>
-                        Кэф опасности удара —{" "}
-                        {fmt(seasonStyle.shotDanger, 2)}
-                      </span>
-                    </div>
-
-                    <div className="mt-3 font-semibold">
-                      ⚡ Созидание и владение
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.passesPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.passesPerMatch.rank,
-                              ranks.passesPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.passesPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Попыток паса — {seasonStyle.passesTotal} /{" "}
-                        {fmt(seasonStyle.passesPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.passAccPct && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.passAccPct.rank,
-                              ranks.passAccPct.total,
-                            )
-                          }
-                        >
-                          {ranks.passAccPct.rank}
-                        </span>
-                      )}
-                      <span>
-                        Точность паса — {fmt(seasonStyle.passAccPct)}%
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.xAPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.xAPerMatch.rank,
-                              ranks.xAPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.xAPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        xA — {fmt(seasonStyle.xATotal)} /{" "}
-                        {fmt(seasonStyle.xAPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.pXA && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(ranks.pXA.rank, ranks.pXA.total)
-                          }
-                        >
-                          {ranks.pXA.rank}
-                        </span>
-                      )}
-                      <span>pXA — {fmt(seasonStyle.pXA)} паса на 0.5 xA</span>
-                    </div>
+                {/* Фланги + Оборона */}
+                <div className="space-y-2">
+                  <div className="font-semibold text-foreground">
+                    🌪 Фланги и навесы
                   </div>
 
-                  {/* Фланги + Оборона */}
-                  <div className="space-y-2">
-                    <div className="font-semibold">🌪 Фланги и навесы</div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.crossesPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.crossesPerMatch.rank,
-                              ranks.crossesPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.crossesPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Навесы — {seasonStyle.crossesTotal} /{" "}
-                        {fmt(seasonStyle.crossesPerMatch)} за матч
+                  <div className="flex items-center gap-2">
+                    {ranks?.crossesPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.crossesPerMatch.rank,
+                            ranks.crossesPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.crossesPerMatch.rank}
                       </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.crossAccPct && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.crossAccPct.rank,
-                              ranks.crossAccPct.total,
-                            )
-                          }
-                        >
-                          {ranks.crossAccPct.rank}
-                        </span>
-                      )}
-                      <span>
-                        Точность навесов —{" "}
-                        {fmt(seasonStyle.crossAccPct)}%
-                      </span>
-                    </div>
-
-                    <div className="mt-3 font-semibold">
-                      🛡 Оборона и воздух
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.interceptsPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.interceptsPerMatch.rank,
-                              ranks.interceptsPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.interceptsPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Перехваты —{" "}
-                        {fmt(seasonStyle.interceptsPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.allselectionPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.allselectionPerMatch.rank,
-                              ranks.allselectionPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.allselectionPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Попытки отбора —{" "}
-                        {fmt(seasonStyle.allselectionPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.selectionPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.selectionPerMatch.rank,
-                              ranks.selectionPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.selectionPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Удачные отборы —{" "}
-                        {fmt(seasonStyle.selectionPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.completedTacklesPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.completedTacklesPerMatch.rank,
-                              ranks.completedTacklesPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.completedTacklesPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Удачные подкаты —{" "}
-                        {fmt(seasonStyle.completedTacklesPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.defActionsPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.defActionsPerMatch.rank,
-                              ranks.defActionsPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.defActionsPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Всего защитных действий —{" "}
-                        {fmt(seasonStyle.defActionsPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.duelsAirPerMatch && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.duelsAirPerMatch.rank,
-                              ranks.duelsAirPerMatch.total,
-                            )
-                          }
-                        >
-                          {ranks.duelsAirPerMatch.rank}
-                        </span>
-                      )}
-                      <span>
-                        Воздушные дуэли —{" "}
-                        {fmt(seasonStyle.duelsAirPerMatch)} за матч
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {ranks?.aerialPct && (
-                        <span
-                          className={
-                            "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
-                            rankColor(
-                              ranks.aerialPct.rank,
-                              ranks.aerialPct.total,
-                            )
-                          }
-                        >
-                          {ranks.aerialPct.rank}
-                        </span>
-                      )}
-                      <span>
-                        Победы в воздухе —{" "}
-                        {fmt(seasonStyle.aerialPct)}%
-                      </span>
-                    </div>
+                    )}
+                    <span className="text-zinc-300">
+                      Навесы — {seasonStyle.crossesTotal} /{" "}
+                      {fmt(seasonStyle.crossesPerMatch)} за матч
+                    </span>
                   </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.crossAccPct && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.crossAccPct.rank,
+                            ranks.crossAccPct.total,
+                          )
+                        }
+                      >
+                        {ranks.crossAccPct.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Точность навесов —{" "}
+                      {fmt(seasonStyle.crossAccPct)}%
+                    </span>
+                  </div>
+
+                  <div className="mt-3 font-semibold text-foreground">
+                    🛡 Оборона и воздух
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.interceptsPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.interceptsPerMatch.rank,
+                            ranks.interceptsPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.interceptsPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Перехваты —{" "}
+                      {fmt(seasonStyle.interceptsPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.allselectionPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.allselectionPerMatch.rank,
+                            ranks.allselectionPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.allselectionPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Попытки отбора —{" "}
+                      {fmt(seasonStyle.allselectionPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.selectionPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.selectionPerMatch.rank,
+                            ranks.selectionPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.selectionPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Удачные отборы —{" "}
+                      {fmt(seasonStyle.selectionPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.completedTacklesPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.completedTacklesPerMatch.rank,
+                            ranks.completedTacklesPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.completedTacklesPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Удачные подкаты —{" "}
+                      {fmt(seasonStyle.completedTacklesPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.defActionsPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.defActionsPerMatch.rank,
+                            ranks.defActionsPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.defActionsPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Всего защитных действий —{" "}
+                      {fmt(seasonStyle.defActionsPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.duelsAirPerMatch && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.duelsAirPerMatch.rank,
+                            ranks.duelsAirPerMatch.total,
+                          )
+                        }
+                      >
+                        {ranks.duelsAirPerMatch.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Воздушные дуэли —{" "}
+                      {fmt(seasonStyle.duelsAirPerMatch)} за матч
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {ranks?.aerialPct && (
+                      <span
+                        className={
+                          "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                          rankColor(
+                            ranks.aerialPct.rank,
+                            ranks.aerialPct.total,
+                          )
+                        }
+                      >
+                        {ranks.aerialPct.rank}
+                      </span>
+                    )}
+                    <span className="text-zinc-300">
+                      Победы в воздухе —{" "}
+                      {fmt(seasonStyle.aerialPct)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Форма команды + радар */}
+        <div className="flex flex-col gap-4">
+          {/* Форма команды + история соперников */}
+          <section className="vfs-card p-4 flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-foreground">
+              Форма (10 последних официальных матчей)
+            </h3>
+
+            {form.length === 0 ? (
+              <div className="text-xs text-zinc-500">
+                Недостаточно данных по официальным матчам.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Линейка W/D/L */}
+                <div className="flex flex-wrap gap-1">
+                  {form.map((m, idx) => {
+                    let bg = "bg-zinc-800/40 text-zinc-100";
+                    if (m.res === "W")
+                      bg = "bg-emerald-500/15 text-emerald-400";
+                    else if (m.res === "L")
+                      bg = "bg-red-500/15 text-red-400";
+
+                    const title = [
+                      m.date || "",
+                      m.opponentName,
+                      m.tournament,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+
+                    return (
+                      <span
+                        key={idx}
+                        title={title}
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
+                      >
+                        {m.res} {m.scored}:{m.missed}
+                      </span>
+                    );
+                  })}
+                </div>
+
+                {/* список очных матчей — без внутренней прокрутки */}
+                <div className="mt-1">
+                  <OpponentsHistoryClient matches={opponentMatches} />
                 </div>
               </div>
             )}
           </section>
 
-          {/* Форма команды + радар */}
-          <div className="flex flex-col gap-4">
-            {/* Форма команды + история соперников */}
-            <section className="rounded-xl border border-zinc-200 p-4 flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-zinc-800">
-                Форма (10 последних официальных матчей)
-              </h3>
-
-              {form.length === 0 ? (
-                <div className="text-xs text-zinc-500">
-                  Недостаточно данных по официальным матчам.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Линейка W/D/L */}
-                  <div className="flex flex-wrap gap-1">
-                    {form.map((m, idx) => {
-                      let bg = "bg-zinc-100 text-zinc-700";
-                      if (m.res === "W")
-                        bg = "bg-emerald-100 text-emerald-700";
-                      else if (m.res === "L")
-                        bg = "bg-red-100 text-red-700";
-
-                      const title = [
-                        m.date || "",
-                        m.opponentName,
-                        m.tournament,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ");
-
-                      return (
-                        <span
-                          key={idx}
-                          title={title}
-                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${bg}`}
-                        >
-                          {m.res} {m.scored}:{m.missed}
-                        </span>
-                      );
-                    })}
-                  </div>
-
-                  {/* список очных матчей */}
-                  <div className="mt-1 max-h-[260px] min-h-[260px] overflow-y-auto pr-1">
-                    <OpponentsHistoryClient matches={opponentMatches} />
-                  </div>
-                </div>
-              )}
-            </section>
-
-            {/* Радар строго под формой, в той же ширине */}
-            <section className="rounded-xl border border-zinc-200 bg-white p-4">
-              <TeamRadarClient teamId={teamIdNum} />
-            </section>
-          </div>
+          {/* Радар строго под формой, в той же ширине */}
+          <section className="vfs-card p-4">
+            <TeamRadarClient teamId={teamIdNum} />
+          </section>
         </div>
-      ) : tab === "stats" ? (
-        // TAB: Статистика команды
-        <section className="mt-4">
-          {/* Переключатель периода */}
-          <div className="flex items-center gap-3 text-xs text-zinc-600 mb-4">
-            <span className="text-zinc-500">Период:</span>
+      </div>
+    ) : tab === "stats" ? (
+      // TAB: Статистика команды
+      <section className="mt-4">
+        {/* Переключатель периода */}
+        <div className="flex items-center gap-3 text-xs text-zinc-400 mb-4">
+          <span className="text-zinc-500">Период:</span>
 
-            <Link
-              href={`/teams/${teamIdNum}?tab=stats&scope=recent`}
-              className={`px-2 py-1 rounded-full border text-xs ${
-                scope === "recent"
-                  ? "border-blue-600 text-blue-600 bg-blue-50"
-                  : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-              }`}
-            >
-              C 18 сезона
-            </Link>
+          <Link
+            href={`/teams/${teamIdNum}?tab=stats&scope=recent`}
+            className={`px-2 py-1 rounded-full border text-xs ${
+              scope === "recent"
+                ? "border-blue-500 text-blue-500 bg-blue-500/10"
+                : "border-zinc-700 text-zinc-400 hover:bg-zinc-800/40"
+            }`}
+          >
+            C 18 сезона
+          </Link>
 
-            <Link
-              href={`/teams/${teamIdNum}?tab=stats&scope=all`}
-              className={`px-2 py-1 rounded-full border text-xs ${
-                scope === "all"
-                  ? "border-blue-600 text-blue-600 bg-blue-50"
-                  : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-              }`}
-            >
-              За всю историю
-            </Link>
+          <Link
+            href={`/teams/${teamIdNum}?tab=stats&scope=all`}
+            className={`px-2 py-1 rounded-full border text-xs ${
+              scope === "all"
+                ? "border-blue-500 text-blue-500 bg-blue-500/10"
+                : "border-zinc-700 text-zinc-400 hover:bg-zinc-800/40"
+            }`}
+          >
+            За всю историю
+          </Link>
+        </div>
+
+        {!teamStats ? (
+          <div className="text-sm text-zinc-500">
+            Статистика команды не найдена для выбранного периода.
           </div>
-
-          {!teamStats ? (
-            <div className="text-sm text-zinc-500">
-              Статистика команды не найдена для выбранного периода.
-            </div>
-          ) : (
-            <TeamStatsSection
-              matches={teamStats.matches}
-              totals={teamStats.totals}
-            />
-          )}
-        </section>
-      ) : (
-        // TAB: Состав
-        <section className="mt-4 space-y-3">
-          {/* селектор турниров для состава */}
-          <TeamRosterTournamentSelector
-            teamId={teamIdNum}
-            tournaments={rosterTournaments}
-            selectedIds={rosterSelectedIds}
+        ) : (
+          <TeamStatsSection
+            matches={teamStats.matches}
+            totals={teamStats.totals}
           />
+        )}
+      </section>
+    ) : (
+      // TAB: Состав
+      <section className="mt-4 space-y-3">
+        {/* селектор турниров для состава */}
+        <TeamRosterTournamentSelector
+          teamId={teamIdNum}
+          tournaments={rosterTournaments}
+          selectedIds={rosterSelectedIds}
+        />
 
-          {!roster || roster.length === 0 ? (
-            <div className="text-sm text-zinc-500">
-              Нет данных по составу для выбранного диапазона.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-xl border border-zinc-200">
-              <table className="min-w-full text-xs">
-                <thead className="bg-zinc-50 text-zinc-600">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-semibold">
-                      Игрок
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Матчи
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Голы
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Ассисты
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Г+П
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      xG
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Удары
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Уд. в створ, %
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Точность паса, %
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      xA (пасы)
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Защитные действия
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Beaten Rate, %
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Воздух, %
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Навесы
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold">
-                      Точность навесов, %
-                    </th>
+        {!roster || roster.length === 0 ? (
+          <div className="text-sm text-zinc-500">
+            Нет данных по составу для выбранного диапазона.
+          </div>
+        ) : (
+          <div className="overflow-x-auto vfs-card">
+            <table className="vfs-table min-w-full text-xs">
+              <thead>
+                <tr className="text-zinc-400">
+                  <th className="px-3 py-2 text-left font-semibold">
+                    Игрок
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Матчи
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Голы
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Ассисты
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Г+П
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    xG
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Удары
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Уд. в створ, %
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Точность паса, %
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    xA (пасы)
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Защитные действия
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Beaten Rate, %
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Воздух, %
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Навесы
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Точность навесов, %
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {roster.map((p) => (
+                  <tr
+                    key={p.user_id}
+                    className="border-t border-zinc-800/40 hover:bg-zinc-800/40"
+                  >
+                    <td className="px-3 py-2">
+                      {p.gamertag || p.username || `ID ${p.user_id}`}
+                    </td>
+                    <td className="px-3 py-2 text-right">{p.matches}</td>
+                    <td className="px-3 py-2 text-right">{p.goals}</td>
+                    <td className="px-3 py-2 text-right">{p.assists}</td>
+                    <td className="px-3 py-2 text-right">
+                      {p.goal_contrib}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {fmt(p.xg, 2)}
+                    </td>
+                    <td className="px-3 py-2 text-right">{p.shots}</td>
+
+                    {/* Уд. в створ, % */}
+                    <td className="px-3 py-2 text-right">
+                      {p.shots_on_target_pct != null
+                        ? `${fmt(p.shots_on_target_pct * 100, 1)}%`
+                        : "—"}
+                    </td>
+
+                    {/* Точность паса, % */}
+                    <td className="px-3 py-2 text-right">
+                      {p.pass_acc != null
+                        ? `${fmt(p.pass_acc * 100, 1)}%`
+                        : "—"}
+                    </td>
+
+                    <td className="px-3 py-2 text-right">
+                      {fmt(p.passes_xa, 2)}
+                    </td>
+
+                    <td className="px-3 py-2 text-right">
+                      {p.def_actions}
+                    </td>
+
+                    {/* Beaten Rate, % */}
+                    <td className="px-3 py-2 text-right">
+                      {p.beaten_rate != null
+                        ? `${fmt(p.beaten_rate * 100, 1)}%`
+                        : "—"}
+                    </td>
+
+                    {/* Воздух, % */}
+                    <td className="px-3 py-2 text-right">
+                      {p.aerial_pct != null
+                        ? `${fmt(p.aerial_pct * 100, 1)}%`
+                        : "—"}
+                    </td>
+
+                    {/* Навесы */}
+                    <td className="px-3 py-2 text-right">
+                      {p.allcrosses > 0
+                        ? `${p.crosses}/${p.allcrosses}`
+                        : "—"}
+                    </td>
+
+                    {/* Точность навесов, % */}
+                    <td className="px-3 py-2 text-right">
+                      {p.cross_acc != null
+                        ? `${fmt(p.cross_acc * 100, 1)}%`
+                        : p.allcrosses > 0
+                          ? "0%"
+                          : "—"}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {roster.map((p) => (
-                    <tr
-                      key={p.user_id}
-                      className="border-t border-zinc-100 hover:bg-zinc-50"
-                    >
-                      <td className="px-3 py-2">
-                        {p.gamertag || p.username || `ID ${p.user_id}`}
-                      </td>
-                      <td className="px-3 py-2 text-right">{p.matches}</td>
-                      <td className="px-3 py-2 text-right">{p.goals}</td>
-                      <td className="px-3 py-2 text-right">{p.assists}</td>
-                      <td className="px-3 py-2 text-right">
-                        {p.goal_contrib}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {fmt(p.xg, 2)}
-                      </td>
-                      <td className="px-3 py-2 text-right">{p.shots}</td>
-
-                      {/* Уд. в створ, % */}
-                      <td className="px-3 py-2 text-right">
-                        {p.shots_on_target_pct != null
-                          ? `${fmt(p.shots_on_target_pct * 100, 1)}%`
-                          : "—"}
-                      </td>
-
-                      {/* Точность паса, % */}
-                      <td className="px-3 py-2 text-right">
-                        {p.pass_acc != null
-                          ? `${fmt(p.pass_acc * 100, 1)}%`
-                          : "—"}
-                      </td>
-
-                      <td className="px-3 py-2 text-right">
-                        {fmt(p.passes_xa, 2)}
-                      </td>
-
-                      <td className="px-3 py-2 text-right">
-                        {p.def_actions}
-                      </td>
-
-                      {/* Beaten Rate, % */}
-                      <td className="px-3 py-2 text-right">
-                        {p.beaten_rate != null
-                          ? `${fmt(p.beaten_rate * 100, 1)}%`
-                          : "—"}
-                      </td>
-
-                      {/* Воздух, % */}
-                      <td className="px-3 py-2 text-right">
-                        {p.aerial_pct != null
-                          ? `${fmt(p.aerial_pct * 100, 1)}%`
-                          : "—"}
-                      </td>
-
-                      {/* Навесы */}
-                      <td className="px-3 py-2 text-right">
-                        {p.allcrosses > 0
-                          ? `${p.crosses}/${p.allcrosses}`
-                          : "—"}
-                      </td>
-
-                      {/* Точность навесов, % */}
-                      <td className="px-3 py-2 text-right">
-                        {p.cross_acc != null
-                          ? `${fmt(p.cross_acc * 100, 1)}%`
-                          : p.allcrosses > 0
-                            ? "0%"
-                            : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-    </div>
-  );
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    )}
+  </div>
+);
 }
