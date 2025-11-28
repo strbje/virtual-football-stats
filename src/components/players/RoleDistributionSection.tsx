@@ -61,24 +61,34 @@ function BarRow({
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(percent)));
   return (
-    <div className="flex items-center gap-3 py-1" title={hint}>
+    <div className="flex items-center gap-3 text-xs md:text-sm">
+      {/* подпись слева */}
       <div
-  className="text-sm text-zinc-700"
-  style={{ width: labelWidthPx }}
->
-  {label}
-</div>
+        className="shrink-0"
+        style={{ width: labelWidthPx }}
+      >
+        <div className="text-zinc-200">{label}</div>
+        {hint && (
+          <div className="mt-0.5 text-[11px] text-zinc-500">
+            {hint}
+          </div>
+        )}
+      </div>
+
+      {/* полоса */}
       <div
-        className="relative h-[8px] rounded bg-zinc-200"
+        className="relative h-1.5 rounded-full bg-zinc-800 overflow-hidden"
         style={{ width: barWidthPx }}
       >
         <div
-          className="absolute left-0 top-0 h-full rounded bg-zinc-900"
-          style={{ width: `${pct}%` }}
+          className="h-full rounded-full bg-sky-400"
+          style={{ width: `${value}%` }}
         />
       </div>
-      <div className="w-[44px] text-right text-sm tabular-nums text-zinc-600">
-        {pct}%
+
+      {/* процент справа */}
+      <div className="w-10 text-right text-zinc-200">
+        {value.toFixed(0)}%
       </div>
     </div>
   );
