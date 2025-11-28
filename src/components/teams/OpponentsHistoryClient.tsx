@@ -205,4 +205,5 @@ export default function OpponentsHistoryClient({ matches }: Props) {
     </div>
   </div>
 );
+}
 
