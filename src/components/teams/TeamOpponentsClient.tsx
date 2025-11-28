@@ -76,8 +76,8 @@ export function TeamOpponentsClient({
   return (
   <section className="vfs-card p-4">
     <h3 className="text-sm font-semibold text-foreground mb-3">
-      Форма (10 последних официальных матчей)
-    </h3>
+  Форма (10 матчей, ТЕСТ)
+</h3>
 
     {opponents.length === 0 ? (
       <div className="text-xs text-zinc-400">
